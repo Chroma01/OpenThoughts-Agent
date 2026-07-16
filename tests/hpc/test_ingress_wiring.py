@@ -408,3 +408,119 @@ def test_notimplementederror_guard_removed_from_launchers():
     for fname in ("rl_launch_utils.py", "datagen_launch_utils.py"):
         src = (_REPO_ROOT / "hpc" / fname).read_text()
         assert guard not in src, f"stale NotImplementedError guard still in hpc/{fname}"
+
+
+# --------------------------------------------------------------------------- #
+# Federated parent-minting (Exp2 cross-cluster ingress fix #1)
+# --------------------------------------------------------------------------- #
+
+from hpc.ingress_utils import (  # noqa: E402
+    DEFAULT_PARENT_INGRESS_HOST,
+    FederatedCapabilityTokenCache,
+    federated_capability_api_base,
+    wait_for_endpoint_mirror,
+)
+
+
+class _FakeResolver:
+    """Reports the endpoint mirrored after ``ready_after`` polls."""
+
+    def __init__(self, ready_after: int = 0, raise_first: int = 0):
+        self.ready_after = ready_after
+        self.raise_first = raise_first
+        self.calls = 0
+
+    def is_mirrored(self, endpoint_name):
+        self.calls += 1
+        if self.calls <= self.raise_first:
+            raise RuntimeError("transient resolve error")
+        return self.calls > self.ready_after
+
+
+def test_wait_for_endpoint_mirror_returns_when_ready():
+    resolver = _FakeResolver(ready_after=2)
+    slept = []
+    # fake clock never advances past the deadline until resolver is ready
+    wait_for_endpoint_mirror(
+        "otagent-x", resolver, timeout_s=100, interval_s=1,
+        sleep=slept.append, now=lambda: 0.0,
+    )
+    assert resolver.calls == 3  # two "not yet" + one ready
+    assert slept == [1, 1]  # slept between the three polls
+
+
+def test_wait_for_endpoint_mirror_tolerates_transient_errors():
+    resolver = _FakeResolver(ready_after=0, raise_first=2)
+    wait_for_endpoint_mirror(
+        "otagent-x", resolver, timeout_s=100, interval_s=1,
+        sleep=lambda _s: None, now=lambda: 0.0,
+    )
+    assert resolver.calls == 3  # 2 raised + 1 True
+
+
+def test_wait_for_endpoint_mirror_times_out():
+    resolver = _FakeResolver(ready_after=999)  # never ready
+    clock = {"t": 0.0}
+
+    def now():
+        return clock["t"]
+
+    def sleep(s):
+        clock["t"] += s
+
+    with pytest.raises(TimeoutError, match="was not mirrored"):
+        wait_for_endpoint_mirror(
+            "otagent-x", resolver, timeout_s=5, interval_s=2, sleep=sleep, now=now,
+        )
+
+
+def test_federated_cache_waits_for_mirror_then_mints_at_parent():
+    minter = _FakeMinter(expires_at=10_000_000_000.0)
+    resolver = _FakeResolver(ready_after=1)
+    cache = FederatedCapabilityTokenCache(
+        minter, resolver, mirror_interval_s=0, mirror_timeout_s=100,
+    )
+    # first token: waits for mirror (2 polls) then mints once
+    t1 = cache.token_for("otagent-fed", now=0.0)
+    assert t1 == "TKN-1" and minter.calls == 1 and resolver.calls == 2
+    # cached reuse — mirror wait is NOT repeated
+    t2 = cache.token_for("otagent-fed", now=1.0)
+    assert t2 == "TKN-1" and minter.calls == 1 and resolver.calls == 2
+
+
+def test_federated_cache_remint_does_not_repoll_mirror():
+    minter = _FakeMinter(expires_at=1000.0)
+    resolver = _FakeResolver(ready_after=0)
+    cache = FederatedCapabilityTokenCache(
+        minter, resolver, mirror_interval_s=0, mirror_timeout_s=100,
+    )
+    cache.token_for("ep", now=0.0)
+    assert minter.calls == 1 and resolver.calls == 1
+    # inside refresh margin -> re-mint, but mirror already confirmed (no re-poll)
+    cache.token_for("ep", now=1000.0 - TOKEN_REFRESH_MARGIN_SECONDS + 1)
+    assert minter.calls == 2 and resolver.calls == 1
+
+
+def test_federated_cache_propagates_mirror_timeout():
+    minter = _FakeMinter()
+    resolver = _FakeResolver(ready_after=999)
+    cache = FederatedCapabilityTokenCache(
+        minter, resolver, mirror_interval_s=0, mirror_timeout_s=0,
+    )
+    with pytest.raises(TimeoutError):
+        cache.token_for("ep", now=0.0)
+    assert minter.calls == 0  # never minted an unreachable token
+
+
+def test_federated_capability_api_base_builds_parent_url():
+    minter = _FakeMinter()
+    resolver = _FakeResolver(ready_after=0)
+    cache = FederatedCapabilityTokenCache(minter, resolver, mirror_interval_s=0)
+    url = federated_capability_api_base(
+        "otagent-fedjob", ingress_host="iris.oa.dev", cache=cache, now=0.0,
+    )
+    assert url == "https://iris.oa.dev/proxy/t/TKN-1/otagent-fedjob/v1"
+
+
+def test_default_parent_ingress_host_is_marin():
+    assert DEFAULT_PARENT_INGRESS_HOST == "iris.oa.dev"
