@@ -1489,9 +1489,14 @@ empireai = HPC(
     # GPUs are a real SLURM gres on Beta (unlike TACC/vista) → request them explicitly.
     gpu_directive_format="--gres=gpu:b200:{n}",
     # Eval-listener / secrets cluster view (per-cluster secrets path lives here, as on
-    # vista/leonardo). project_root is intentionally OMITTED — `/mnt/home/bf996/OpenThoughts-Agent`
-    # does not exist yet (HOME is a 100GB VAST quota; code checkout TBD), and omitting it
-    # avoids to_eval_cluster_view() setting a bogus DCFT.
+    # vista/leonardo). Unlike the other clusters the Beta eval path is CONTAINERIZED:
+    # eval/empireai/eval_harbor.sbatch srun-launches the `mega_v2_rl.sqsh` Pyxis/Enroot
+    # container and runs the whole harbor+vLLM+pinggy+upload body inside it on the RL
+    # venv (/opt/envs/rl) — so there is no serve-side conda env here (harbor_src /
+    # conda_envs are intentionally omitted; the sbatch ignores OTAGENT_DIR/EVAL_CONDA_ENV).
+    # project_root points at the login-node checkout the listener submits from.
+    # gpu_gres:True — Beta gres-tracks GPUs; the listener's untyped `--gres gpu:N` is
+    # accepted (verified). All scalar fields LIVE-VERIFIED (2026-07-18).
     eval_cluster_view={
         "cluster_name": "empireai",
         "use_model_registry": True,
@@ -1501,13 +1506,21 @@ empireai = HPC(
         "slurm_account": "ny_chinmayh_datacomp",
         "slurm_time": "23:59:00",
         "paths": {
+            "project_root": "/mnt/home/bf996/OpenThoughts-Agent",
             "hf_cache": "/mnt/home/bf996/hf_cache",
+            "eval_jobs_dir": "/mnt/home/bf996/eval_jobs",
+            "eval_logs_dir": "/mnt/home/bf996/logs",
+            "listener_logs_dir": "experiments/listener_logs",
+            "sbatch_script": "eval/empireai/eval_harbor.sbatch",
+            "dp_sbatch_script": "eval/empireai/eval_harbor.sbatch",
+            "datasets_dirs": ["/mnt/home/bf996/hf_cache"],
             "secrets_file": "/mnt/home/bf996/secrets.env",
         },
         "proxy": {"enabled": False},
         "hardware": {
             "gpus_per_node": 4,
             "cpus_per_node": 144,
+            "mem_per_node_mb": 1561507,
             "arch": "aarch64",
             "gpu_gres": True,
         },
