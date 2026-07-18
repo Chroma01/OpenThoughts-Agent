@@ -134,6 +134,28 @@ Run the skill's 15-min infra check on each leg once RUNNING; the in-sbatch verif
 
 ---
 
+## opencode `opencode.txt` — the per-turn record + turn-banking discriminator (RL/datagen debugging)
+
+`opencode` runs as ONE subprocess (`agents/installed/opencode.py:run()`: `opencode run --format=json … | stdbuf -oL tee /logs/agent/opencode.txt`). Its JSON-lines event stream is the **per-turn on-disk record** — the analog of terminus-2's per-turn saves — streamed line-buffered as it goes. It is parsed into `trajectory.json` only by `populate_context_post_run`, which runs **after the subprocess returns**; a kill mid-generation preempts parsing (but the raw `opencode.txt` lines already on disk survive).
+
+**Event schema** (stdout line `type`): `step_start`/`step_finish` delimit a turn, `tool_use` = a tool call, `reasoning` = CoT, `text` = assistant text, `error` = an error event.
+
+**The turn-banking discriminator (use this, NOT `AgentTimeoutError`):**
+- `step_finish > 0` → the model actually **banked turns** (completed model+tool cycles).
+- `tool_use > 0` → it called tools.
+- all-zero + a single `error` → it **never banked a turn**.
+- `AgentTimeoutError` is a **benign harbor passthrough** (verifier still scores) — it is NEVER the signal for whether the model did work. A "0-reward / 0-completions" job is a **model** problem (banked turns but wrong answers, or gibberish generation) vs an **infra** problem depending on these counts, not on the timeout rate.
+
+**⚠ Observability blind spot — `opencode.txt` is uploaded to `trials_dir` only on trial FINALIZE.** A trial killed mid-run whose "Failed to upload agent logs back to environment" step failed leaves **only `config.json`** in `trials_dir` (no `opencode.txt`, no `result.json`). So `opencode.txt present  <  trial dirs` means failed-upload/in-flight trials, and **their turn counts are UNOBSERVABLE from durable storage** — do NOT read a low present-count as "these trials did no work." A clean turn-count read requires a job whose trials finalize + upload cleanly.
+
+**Teardown-403 signature (not a steady-state signal).** When an RL endpoint is torn down (job stopped/relaunched), in-flight trials' scoped tokens 403 on their next call — `opencode.txt` shows a single `{"type":"error", … "Forbidden: endpoint-scoped token cannot access this endpoint", statusCode 403}` (url `https://iris.oa.dev/proxy/t/<JWT sub=endpoint:…>/…/v1/chat/completions`) → opencode exits `NonZeroAgentExitCodeError`. Distinguish from a real steady-state failure by the error type + the timestamps clustering at the kill moment.
+
+**Tool:** `scripts/iris/peek_rl_rollouts.sh <pod-substr> turns` prints per-trial `step_finish`/`tool_use`/`reasoning`/`text`/`error` counts + a banked-turns verdict (remote-s3 or node-local trials_dir). **⚠ Leafgroup/megatron pod-name gotcha:** the k8s pod name truncates the job's readable version suffix (`iris-<user>-…-pymethods2test-<hash>-0`, no `-v13`), so the pod-derived default `trials_dir` misses it — pass `PEEK_TRIALS_S3=s3://marin-us-east-02a/iris/<full-job-name>/trace_jobs` explicitly for these jobs.
+
+**Mac-side read of a terminal job's trace_jobs** (no live pod to exec): use the iris `cwobject.com` recipe (`.claude/ops/iris/ops.md §Scheduling`) — `iris-task-env` creds + `endpoint_url=https://cwobject.com` + `addressing_style=virtual`.
+
+---
+
 ## Trial / trace data model
 
 - **`RolloutDetail`** (`models/agent/rollout_detail.py`): per-turn `prompt_token_ids`, `completion_token_ids`, `logprobs`, and `extra: dict[str, list]` (provider fields like vLLM's `routed_experts`). Populated by **`Chat._accumulate_rollout_details()`** (`llms/chat.py`) after each LLM turn.

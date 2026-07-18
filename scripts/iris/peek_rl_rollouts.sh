@@ -19,6 +19,13 @@
 #   peek_rl_rollouts.sh <substr> ls   [glob]                  # list trial dirs (+ started/completed counts)
 #   peek_rl_rollouts.sh <substr> cat  <trial-dir>             # dump a trial's json artifacts (the literal rollout)
 #   peek_rl_rollouts.sh <substr> grep <pattern>               # list trial json files whose body matches a regex
+#   peek_rl_rollouts.sh <substr> turns                        # per-trial opencode turn/tool counts from opencode.txt:
+#                                                             #   step_finish = TURNS BANKED, tool_use = tool calls.
+#                                                             #   THE turn-banking discriminator (NOT AgentTimeoutError,
+#                                                             #   which is a benign passthrough). step_finish>0 = the
+#                                                             #   model actually completed turns; all-zero + one "error"
+#                                                             #   = it never banked a turn (see the "not-parsed-on-kill /
+#                                                             #   upload-on-finalize" note below).
 #   peek_rl_rollouts.sh <substr> cp   <trial-dir> [dest]      # pull a single trial dir to the launch host
 #   peek_rl_rollouts.sh <substr> pull [out-base-dir]          # FULL CAPTURE -> date-stamped subdir:
 #                                                             #   complete iris finelog + per-rank pod logs
@@ -177,6 +184,7 @@ fi
 #   r2_op download <pod-dir> -> download every object under the trials_dir prefix into <pod-dir>; echoes the object count
 #   r2_op catdir <trial>     -> print every *.json + opencode.txt/exception.txt under that trial (key header + body)
 #   r2_op grep <regex>       -> print trial-relative keys of *.json objects whose body matches <regex>
+#   r2_op turns              -> per-trial opencode.txt event counts (step_finish=turns banked, tool_use=tool calls)
 r2_op() {
   kubectl exec -i -n "$NS" "$POD" -c "$CONTAINER" -- "$PYBIN" - "$S3_TJ" "$@" <<'PYEOF'
 import sys, os, re, collections, boto3
@@ -254,6 +262,44 @@ elif mode == "grep":
             continue
         if pat.search(body):
             print(k[len(PREFIX):])
+elif mode == "turns":
+    # THE turn-banking discriminator. opencode's `run --format=json` stream is tee'd to
+    # opencode.txt as JSON-lines; each turn is delimited by step_start/step_finish, tool
+    # calls are tool_use, chain-of-thought is reasoning. So:
+    #   step_finish > 0  -> the model actually BANKED turns (completed model+tool cycles)
+    #   tool_use   > 0   -> it called tools
+    #   all 0 + one error -> it NEVER banked a turn (e.g. an immediate ingress 403 /
+    #                        endpoint-scoped-token failure at teardown, or a first-call error)
+    # This is what tells you a "0-reward / 0-completions" job is a MODEL tool-use problem
+    # vs an infra problem -- NOT AgentTimeoutError, which is a benign harbor passthrough.
+    #
+    # BLIND SPOT (load-bearing): opencode.txt only lands in trials_dir when the trial
+    # FINALIZES and uploads its agent-logs dir. A trial killed mid-run whose "upload agent
+    # logs back to environment" step failed leaves only config.json here -> NO opencode.txt.
+    # So `opencode.txt present  <  trial dirs` means failed-upload/in-flight trials, and their
+    # turn counts are UNOBSERVABLE from durable storage -- do NOT read a low present-count as
+    # "these trials did no work." The clean read is on a job that finalizes uploads cleanly.
+    EV = ["step_start", "step_finish", "tool_use", "reasoning", "text", "error"]
+    oc = sorted(k for k in keys if k.endswith("opencode.txt"))
+    tot = {e: 0 for e in EV}
+    banked = 0
+    print(f"opencode.txt present : {len(oc)} / {len(dirs)} trial dirs"
+          + ("   (rest = only config.json: failed-upload or in-flight; turn counts UNOBSERVABLE)"
+             if len(oc) < len(dirs) else ""))
+    for k in oc:
+        body = c.get_object(Bucket=BUCKET, Key=k)["Body"].read().decode("utf-8", "replace")
+        trial = k[len(PREFIX):].split("/")[0]
+        cnt = {e: body.count('"type":"%s"' % e) + body.count('"type": "%s"' % e) for e in EV}
+        for e in EV:
+            tot[e] += cnt[e]
+        if cnt["step_finish"] > 0:
+            banked += 1
+        print("  %-32s bytes=%7d  step_finish=%d tool_use=%d reasoning=%d text=%d error=%d"
+              % (trial, len(body), cnt["step_finish"], cnt["tool_use"],
+                 cnt["reasoning"], cnt["text"], cnt["error"]))
+    print("TOTAL:", tot)
+    print("VERDICT: trials with >=1 banked turn = %d / %d observable  |  total turns banked = %d  |  total tool calls = %d"
+          % (banked, len(oc), tot["step_finish"], tot["tool_use"]))
 PYEOF
 }
 
@@ -281,6 +327,25 @@ case "$ACTION" in
       kexec "grep -rls --include='*.json' -e '$PAT' '$TJ_LOCAL' 2>/dev/null | sed 's#$TJ_LOCAL/##' | head -40" || true
     else
       r2_op grep "$PAT" | head -40
+    fi
+    ;;
+  turns)
+    # Per-trial opencode turn/tool counts — the turn-banking discriminator (see r2_op turns).
+    if [ "$MODE_LOCAL" = 1 ]; then
+      echo "[peek] counting opencode.txt events under $TJ_LOCAL (step_finish=turns banked, tool_use=tool calls)"
+      kexec 'oc=$(find '"$TJ_LOCAL"' -name opencode.txt 2>/dev/null); nd=$(ls -d '"$TJ_LOCAL"'/*/ 2>/dev/null | wc -l);
+        n=$(printf "%s\n" "$oc" | grep -c . || true);
+        echo "opencode.txt present : $n / $nd trial dirs";
+        for f in $oc; do
+          sf=$(grep -o "\"type\":\"step_finish\"" "$f" 2>/dev/null | wc -l | tr -d " ");
+          tu=$(grep -o "\"type\":\"tool_use\"" "$f" 2>/dev/null | wc -l | tr -d " ");
+          rz=$(grep -o "\"type\":\"reasoning\"" "$f" 2>/dev/null | wc -l | tr -d " ");
+          er=$(grep -o "\"type\":\"error\"" "$f" 2>/dev/null | wc -l | tr -d " ");
+          t=$(basename "$(dirname "$(dirname "$f")")");
+          echo "  $t  step_finish=$sf tool_use=$tu reasoning=$rz error=$er";
+        done' || true
+    else
+      r2_op turns
     fi
     ;;
   cp)
@@ -480,5 +545,5 @@ EOF
     pull_fr_dumps "$DEST"
     ;;
   *)
-    echo "[peek] unknown action '$ACTION' (ls|cat|grep|cp|pull|frdump)" >&2; exit 2;;
+    echo "[peek] unknown action '$ACTION' (ls|cat|grep|turns|cp|pull|frdump)" >&2; exit 2;;
 esac
