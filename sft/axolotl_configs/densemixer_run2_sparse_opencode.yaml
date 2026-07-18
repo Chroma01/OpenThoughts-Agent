@@ -22,20 +22,24 @@ plugins:
   - axolotl.integrations.densemixer.DenseMixerPlugin
 dense_mixer: false                # Run 2 = OFF (the ONLY functional diff vs Run 1).
 
-# opencode SFT dataset — IDENTICAL pinned revision + SHARED prepared path (guarantees same data ORDER).
+# opencode SFT dataset — SERVE-PARITY REBUILD (bug ledger #2 fix); IDENTICAL to Run 1 + SHARED
+# prepared path (guarantees same data ORDER). See Run 1 config for the rebuild rationale.
+# Source: laion/nemotron-code-oracle-opencode-sft-serveparity (rebuilt from literal token columns).
 datasets:
-  - path: /mnt/home/bf996/experiments/densemixer/data_nemotron_code_oracle
+  - path: /mnt/home/bf996/experiments/densemixer/data_opencode_serveparity
     ds_type: parquet
     data_files:
-      - /mnt/home/bf996/experiments/densemixer/data_nemotron_code_oracle/data/train-*.parquet
+      - /mnt/home/bf996/experiments/densemixer/data_opencode_serveparity/data/train-*.parquet
     type: chat_template
-    field_messages: conversations
+    field_messages: messages
+    field_tools: tools
     message_property_mappings:
       role: role
       content: content
     split_thinking: false
-chat_template: chatml
-dataset_prepared_path: /mnt/home/bf996/experiments/densemixer/prepared/run1   # SHARED with Run 1 (same tokens + order)
+# TRAIN==SERVE (POLICY §7): base tools-aware Qwen3 template via tokenizer_default (IDENTICAL to Run 1).
+chat_template: tokenizer_default
+dataset_prepared_path: /mnt/home/bf996/experiments/densemixer/prepared/run1_serveparity   # SHARED with Run 1 (same tokens + order)
 val_set_size: 0.0
 dataset_num_proc: 1
 dataloader_num_workers: 2

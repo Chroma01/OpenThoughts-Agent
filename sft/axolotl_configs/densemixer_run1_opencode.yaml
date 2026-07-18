@@ -28,22 +28,32 @@ plugins:
   - axolotl.integrations.densemixer.DenseMixerPlugin
 dense_mixer: true                 # Run 1 = ON.  Run 2 = false (only-flag diff).
 
-# opencode SFT dataset — pinned revision, IDENTICAL for both runs.
+# opencode SFT dataset — SERVE-PARITY REBUILD (bug ledger #2 fix). IDENTICAL for both runs.
+# The old `conversations` field was LOSSY (no system, empty turn-0, no <tools>, tool calls as
+# inline text, tool results as role:user) → model never learned the task/tools/read-edit workflow
+# → bash-spammed → swebench ~0. Rebuilt from the literal token columns via
+# scripts/harbor/literal_traces_to_opencode_sft.py: `messages` (list) carries a system turn (the
+# opencode agent prompt), a task-grounded user turn-0, structured assistant `tool_calls` (NOT inline
+# text, args JSON-string → axolotl json.loads → dict), and role:tool observations; `tools` (JSON
+# string) is the 10 opencode function schemas. Source: laion/nemotron-code-oracle-opencode-sft-serveparity.
 datasets:
-  # local parquet @ 6cc0c0b5... (train split, 30 files under data/). Column `conversations`
-  # = list of {role, content} (VERIFIED via parquet schema) → field_messages: conversations.
-  - path: /mnt/home/bf996/experiments/densemixer/data_nemotron_code_oracle
+  - path: /mnt/home/bf996/experiments/densemixer/data_opencode_serveparity
     ds_type: parquet
     data_files:
-      - /mnt/home/bf996/experiments/densemixer/data_nemotron_code_oracle/data/train-*.parquet
+      - /mnt/home/bf996/experiments/densemixer/data_opencode_serveparity/data/train-*.parquet
     type: chat_template
-    field_messages: conversations
+    field_messages: messages
+    field_tools: tools                    # render the <tools> system block (train==serve)
     message_property_mappings:
       role: role
       content: content
     split_thinking: false                 # keep <think> inline on all turns (Qwen3-Thinking parity)
-chat_template: chatml
-dataset_prepared_path: /mnt/home/bf996/experiments/densemixer/prepared/run1   # SHARED (multi-node sentinel fast-path)
+# TRAIN==SERVE (POLICY §7): tokenizer_default = the base Qwen3-30B-A3B-Thinking tokenizer's own
+# tools-aware template (4049 chars, `{% if tools %}` + `<tool_call>` + `<tool_response>`), byte-
+# identical to what opencode serves at eval; archived as chat_templates/chat_template_v1_base-tools-aware.jinja.
+# Also sidesteps axolotl export-strip bug #1: the saved template == the base tools-aware one (no bare-chatml clobber).
+chat_template: tokenizer_default
+dataset_prepared_path: /mnt/home/bf996/experiments/densemixer/prepared/run1_serveparity   # SHARED (multi-node sentinel); NEW path — old cache was the lossy tokenization
 val_set_size: 0.0
 dataset_num_proc: 1
 # Dataloader first-batch fix — the default async path (num_workers:1 + prefetch_factor:256)
