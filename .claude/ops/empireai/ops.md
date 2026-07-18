@@ -22,6 +22,13 @@ Empire AI is a NY-state consortium cluster. **Two distinct systems**, different 
 - **B200 = Blackwell = `sm_100`** → containers need **CUDA ≥ 12.8** + recent PyTorch/vLLM/Axolotl/Marin builds. (Confirm `compute_cap` in-container on first smoke test.)
 - Capacity is real: 64/72 idle at first survey. Doc: use **`--segment {1,4,8,16}`** to control multi-node placement locality (matters for MoE all-to-all).
 
+## Networking — compute-node egress (validated)
+
+**Beta compute nodes have FULL outbound internet** (validated 2026-07-18 from `b1-36-s1-dgx-01` via a qos=test srun: `app.daytona.io`=200, `api.daytona.io`=301, `a.pinggy.io:443` OPEN, `huggingface.co`=200, `www.google.com`=200). **No proxy, no SOCKS, no step-ca cert** — contrast Leonardo (airgapped compute → agentic-opencode/Daytona infeasible there). So from a Beta compute node: **agentic evals work** (Daytona sandboxes + the outbound pinggy SSH tunnel + HTTPS to the Daytona REST API), and **online HF pulls work**.
+
+- The SFT running with `HF_HUB_OFFLINE=1` is a **chosen prestage** ("θ₀+data all local", per the sbatch's own comment), **NOT** a network constraint — proven by `huggingface.co=200` from a compute node.
+- (The login/mgmt node is minimal; egress is a compute-node property, tested via srun.)
+
 ## SLURM — 25.05, and the module gotcha
 
 - **⚠ #1 GOTCHA: SLURM *and* Pyxis are INVISIBLE unless the module env is loaded.** A bare non-interactive `ssh EmpireAI_Beta 'sinfo'` returns EMPTY (no partitions) and `srun --help` shows 0 container flags. **Always wrap remote commands in a login shell**: `ssh EmpireAI_Beta "bash -lc '<cmd>'"` (sources profile → loads modules → real `sinfo`/`srun`/Pyxis appear). Binaries live at `/cm/local/apps/slurm/current/bin` (Bright Cluster Manager); `SLURM_CONF=/cm/shared/apps/slurm/etc/slurm/slurm.conf`; SLURM **25.05.6**.
