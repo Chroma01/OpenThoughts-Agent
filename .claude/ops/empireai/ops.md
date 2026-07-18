@@ -26,8 +26,27 @@ Empire AI is a NY-state consortium cluster. **Two distinct systems**, different 
 
 - **⚠ #1 GOTCHA: SLURM *and* Pyxis are INVISIBLE unless the module env is loaded.** A bare non-interactive `ssh EmpireAI_Beta 'sinfo'` returns EMPTY (no partitions) and `srun --help` shows 0 container flags. **Always wrap remote commands in a login shell**: `ssh EmpireAI_Beta "bash -lc '<cmd>'"` (sources profile → loads modules → real `sinfo`/`srun`/Pyxis appear). Binaries live at `/cm/local/apps/slurm/current/bin` (Bright Cluster Manager); `SLURM_CONF=/cm/shared/apps/slurm/etc/slurm/slurm.conf`; SLURM **25.05.6**.
 - `~/.bashrc` throws `module: command not found` in non-interactive shells (harmless noise — filter it).
-- **⚠ ACCOUNT ASSOCIATION IS MANDATORY AND CURRENTLY MISSING — this blocks ALL jobs.** SU charging went live 2026-07-01 with `AccountingStorageEnforce = associations,limits,qos,safe`, so `srun`/`sbatch` require the user to be **associated with an account**. `bf996` currently has **NO association** (`sacctmgr show assoc user=bf996` + `sshare -U -u bf996` both EMPTY) → every submit fails `srun: error: Unable to allocate resources: Invalid account or account/partition combination specified` (bare, `-A nyu`, `-A nyu_beta_test`, `-A ny_chinmayh_datacomp`, … all fail — the partition allows those accounts but the *user* is associated with none). **FIX = a Flatiron admin must GRANT the user↔account association.** Target account CONFIRMED by operator (2026-07-02) = **`ny_chinmayh_datacomp`** (DataComp / Chinmay Hegde, NYU) — it is already in the beta partition's `AllowAccounts`, but **`bf996` has no association to it** (`sacctmgr show assoc user=bf996` empty). The admin action is `sacctmgr -i add user bf996 account=ny_chinmayh_datacomp` (naming the account or adding it to the partition is NOT enough — the *user* must be associated). Live-check: `sacctmgr -n show assoc user=bf996` returns a row. Until then, only offline work is possible; the container/smoke templates in `hpc/empireai/` are authored + arch-validated but NOT cluster-validated.
+- **Account association (SU charging live since 2026-07-01; `AccountingStorageEnforce = associations,limits,qos,safe`).** `bf996` is associated with account **`ny_chinmayh_datacomp`** (DataComp / Chinmay Hegde, NYU), QOS `interactive,long,standard,…`. Submit with `-A ny_chinmayh_datacomp` — jobs run on `beta` (validated: multi-node B200 SFT runs land + train). Live-check: `sacctmgr -n show assoc user=bf996`.
 - QoS tiers (from the portal): `test` (0.5× SU, ≤4 GPU/6h, high-prio sandbox), `interactive` (1.0×, 2h), `standard` (1.0×, ≤36 GPU/48h — production default), `long` (0.5×, backfill, ≤7d), `priority` (2.0×, 24h). **SU charging is live** (since 2026-07-01).
+
+## Monitoring + fetching results (ride the operator's socket)
+
+Non-interactive monitoring rides the operator's 2FA ControlMaster socket (see Access). Validated recipe:
+
+- **Every remote command MUST be a login shell** (else SLURM/Pyxis are invisible — the #1 gotcha):
+  `ssh -o BatchMode=yes EmpireAI_Beta "bash -lc '<cmd>'"`. Filter the benign header noise
+  (`module: command not found`, `Loading gcc/…`, `gmp/ mpfr/ mpc/`).
+- **Socket down?** A `Permission denied (publickey…)` or a timeout = the master socket idled out (or was
+  never established). I cannot do the 2FA — ask the operator to run `ssh EmpireAI_Beta` in a real terminal
+  to re-establish it, then reuse for ~8h.
+- **Job liveness:** `squeue -u bf996 -o "%.10i %.24j %.8T %.10M %.6D %R"` (SLURM 25.05; `sacct -u bf996 -S <t>`
+  for terminal states). RUNNING is not proof of progress — check the `.out` mtime / latest step.
+- **SFT output layout:** `output_dir = /mnt/home/bf996/experiments/<run>/…out/`; per-step metrics live in the
+  **latest `checkpoint-<N>/trainer_state.json`** (`log_history[]` = step/loss/grad_norm/lr; `global_step` /
+  `max_steps`). Job stdout at `~/logs/<name>_<jobid>.out`. **⚠ Lustre — no `find`/`du` walks; `ls` depth-1.**
+- **Fetch results to the Mac:** `scp -o BatchMode=yes EmpireAI_Beta:<output_dir>/checkpoint-<N>/trainer_state.json …`
+  into the experiment dir. **Pull only the small JSON metrics** (trainer_state/config/generation_config) —
+  NEVER checkpoints / `model.safetensors*` / the 11 MB `tokenizer.json` (not results; too big for the Mac).
 
 ## Containerization — Pyxis/Enroot (mandatory)
 
