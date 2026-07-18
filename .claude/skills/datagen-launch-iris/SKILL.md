@@ -111,7 +111,7 @@ Do NOT run broad `cleanup_unused_snapshots` against the shared `cli` org — it 
 
 ## Current campaign: 131k A2 opencode (2026-07) — deltas from the 32k S1 default
 
-Campaign specifics (dataset order, keep-3 state, per-arm status) live in the tracker: `/Users/benjaminfeuer/Documents/experiments/active/qwen3.5-122b-131k-datagen-opencode-iris/tracker.md`. Dated chronology: `~/Documents/agent_logs/2026-07-08_qwen3.5-122b-131k-datagen-opencode-iris_history.md`. Literal-trace decode/rescue reference: `.claude/projects/harbor/harbor.md` (§ Literal-token trace datasets). Ingress topology (native `/proxy/t/*` capability-URL, token TTL, pinggy rollback): `.claude/ops/iris/ops.md`.
+Campaign specifics (dataset order, keep-3 state, per-arm status) live in the tracker: `/Users/benjaminfeuer/Documents/experiments/active/qwen3.5-122b-131k-datagen-opencode-iris/tracker.md`. Dated chronology: `~/Documents/agent_logs/2026-07-08_qwen3.5-122b-131k-datagen-opencode-iris_history.md`. Literal-trace decode/rescue reference: `.claude/projects/harbor/ops.md` (§ Literal-token trace datasets). Ingress topology (native `/proxy/t/*` capability-URL, token TTL, pinggy rollback): `.claude/ops/iris/ops.md`.
 
 **Recipe deltas from the Launch block above:**
 - `--datagen_config hpc/datagen_yaml/extra/qwen3_5_122b_a10b_fp8_runai_v5p8_131k_dp1_tp4_ep1_s32.yaml` (A2: TP4/DP1/EP-on/seqs32/131k), `--n_concurrent 32`.

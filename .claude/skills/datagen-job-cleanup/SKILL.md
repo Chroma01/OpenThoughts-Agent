@@ -124,7 +124,7 @@ columns. Requirements + knobs:
 - **Schema-pin (OT-Agent `7c978b78`):** the exporter pins the literal token columns to an explicit nested
   type per shard. Datasets uploaded BEFORE `7c978b78` are degraded (under-populated literal yield, shards
   with no token columns, `load_dataset` `CastError`) — **re-rescue them to recover full yield.** Full
-  reference (decoding, tokenizer provenance, re-rescue, literals→SFT): **`.claude/projects/harbor/harbor.md`**
+  reference (decoding, tokenizer provenance, re-rescue, literals→SFT): **`.claude/projects/harbor/ops.md`**
   (§ Literal-token trace datasets).
 
 ## 4. Verify the HF dataset is non-empty

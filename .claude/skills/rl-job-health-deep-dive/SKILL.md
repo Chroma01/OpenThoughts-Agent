@@ -189,7 +189,7 @@ decide whether each trial's throughput is capped by **LLM generation** vs **sand
 
 **Source + discipline:** the clean per-trial breakdown is each trial's `result.json` `TimingInfo` (NOT finelog).
 The reusable recipe — field-to-phase map, duty-cycle fraction math, lease-race / burst≠churn checks (a **harbor**
-trial artifact) — is in **`projects/harbor/harbor.md` §"Per-trial `TimingInfo` duty-cycle recipe"**. On cw-rno2a
+trial artifact) — is in **`projects/harbor/ops.md` §"Per-trial `TimingInfo` duty-cycle recipe"**. On cw-rno2a
 the trials bucket is in-cluster-only, so aggregate **in-pod** and transfer **aggregates only** (the cluster-specific
 `kubectl exec` + boto3 access + trials path is in **`ops/iris/ops.md` §Observability** "Per-trial
 `TimingInfo` duty-cycle read"). Read only a bounded sample (newest ~200 for the duty cycle, ~500 for error/re-provision tails).

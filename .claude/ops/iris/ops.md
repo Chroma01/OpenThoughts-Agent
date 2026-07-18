@@ -587,7 +587,7 @@ path needs torchtitan, not in the gpu-rl image.)
 **Per-trial `TimingInfo` duty-cycle read — CoreWeave in-pod access (recipe lives in the harbor
 project doc):** The reusable recipe — the `result.json` `TimingInfo` field→phase map, the
 duty-cycle fraction math, the lease-race / burst≠churn checks, and the aggregates-only discipline —
-is a **harbor trial artifact**, so it lives in **`.claude/projects/harbor/harbor.md` §"Per-trial
+is a **harbor trial artifact**, so it lives in **`.claude/projects/harbor/ops.md` §"Per-trial
 `TimingInfo` duty-cycle recipe"**. Only the cluster-specific *access* to the trials bucket is here:
 - **Trials bucket is in-cluster-only from the Mac** (`marin-us-east-02a`, LOTA — see §Scheduling),
   so **aggregate IN-POD and transfer aggregates only** (never sync raw trials/logs to the Mac).
@@ -603,7 +603,7 @@ is a **harbor trial artifact**, so it lives in **`.claude/projects/harbor/harbor
   `LastModified` desc, read the newest ~200 (steady-state duty cycle) / ~500 (error +
   re-provision tails); print only computed medians/percentiles.
 
-Then apply the harbor.md recipe to the fetched `result.json` fields.
+Then apply the ops.md recipe to the fetched `result.json` fields.
 
 ### Binding gotchas
 

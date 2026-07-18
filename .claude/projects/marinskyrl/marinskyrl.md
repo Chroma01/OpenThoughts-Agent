@@ -64,6 +64,16 @@ Non-reentrant (`use_reentrant: false`) uses PyTorch saved-tensor pack/unpack hoo
 
 ---
 
+## Training backend — Megatron is the default (cloud/iris/configs)
+
+**Megatron is the default training backend for the production iris RL configs** (`cloud/iris/configs/*.yaml`), selected by `trainer.strategy: megatron` + a `megatron_config` block (`tensor_/pipeline_/context_/expert_model_parallel_size` + `expert_tensor_parallel_size`) under `trainer.policy` / `trainer.ref` (the preset ships via `ppo_base_config.yaml`'s hydra defaults). Chosen by the **Megatron-vs-FSDP2 backend comparison** (Qwen3-Coder-30B-A3B EP4): Megatron ~6.3× faster per compute-step — gs1 `policy_train` **600.8 s** (Megatron) vs **3699.6 s** (FSDP2 cpu-offload) / **6020.7 s** (FSDP2 no-offload). **FSDP2 remains the selectable alternate** (`trainer.strategy: fsdp2` + `fsdp_config`) — every FSDP2-specific fact below still applies to that path.
+
+- **Validated geometry:** only 30B-A3B-EP4 = **TP4 / PP2 / CP1 / EP4 / ETP1** (16 training GPU) is empirically validated (east18). Other models' Megatron parallelism is DERIVED — deep-dive the first launch of each.
+- **⚠ gs2 `recover_left_padding` OOM:** with `use_sample_packing: false`, Megatron OOMs at gs2 — the last-pipeline-stage post-process allocates a FRESH full-length full-vocab logits tensor (`megatron_utils.py:518`), and gs2's longer RL responses push it past free HBM. Mitigation = **`use_sample_packing: true`** (the default across iris configs since #32) — but UNVERIFIED at gs2 for Megatron; **no Megatron run has banked gs3 yet** (east18 died ~94 min, east19 OOM'd at gs2). Other levers: `micro_forward_batch_size_per_gpu=2` (asymmetric micro-batch vs the FSDP2 arm) or a bounded `logprob_chunk_size` in the megatron_config.
+- **Weight-sync:** the Megatron→vLLM sync needs `SKYRL_W13_RELOAD_BRACKET=1` (default-on) for the FusedMoE w13 gate/up path; without it an early Megatron sync served token-salad (broken permuted policy → 0 banked). See the ops-doc W13 note.
+
+---
+
 ## MoE + EP sharding — `fsdp_size` MUST divide `num_experts // ep_size`
 
 When SkyRL shards the expert dim (dim-0 = `num_experts`) over BOTH the EP mesh axis AND FSDP:
@@ -251,7 +261,7 @@ The vLLM inference engines were starved by **harbor's client-side 1-second poll 
 - On CoreWeave harbor is baked NON-editably into the gpu-rl image → harbor fixes need a kaniko rebuild + digest bump (SLURM harbor is editable → live on `git pull`). Build MULTI-LAYER (`SINGLE_SNAPSHOT=0`, max layer <8 GB).
 - The gpu-rl / megatron image build is CANONICAL in MarinSkyRL: `docker/Dockerfile.gpu-rl` + `docker/build_gpu_rl_kaniko.sh`. `harbor[daytona]` is installed WITHOUT `--no-deps` — a base-env re-resolve drifts the Daytona SDK transitives; pin and validate sandbox-CREATE.
   - **The megatron image is built from `Dockerfile.gpu-rl` with `INSTALL_MEGATRON=1`, NOT from `Dockerfile.megatron`** — the latter is a dead 34-line CUDA/TE stub (no skyrl COPY, wired to no build; carries a redirect note). `Dockerfile.gpu-rl` **COPYs** `/opt/skyrl` (it does not `git clone` — any "gpu-rl git clones" comment is aspirational); a `git init`-after-COPY bake (GITSHA plumbed through `build_gpu_rl_kaniko.sh`) gives `/opt/skyrl` a `.git` so `--skyrl-ref` works on megatron images (verified: build log `/opt/skyrl git tree baked @ <sha>`).
-  - **⚠ Megatron backend is only HALF-merged to `main`:** the megatron CODE files are on `main`, but the `megatron` pyproject extra + its ~27 `uv.lock` entries live ONLY on the feature branch `feuer/megatron-w13-reload-bracket` (d41bb73d). So a megatron image **cannot build off `main`** (`Extra 'megatron' is not defined`) — every megatron image is built from a worktree off that feature branch. A code-fix-to-main PR is valid (the code files are there), but until the **megatron deps extra + lock entries are merged to `main`** as their own PR, megatron builds must cherry-pick onto / branch from d41bb73d. (Surfaced 2026-07-17 during the east-series ckpt/logprob fix.)
+  - **✅ Megatron backend is FULLY on `main`** (deps extra + lock merged via **#34**): both the megatron CODE files AND the `megatron` pyproject extra (`skyrl-train/pyproject.toml` `[project.optional-dependencies] megatron` — megatron-bridge 0.5.0 + megatron-core 0.18.0, `sys_platform==linux and platform_machine==x86_64`) + its `uv.lock` entries are on `main`. A megatron image now **builds directly off `main`** with `INSTALL_MEGATRON=1` — no feature-branch cherry-pick (the retired `d41bb73d` workaround is obsolete). transformers is pinned `>=5.8.1,<5.9` tree-wide (#34, megatron-bridge 0.5.0's requirement) so the fsdp2 + megatron backends train under an identical transformers.
 
 ### `nvidia-smi` SM-util% is a TRAP
 

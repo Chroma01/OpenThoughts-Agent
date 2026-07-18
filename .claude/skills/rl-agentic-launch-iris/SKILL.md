@@ -3,8 +3,9 @@ name: rl-agentic-launch-iris
 description: >-
   Launch / relaunch agentic MarinSkyRL (SkyRL GRPO) RL on Marin's Iris / CoreWeave GPU cluster
   (cw-us-east-02a, 8x H100-80GB + InfiniBand per node) via `python -m cloud.iris.launch_rl_iris`
-  (run from the MarinSkyRL repo root) + the gpu-rl Docker image (NO Apptainer SIF). Covers the dense 8B
-  FSDP2 arms (seqnorm + TIS) and the MoE 30B-A3B arms (CP + DCP=2 + R3 @ 131k) — the exact launcher flag set
+  (run from the MarinSkyRL repo root) + the gpu-rl Docker image (NO Apptainer SIF). Covers the MoE 30B-A3B arms
+  (CP + DCP=2 + R3 @ 131k) and the dense 8B arms (seqnorm + TIS); the iris configs default to the **Megatron**
+  training backend (`trainer.strategy: megatron`, FSDP2 selectable) — the exact launcher flag set
   (`--rl_config`, `--model_path`, `--train_data`, `--num-nodes`, `--rendezvous-dir`, `--job-name`, `--priority`,
   `--cpu`, `--max-retries`), the gang/leafgroup/Kueue multi-node Ray rendezvous, the iris config-authoring
   rules (NO container block, load-bearing top-level `extra_env:` forwarding, disaggregated placement +
@@ -32,7 +33,8 @@ description: >-
 
 Agentic RL on Iris runs through **`python -m cloud.iris.launch_rl_iris`** — the self-contained MarinSkyRL
 launcher (`cloud/iris/`), run **from the MarinSkyRL repo root** (`~/Documents/MarinSkyRL`, on `main` / any
-branch containing `cloud/iris/`). (SkyRL, GRPO, FSDP2 or MoE-EP.) Each rollout is a real **Harbor** agent
+branch containing `cloud/iris/`). (SkyRL, GRPO; iris configs default to the **Megatron** backend — FSDP2
+selectable via `trainer.strategy: fsdp2`; see `.claude/projects/marinskyrl/marinskyrl.md` §Training backend.) Each rollout is a real **Harbor** agent
 episode against a **Daytona** sandbox (`terminal_bench` generator). Target: Marin's **CoreWeave
 `cw-us-east-02a`** cluster — **8x H100-80GB + InfiniBand per node**, whole-node exclusive,
 gang/leafgroup-coscheduled (NOT SLURM, NOT TPU). The **gpu-rl Docker image IS the runtime** — no Apptainer
