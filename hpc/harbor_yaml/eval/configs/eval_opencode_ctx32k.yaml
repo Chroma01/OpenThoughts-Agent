@@ -58,18 +58,24 @@ agents:
   max_timeout_sec: null
   override_setup_timeout_sec: 600
   kwargs:
-    # No auto-compaction: it makes opencode run a summary turn during which these
-    # -Thinking- opencode-SFT models emit a tool call, which opencode fatally rejects
-    # ("Tool call not allowed while generating summary: write") -> NonZeroAgentExit ->
-    # reward 0. With reserved(16384) ~= the limit.context (16384) the harbor max_tokens
-    # fix writes, compaction fired almost immediately -> ~100% trial loss (sparse 8/8,
-    # densemixer 1/1). The DATAGEN/training opencode config uses an EMPTY opencode_config
-    # (no compaction), so disabling it here also restores train-eval parity. opencode's
-    # limit.context still bounds the prompt (sliding-window) so trials do not overflow.
-    opencode_config: {}
+    # opencode auto-summarizes when the session approaches ``limit.context`` (the
+    # value the harbor max_tokens fix writes = max_input - max_output - margin).
+    # During that summary turn these -Thinking- opencode-SFT models emit a tool
+    # call, which opencode fatally rejects ("Tool call not allowed while generating
+    # summary: write") -> NonZeroAgentExit -> reward 0. This is opencode's DEFAULT
+    # summarization (NOT the compaction config block — removing that changed nothing;
+    # sparse 8/8 + densemixer still crashed with opencode_config:{}). Two levers:
+    #   1) max_output_tokens 16384 -> 4096 makes limit.context large (~27648, the
+    #      SAME crash-free regime the DATAGEN/tasktrove opencode path runs in via the
+    #      harbor fallback) so a normal trial never reaches the summarization window.
+    #   2) compaction.auto:false as an explicit belt (opencode may honor it to skip
+    #      the summary turn entirely).
+    opencode_config:
+      compaction:
+        auto: false
     model_info:
       max_input_tokens: 32768
-      max_output_tokens: 16384
+      max_output_tokens: 4096
       input_cost_per_token: 0
       output_cost_per_token: 0
     trajectory_config:
