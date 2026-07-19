@@ -158,6 +158,21 @@ echo "Run tag: $RUN_TAG | Run dir: $RUN_DIR"
 export EVAL_VLLM_TENSOR_PARALLEL_SIZE="${EVAL_VLLM_TENSOR_PARALLEL_SIZE:-1}"
 export VLLM_PORT="${VLLM_PORT:-8000}"
 
+# --- Container dependency fix: vLLM api_server ⇄ prometheus middleware ------------
+# mega_B_rl.sbatch STEP 5 swapped the fork vLLM wheel in with `--no-deps`, so the RL
+# venv kept skyrl's OLDER `prometheus-fastapi-instrumentator` (<7.0) — its route-name
+# resolver does a bare `route.path`, which crashes on EVERY request under the fork's
+# newer FastAPI ("'_IncludedRouter' object has no attribute 'path'" → 500 on
+# /v1/models → the serve never passes its health check; smoke 32390 died here at
+# ~28 min). v7.0.0 handles routes without `.path`. Ensure it at runtime (egress OK).
+# ⚠ BAND-AID — the DURABLE fix is to bake `prometheus-fastapi-instrumentator>=7.0.0`
+# into the next mega container rebuild (mega_B_rl.sbatch: install the fork vLLM WITH
+# its deps, or add the explicit pin) so the eval doesn't runtime-pip every launch.
+if ! $PYTHON_BIN -c "import importlib.metadata as m,sys; from packaging.version import Version; sys.exit(0 if Version(m.version('prometheus-fastapi-instrumentator'))>=Version('7.0.0') else 1)" 2>/dev/null; then
+    echo "[dep-fix] upgrading prometheus-fastapi-instrumentator>=7.0.0 (vLLM api_server compat)"
+    $PYTHON_BIN -m pip install -q --no-cache-dir -U 'prometheus-fastapi-instrumentator>=7.0.0' 2>&1 | tail -3 || echo "[dep-fix] WARN: pip upgrade failed — serve may 500 on every request"
+fi
+
 # --- Clamp gpu_memory_utilization to ACTUAL free memory (Beta gres-node reality) --
 # Beta's fractional `--gres=gpu:b200:N` does NOT isolate GPU MEMORY: a co-tenant
 # process on the same physical GPU counts against free memory, so a fixed
