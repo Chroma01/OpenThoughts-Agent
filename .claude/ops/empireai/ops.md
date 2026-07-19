@@ -85,6 +85,38 @@ Only two for now, both via Pyxis/Enroot on `beta`:
 1. **SFT with Axolotl** (aarch64 + Blackwell container).
 2. **MoE pretraining with Marin** (initialized-MoE pretrain). How the Marin team runs MoE pretraining lives in the **Marin GitHub issues** — search the local Marin mirror via the mumwelt skills (see `.claude/projects/mum/mum.md`; prefer `marin-research`).
 
+## Agentic eval path (containerized opencode ID-eval) — bring-up facts + gotchas
+
+The agentic opencode ID-eval runs CONTAINERIZED on Beta (unlike the conda-env TACC/Leonardo
+paths): `eval/empireai/eval_harbor.sbatch` srun-launches `mega_v2_rl.sqsh` and runs the whole
+harbor+vLLM+pinggy+upload body (`eval/empireai/eval_incontainer.sh`) on the RL venv
+`/opt/envs/rl/bin/python`. `hpc/hpc.py` `empireai` `eval_cluster_view` is complete (front door:
+`hpc.launch --job_type eval_listener --cluster-config empireai`). Egress + pinggy + Daytona
+DATA-org key all present (see the feasibility agent_log 2026-07-18). Verified facts:
+
+- **Compute-node egress is FULL** (app/api.daytona.io reachable, `pro.pinggy.io:443` + `a.pinggy.io:443` OPEN). Pinggy reverse tunnel from a compute node authenticates KEYLESS ("You are authenticated as bf996@nyu.edu") — no `-i` identity needed; the token is the SSH username (`<token>@pro.pinggy.io -p 443`). Direct tunnel, NO proxychains.
+- **Container RL venv `/opt/envs/rl`:** carries the sm_100 vLLM fork + `harbor[daytona]@22d75039` (incl. `agents/installed/opencode.py`) + `supabase 2.31.0`. `daytona` pkg import name is `daytona` (NOT `daytona_sdk`). The container's real python is `/opt/envs/rl/bin/python`, NOT `/usr/bin/python3` (bare, no ML stack) and NOT the host `~/.pyenv` shim (x86, "Exec format error" under `--container-mount-home` → PATH-sanitize first).
+
+### ⚠ GOTCHA — fractional `--gres=gpu:b200:N` does NOT isolate GPU MEMORY
+A co-tenant process on the same physical B200 counts against your free memory, so a fixed
+`gpu_memory_utilization=0.9`-of-TOTAL can exceed what's actually free and the vLLM engine
+aborts at startup (`Free memory on device cuda:0 (145.3/184.0 GiB) ... less than desired ...
+(0.9, 165.6 GiB)`; smoke 32247). Even a "clean" `--gres=gpu:1` GPU shows ~6 GiB used by another
+process. `eval_incontainer.sh` reads nvidia-smi free/total and CLAMPS util to fit `free-8GiB`.
+For a clean serve, request the node exclusively (`--exclusive`) or lower util.
+
+### ⚠ GOTCHA — `mega_v2_rl.sqsh` vLLM `api_server` 500s on every request (prometheus middleware)
+The mega container installed the fork vLLM wheel with `--no-deps` (`mega_B_rl.sbatch` STEP 5),
+so the RL venv kept skyrl's OLDER `prometheus-fastapi-instrumentator` (<7.0). Its route-name
+resolver does a bare `route.path`, which crashes on EVERY HTTP request under the fork's newer
+FastAPI: `AttributeError: '_IncludedRouter' object has no attribute 'path'` → 500 on `/v1/models`
+→ the serve never passes its health check (smoke 32390 died at ~28 min). SkyRL never drives the
+OpenAI `api_server` entrypoint, so the mismatch was latent until the eval path used it.
+**Fix:** `prometheus-fastapi-instrumentator>=7.0.0` (v7 handles routes without `.path`).
+`eval_incontainer.sh` does a guarded runtime upgrade pre-serve. **DURABLE fix (do on the next
+mega rebuild):** in `mega_B_rl.sbatch` install the fork vLLM WITH its deps, or add the explicit
+`>=7.0.0` pin, so evals don't runtime-pip every launch.
+
 ## Support / docs
 
 Portal: https://empireai.freshdesk.com/support/home · GB200 NVL72 guide: article `157000373786` · Getting-started: `157000374441`. Admins (Flatiron): Kali McLennan, Geraud Krawezik, Robert Harrison, Ian Fisk.
