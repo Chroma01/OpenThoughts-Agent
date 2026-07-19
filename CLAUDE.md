@@ -19,7 +19,7 @@ piece for the task at hand (skills are also invocable by name via the Skill tool
   - **code:** `code-create-staged-plan` → `notes/<codebase>/`, `code-execute-staged-plan` → `agent_logs/`.
   - **build:** `build-gpu-rl-image-iris` (kaniko in-cluster; Mac can't build it).
   - **role:** `supervisor-init` — session bootstrap.
-- **`.claude/projects/<dep>/`** — facts & gotchas per codebase: `ot-agent/` (branches + launcher map), `marin/`, `marinskyrl/`, `harbor/`, `vllm/`, `llama-factory/`, `axolotl/`, `daytona/`, `ajudge/`.
+- **`.claude/projects/<dep>/`** — facts & gotchas per codebase: `ot-agent/` (branches + launcher map), `marin/`, `marinskyrl/`, `harbor/`, `vllm/`, `llama-factory/`, `axolotl/`, `daytona/`, `ajudge/`; plus technique docs — `pyspy/` (**live-hang py-spy capture method** — read this when the operator asks to "go in with py-spy on the live job" / "scope the failure live").
 - **`.claude/ops/<target>/`** — machine/cluster particulars (access, paths, env/SIF map, gotchas): `jupiter/`, `leonardo/`, `torch/`, `iris/`, `local/` (this Mac), `all/` (cross-cluster HF/tmux), `experiments/` (the per-experiment tracker workspace `~/Documents/experiments`), `data/` (dataset trackers — e.g. `tasktrove.md`, the full TaskTrove inventory).
 - **`.claude/secret.md`** — untracked, gitignored; holds privileged values (pinggy bank, etc.) pulled out of the committable docs. Referenced by name from skills/ops.
 
