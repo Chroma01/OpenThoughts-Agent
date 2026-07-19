@@ -157,6 +157,22 @@ echo "Run tag: $RUN_TAG | Run dir: $RUN_DIR"
 # ==============================================================================
 export EVAL_VLLM_TENSOR_PARALLEL_SIZE="${EVAL_VLLM_TENSOR_PARALLEL_SIZE:-1}"
 export VLLM_PORT="${VLLM_PORT:-8000}"
+
+# --- Clamp gpu_memory_utilization to ACTUAL free memory (Beta gres-node reality) --
+# Beta's fractional `--gres=gpu:b200:N` does NOT isolate GPU MEMORY: a co-tenant
+# process on the same physical GPU counts against free memory, so a fixed
+# 0.9-of-TOTAL request can exceed what's free and the vLLM engine aborts at startup
+# ("Free memory ... less than desired GPU memory utilization" — smoke 32247, node
+# had ~44 GiB already used). Read free/total for GPU 0 and cap the util so the
+# request fits (free - margin); a clean GPU keeps ~0.90, a contended one steps down.
+_margin_mib="${EVAL_GPU_MEM_MARGIN_MIB:-8192}"
+read -r _gpu_total _gpu_free <<< "$(nvidia-smi --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>/dev/null | head -1 | tr ',' ' ')"
+if [ -n "${_gpu_total:-}" ] && [ -n "${_gpu_free:-}" ] && [ "${_gpu_total:-0}" -gt 0 ] 2>/dev/null; then
+    _safe_util=$($PYTHON_BIN -c "t=$_gpu_total; f=$_gpu_free; m=$_margin_mib; print(f'{max(0.10, min(float('$GPU_MEMORY_UTIL'), (f-m)/t)):.2f}')" 2>/dev/null || echo "$GPU_MEMORY_UTIL")
+    echo "[gpu-mem] GPU0 total=${_gpu_total}MiB free=${_gpu_free}MiB requested_util=$GPU_MEMORY_UTIL -> capped_util=$_safe_util"
+    GPU_MEMORY_UTIL="$_safe_util"
+fi
+
 echo "Starting vLLM server for model: $MODEL"
 source "$DCFT/eval/build_vllm_cmd.sh"
 build_vllm_cmd "$SERVE_PYTHON_BIN" "$MODEL" "$GPU_MEMORY_UTIL"
