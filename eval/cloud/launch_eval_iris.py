@@ -36,6 +36,7 @@ from hpc.arg_groups import (
     add_model_compute_args,
     add_hf_upload_args,
     add_database_upload_args,
+    add_ingress_literal_args,
 )
 from hpc.harbor_utils import load_harbor_config
 from hpc.datagen_config_utils import parse_datagen_config
@@ -189,6 +190,18 @@ class EvalIrisLauncher(IrisLauncher):
 
         add_hf_upload_args(parser)
         add_database_upload_args(parser)
+
+        # Controller-ingress passthrough to the worker. REQUIRED for installed
+        # agents (opencode/openhands/…) whose CLI runs INSIDE the Daytona sandbox
+        # and must call the job's own co-located vLLM: the served api_base is a
+        # VPC-internal advertise-host IP unreachable from Daytona, so the sandbox
+        # reaches it only via the native controller-ingress capability URL
+        # (--ingress_mode controller --ingress_host https://iris.oa.dev). Without
+        # these the worker defaults to the inert pinggy path and opencode gets an
+        # unreachable api_base -> every turn connect-fails -> silent 0. Mirrors
+        # the proven datagen path (data/cloud/launch_tracegen_iris.py:113); run_eval.py
+        # consumes them via getattr, so no worker change is needed.
+        add_ingress_literal_args(parser)
 
     def _validate_gpu_mode(self, args: argparse.Namespace) -> None:
         accelerator = self.resolved_accelerator(args)
@@ -501,6 +514,15 @@ class EvalIrisLauncher(IrisLauncher):
 
         if args.harbor_env:
             cmd.extend(["--harbor_env", args.harbor_env])
+
+        # Controller-ingress passthrough (run_eval.py worker args, consumed via
+        # getattr). Byte-for-byte the datagen pattern
+        # (data/cloud/launch_tracegen_iris.py:246-249). Only forwarded when set to
+        # a non-default; a bare launch keeps the byte-identical legacy command.
+        if getattr(args, "ingress_mode", "pinggy") and args.ingress_mode != "pinggy":
+            cmd.extend(["--ingress_mode", args.ingress_mode])
+        if getattr(args, "ingress_host", None):
+            cmd.extend(["--ingress_host", args.ingress_host])
 
         if args.job_name:
             cmd.extend(["--job_name", args.job_name])
