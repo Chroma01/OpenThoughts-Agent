@@ -32,7 +32,7 @@ dense_mixer: true                 # Run 1 = ON.  Run 2 = false (only-flag diff).
 # The old `conversations` field was LOSSY (no system, empty turn-0, no <tools>, tool calls as
 # inline text, tool results as role:user) → model never learned the task/tools/read-edit workflow
 # → bash-spammed → swebench ~0. Rebuilt from the literal token columns via
-# scripts/harbor/literal_traces_to_opencode_sft.py: `messages` (list) carries a system turn (the
+# `python -m data.opencode_literals_to_sft` (data/opencode_literals_to_sft/): `messages` (list) carries a system turn (the
 # opencode agent prompt), a task-grounded user turn-0, structured assistant `tool_calls` (NOT inline
 # text, args JSON-string → axolotl json.loads → dict), and role:tool observations; `tools` (JSON
 # string) is the 10 opencode function schemas. Source: laion/nemotron-code-oracle-opencode-sft-serveparity.

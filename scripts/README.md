@@ -78,6 +78,12 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
     --target_repo my-org/<task>-opencode-sft
   # dry-run: python -m scripts.harbor.literal_traces_to_sft --source_repo <repo> --validate 3
   ```
+- `data/opencode_literals_to_sft/` – the **TRAIN==SERVE** opencode variant of the above (re-homed from `scripts/harbor/literal_traces_to_opencode_sft.py`, which remains as a re-export shim). Recovers the `system` + `<tools>` + task prompt and emits structured assistant `tool_calls` + `role: tool` results (the serve shape), not lossy inline text. See `data/opencode_literals_to_sft/README.md`.
+  ```bash
+  python -m data.opencode_literals_to_sft \
+    --source_repo my-org/<task>-qwen3.5-122b-131k-opencode-traces \
+    --target_repo my-org/<task>-opencode-sft-serveparity
+  ```
 
 ### Daytona & Supabase tooling
 - `daytona/inspect_daytona_data.py` – build a sandbox from a local task and dump the staged files to inspect what the orchestrator uploads.  
