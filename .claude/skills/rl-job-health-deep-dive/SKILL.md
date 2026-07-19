@@ -97,6 +97,8 @@ restarts burned) the FAILED generations. *Exact capture + finelog-fetch commands
 `projects/marinskyrl`. **The phase Timers are the progress truth — not a trace count, not a progress bar.** (0
 trials at +15 min on a long-episode arm is normal, not "done" and not "dead.")
 
+**⚡ ON ANY DEATH/WEDGE (CoreWeave), ALWAYS FETCH THE RAY ACTOR LOGS — the finelog/`job logs` do NOT carry the root cause.** A colocated-engine RL job routinely dies `exit=0` with NO traceback in the job log (you see only `ray-log-sync uploaded …` → `Killed ray::IDLE/raylet/gcs`); the real killer — a vLLM `EngineCore` fatal, a Ray `ObjectLostError`/`OwnerDiedError`, an actor crash, a `PicklingError` on a `RayTaskError` — survives ONLY in the per-actor Ray logs uploaded to S3 at **`<rendezvous-dir>/ray_session_logs/`** (the `--rendezvous-dir` path, not `…/<job>/trace_jobs`). Sync them (CW creds + `endpoint_url=https://cwobject.com` + `addressing_style=virtual`; ~225 MB/keep-1) and grep **`worker-*.out`/`worker-*.err`** (the actor stdout/stderr — NOT `python-core-*.log`, Ray's traceback-less C++ core logs) for the exception-terminating line. **A "clean" `exit=0` teardown with node RAM low is NOT a verdict — it's a missing-evidence ERROR until you've read the ray_session_logs.** Exact fetch recipe + the keep1-v22 worked example (silent ~34-min death = vLLM `EngineDeadError` `reshape_and_cache_flash … Meta tensors` during the first-step weight-sync with requests in-flight) → `ops/iris/ops.md` §object-store / RAY ACTOR LOGS.
+
 ---
 
 ## §2. Gate A — Liveness (alive, or zombie/wedged/dead?)

@@ -352,21 +352,35 @@ to the CW object store `s3://marin-us-east-02a`, not node-local).
   prior attempt isn't picked up. Mechanism: one `start_rl_iris_controller.py` per node; rank 0
   writes `ray_head.json` to the rendezvous, workers poll for it and join; rank 0 publishes
   `ray_head.done` on completion.
-  **⚠ Inspecting a `marin-us-east-02a` object from the Mac (2026-07-13): you CAN'T — it's
-  in-cluster-only.** The store's endpoint `AWS_ENDPOINT_URL=cwlota.com` is CoreWeave's
-  **in-cluster LOTA** address; from the laptop it just **connect-times-out** (`http://cwlota.com/...`
-  is unroutable). Sourcing the `iris-task-env` / `finelog-cw-use02a-env` secret Mac-side does NOT
-  help: the finelog secret's public CloudFlare-R2 endpoint (`…r2.cloudflarestorage.com`) is for
-  `s3://marin-na` only; `marin-us-east-02a` lives on LOTA. And a plain `aws s3 ls s3://marin-us-east-02a/…`
-  with the laptop's default creds hits **real AWS S3** → `AccessDenied` (the bucket isn't there).
-  **To list/read a `marin-us-east-02a` object, `kubectl -n iris exec` into a Running TASK pod**
-  (any of your own `iris-<user>-…` workers — it already has `AWS_*` + `cwlota.com` reach via
-  `iris-task-env`; do NOT exec into someone else's active training pod, e.g. dlwh's
-  `…grug-train-cw…`) and use **boto3 with `Config(s3={"addressing_style":"virtual"})`** — LOTA
-  **rejects path-style** (`PathStyleRequestNotAllowed`), which is boto3's default, so an
-  unconfigured client fails even in-cluster. One-liner:
-  `kubectl -n iris exec <pod> -- python -c 'import boto3,os;from botocore.config import Config;s3=boto3.client("s3",endpoint_url=os.environ["AWS_ENDPOINT_URL"],config=Config(s3={"addressing_style":"virtual"}));print([o["Prefix"] for o in s3.list_objects_v2(Bucket="marin-us-east-02a",Prefix="<prefix>/",Delimiter="/").get("CommonPrefixes",[])])'`
-  (subdirs are `CommonPrefixes`→`["Prefix"]`; top-level files are `Contents`→`["Key"]`).
+  **Inspecting a `marin-us-east-02a` object FROM THE MAC — YES, via the EXTERNAL endpoint (validated 2026-07-18).**
+  The cluster config exposes BOTH `object_storage_endpoint: http://cwlota.com` (in-cluster LOTA — the pods'
+  injected `AWS_ENDPOINT_URL`, unroutable from the laptop) AND **`external_object_storage_endpoint: https://cwobject.com`**
+  (Mac-reachable). So the store is NOT laptop-inaccessible — use the EXTERNAL endpoint with the CW creds. Recipe
+  (validated): extract the CW creds from the `iris-task-env` k8s Secret (holds `AWS_ACCESS_KEY_ID` /
+  `AWS_SECRET_ACCESS_KEY` / `AWS_ENDPOINT_URL` / `FSSPEC_S3`) and use them with `endpoint_url=https://cwobject.com`
+  + `addressing_style=virtual` (CW/LOTA **rejects path-style**, boto3's default):
+  ```
+  export KUBECONFIG=~/.kube/coreweave-iris-gpu
+  AKID=$(kubectl -n iris get secret iris-task-env -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+  ASK=$(kubectl -n iris get secret iris-task-env -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+  AWS_ACCESS_KEY_ID=$AKID AWS_SECRET_ACCESS_KEY=$ASK python -c 'import boto3;from botocore.config import Config;s3=boto3.client("s3",endpoint_url="https://cwobject.com",config=Config(s3={"addressing_style":"virtual"}));print([p["Prefix"] for p in s3.list_objects_v2(Bucket="marin-us-east-02a",Prefix="<prefix>/",Delimiter="/").get("CommonPrefixes",[])])'
+  ```
+  ⚠ SECRET-BEARING: extract creds into shell vars/env only, NEVER echo the values (you're reading a secret k8s Secret).
+  `s3fs`/fsspec Mac-side: `storage_options={"client_kwargs":{"endpoint_url":"https://cwobject.com"},"config_kwargs":{"s3":{"addressing_style":"virtual"}}}`.
+  (subdirs are `CommonPrefixes`→`["Prefix"]`; top-level files are `Contents`→`["Key"]`.) The in-pod
+  `kubectl -n iris exec <own task pod>` route (using the internal `AWS_ENDPOINT_URL=cwlota.com`) still works when
+  you're already operating in-cluster; do NOT exec into someone else's active training pod (e.g. dlwh's `…grug-train-cw…`).
+
+  **⚡ RAY ACTOR LOGS — the ONLY place an engine-side / actor-side fatal traceback survives (ALWAYS fetch these on an RL death/wedge).** The iris `job logs` / RL finelog show the *teardown* (`ray-log-sync uploaded …`, then `Killed ray::IDLE / raylet / gcs_server`), NOT the root exception — a colocated-engine RL job can die `exit=0` with NO traceback in the job log while the real killer (a vLLM `EngineCore` fatal, a Ray `ObjectLostError`, an actor crash) is only in the per-actor Ray logs. Those are uploaded to S3 at **`<rendezvous-dir>/ray_session_logs/`** — the `--rendezvous-dir` path, NOT the job-name `…/<job>/trace_jobs` path (e.g. rendezvous `s3://marin-us-east-02a/iris/<slug>/run-<ts>/` → logs at `.../run-<ts>/ray_session_logs/`). ⚠ The controller's `[ray-log-sync] uploaded … -> …/ray` line UNDERSTATES the prefix; the real subdir is `ray_session_logs/` (list the run prefix to confirm; also `term_artifacts/`).
+  - **Fetch** (same CW creds + external endpoint; bounded — a keep-1 run ≈ 225 MB / ~6k files):
+    ```
+    export AWS_ACCESS_KEY_ID=$(kubectl -n iris get secret iris-task-env -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+    export AWS_SECRET_ACCESS_KEY=$(kubectl -n iris get secret iris-task-env -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+    export AWS_S3_ADDRESSING_STYLE=virtual   # CW rejects path-style
+    aws s3 sync s3://marin-us-east-02a/iris/<slug>/run-<ts>/ray_session_logs/ <scratch>/ray/ --endpoint-url https://cwobject.com --quiet
+    ```
+  - **The application tracebacks live in `worker-*.out` / `worker-*.err`** (the Ray actor stdout/stderr — RolloutCoordinator, `AsyncVLLMInferenceEngine`/`EngineCore`, run_rl driver), NOT `python-core-*.log` (Ray's C++ core event logs, no Python traceback) and NOT the 1172× `event_*` files. Locate with `grep -rlE "Traceback \(most recent call last\)|<ErrorClass>" <scratch>/ray`, then read the `worker-*.out/.err` — the exception-terminating lines (`^[A-Za-z_.]*Error:`) are the root cause. The rank subdir + `session_latest/` holds the freshest.
+  - **Worked example (keep1-v22, 2026-07-19):** a silent ~34-min "death" (`exit=0`, clean teardown, node RAM 6%, coordinator RSS bounded) was explained ONLY by the ray logs: vLLM `EngineDeadError` from `_C_cache_ops::reshape_and_cache_flash: attempted to run this operator with Meta tensors` (a KV-cache write against meta-device model tensors during the first-policy-step weight-sync, with 9 opencode requests still in-flight) → the un-pickleable `_pickle.PicklingError: Can't pickle RayTaskError(EngineDeadError)` → driver cascade → orderly teardown. NONE of this appeared in `iris job logs`.
   (Aside — the on-disk shape of a marin/Levanter *training* checkpoint there: `<run>-<hash>/.executor_info`
   + `checkpoints/step-N/{metadata.json, manifest.ocdbt, d/<content-addressed blobs>}` = **Orbax OCDBT /
   TensorStore JAX** format, NOT HF transformers — no `config.json`/`*.safetensors`/`tokenizer.json`;
