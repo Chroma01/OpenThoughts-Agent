@@ -64,30 +64,32 @@ DEFAULT_REFIRE_ERROR_TYPES = sorted(
 # is transparent and a newly added preset field fails loudly here rather than being
 # silently dropped. Kept in sync with the listener's `build_config` preset-reading
 # surface (eval/unified_eval_listener.py:4347+) so Iris cannot silently drift.
-_PRESET_IGNORED_FIELDS = frozenset({
-    # --- SLURM / vLLM-serve only (no Iris equivalent) ---
-    "slurm_time",
-    "slurm_partition",
-    "slurm_account",
-    "vllm_max_retries",
-    "gpu_memory_util",
-    "sbatch_script",
-    "check_hf_exists",
-    "log_suffix",
-    "error_threshold",
-    "config_yaml",
-    "agent_envs",
-    "auto_snapshot",
-    # --- Iris forces these via a different channel (not preset-driven) ---
-    # harbor_config: Iris REQUIRES --harbor_config on the CLI (the listener may pick
-    #   it up from cluster-config / size-selection; Iris does not).
-    # agent_name: Iris infers the agent from the harbor config's agents[0].name
-    #   (the listener has a --agent-name fallback).
-    # tp_size: Iris derives --gpus from the TPU chip count (no tensor-parallel concept).
-    "harbor_config",
-    "agent_name",
-    "tp_size",
-})
+_PRESET_IGNORED_FIELDS = frozenset(
+    {
+        # --- SLURM / vLLM-serve only (no Iris equivalent) ---
+        "slurm_time",
+        "slurm_partition",
+        "slurm_account",
+        "vllm_max_retries",
+        "gpu_memory_util",
+        "sbatch_script",
+        "check_hf_exists",
+        "log_suffix",
+        "error_threshold",
+        "config_yaml",
+        "agent_envs",
+        "auto_snapshot",
+        # --- Iris forces these via a different channel (not preset-driven) ---
+        # harbor_config: Iris REQUIRES --harbor_config on the CLI (the listener may pick
+        #   it up from cluster-config / size-selection; Iris does not).
+        # agent_name: Iris infers the agent from the harbor config's agents[0].name
+        #   (the listener has a --agent-name fallback).
+        # tp_size: Iris derives --gpus from the TPU chip count (no tensor-parallel concept).
+        "harbor_config",
+        "agent_name",
+        "tp_size",
+    }
+)
 
 
 def _cli_has(*flags: str) -> bool:
@@ -130,38 +132,52 @@ class EvalIrisLauncher(IrisLauncher):
             legacy_names=["--eval-env", "--eval_env"],
         )
 
-        parser.add_argument("--datagen_config",
-                            help="Optional datagen config to seed defaults.")
-        parser.add_argument("--datagen-config", dest="datagen_config", help=argparse.SUPPRESS)
+        parser.add_argument(
+            "--datagen_config", help="Optional datagen config to seed defaults."
+        )
+        parser.add_argument(
+            "--datagen-config", dest="datagen_config", help=argparse.SUPPRESS
+        )
 
         parser.add_argument(
             "--preset",
             choices=sorted(load_presets().keys()),
             default=None,
             help="Eval preset from eval/presets/ (shared with the SLURM listener). "
-                 "Seeds --dataset_path, --n_concurrent, agent parser, and agent_kwargs; "
-                 "explicit CLI flags always override preset values.",
+            "Seeds --dataset_path, --n_concurrent, agent parser, and agent_kwargs; "
+            "explicit CLI flags always override preset values.",
         )
 
-        parser.add_argument("--dataset",
-                            help="Harbor dataset slug (exclusive with --dataset_path).")
-        parser.add_argument("--dataset_path",
-                            help="Path to tasks directory (exclusive with --dataset).")
-        parser.add_argument("--dataset-path", dest="dataset_path", help=argparse.SUPPRESS)
-
-        parser.add_argument("--ray_object_store_gb", "--ray-object-store-gb",
-                            type=float, default=None,
-                            help="Ray object store (plasma) size in GB.")
+        parser.add_argument(
+            "--dataset", help="Harbor dataset slug (exclusive with --dataset_path)."
+        )
+        parser.add_argument(
+            "--dataset_path", help="Path to tasks directory (exclusive with --dataset)."
+        )
+        parser.add_argument(
+            "--dataset-path", dest="dataset_path", help=argparse.SUPPRESS
+        )
 
         parser.add_argument(
-            "--hf-offline-mode", "--hf_offline_mode", dest="hf_offline_mode",
-            choices=["auto", "strict", "off"], default="auto",
+            "--ray_object_store_gb",
+            "--ray-object-store-gb",
+            type=float,
+            default=None,
+            help="Ray object store (plasma) size in GB.",
+        )
+
+        parser.add_argument(
+            "--hf-offline-mode",
+            "--hf_offline_mode",
+            dest="hf_offline_mode",
+            choices=["auto", "strict", "off"],
+            default="auto",
             help="Pre-cache the model+dataset to the region-local GCS mirror and run "
-                 "HF-offline (HF_HUB_OFFLINE=1) when present. "
-                 "'auto' (default): cache-HIT => offline + region-local runai_streamer "
-                 "serve; any MISS => today's ONLINE behavior (launch never blocked). "
-                 "'strict': a MISS fails LOUD at launch with the mirror command. "
-                 "'off': skip entirely (byte-identical to the pre-precache behavior).",
+            "HF-offline (HF_HUB_OFFLINE=1) when present. "
+            "'auto' (default): cache-HIT => offline + region-local runai_streamer "
+            "serve; any MISS => today's ONLINE behavior (launch never blocked). "
+            "'strict': a MISS fails LOUD at launch with the mirror command. "
+            "'off': skip entirely (byte-identical to the pre-precache behavior).",
         )
 
         # NOTE: --job_name comes from add_harbor_args above.
@@ -182,10 +198,10 @@ class EvalIrisLauncher(IrisLauncher):
             action="append",
             default=None,
             help="Infra exception type to delete-and-re-run on a warm-dir "
-                 "re-fire (repeatable). Default: the non-benign infra set "
-                 f"{DEFAULT_REFIRE_ERROR_TYPES}. Pass 'none' to DISABLE pruning "
-                 "(errored trials will NOT be re-run). A fresh launch with no "
-                 "existing run dir is unaffected either way.",
+            "re-fire (repeatable). Default: the non-benign infra set "
+            f"{DEFAULT_REFIRE_ERROR_TYPES}. Pass 'none' to DISABLE pruning "
+            "(errored trials will NOT be re-run). A fresh launch with no "
+            "existing run dir is unaffected either way.",
         )
 
         add_hf_upload_args(parser)
@@ -210,8 +226,7 @@ class EvalIrisLauncher(IrisLauncher):
 
         if accelerator.gpu_variant != "H100" or accelerator.gpu_count != 8:
             raise SystemExit(
-                "GPU eval is currently limited to --gpu H100x8 on "
-                "cw-use02a-h100-8x."
+                "GPU eval is currently limited to --gpu H100x8 on cw-use02a-h100-8x."
             )
 
         if (args.replicas or 1) > 1:
@@ -319,7 +334,9 @@ class EvalIrisLauncher(IrisLauncher):
         if args.dataset and args.dataset_path:
             raise ValueError("Specify either --dataset or --dataset-path (not both).")
         if not args.dataset and not args.dataset_path:
-            raise ValueError("Must provide --dataset or --dataset-path for eval workloads.")
+            raise ValueError(
+                "Must provide --dataset or --dataset-path for eval workloads."
+            )
 
         # --gpus is the downstream run_eval.py knob for vLLM tensor_parallel_size.
         # Ask the resolved Iris accelerator for the OT-A runtime device count:
@@ -342,6 +359,7 @@ class EvalIrisLauncher(IrisLauncher):
         # untouched (the GPU-path HF-dataset guard) and a remote gs://|s3:// URI
         # also passes through (the worker's resolve_dataset_path handles those).
         from hpc.hf_utils import is_hf_dataset_path
+
         args._orig_dataset_repo = None
         if args.dataset_path and is_hf_dataset_path(args.dataset_path):
             args._orig_dataset_repo = args.dataset_path
@@ -361,21 +379,31 @@ class EvalIrisLauncher(IrisLauncher):
                 inferred_agent = agents[0].get("name")
                 if inferred_agent:
                     args.agent = inferred_agent
-                    print(f"[eval-iris] Inferred --agent={inferred_agent} from harbor config")
+                    print(
+                        f"[eval-iris] Inferred --agent={inferred_agent} from harbor config"
+                    )
 
         if not args.model and args.datagen_config:
             try:
                 parsed = parse_datagen_config(args.datagen_config)
                 if parsed.model:
                     args.model = parsed.model
-                    print(f"[eval-iris] Inferred --model={parsed.model} from datagen config")
+                    print(
+                        f"[eval-iris] Inferred --model={parsed.model} from datagen config"
+                    )
             except Exception as e:
-                print(f"[eval-iris] Warning: Could not parse datagen config for model: {e}")
+                print(
+                    f"[eval-iris] Warning: Could not parse datagen config for model: {e}"
+                )
 
         if not args.model:
-            raise ValueError("Must provide --model or --datagen_config (to infer model from engine.model)")
+            raise ValueError(
+                "Must provide --model or --datagen_config (to infer model from engine.model)"
+            )
         if not args.agent:
-            raise ValueError("Must provide --agent or ensure harbor config has agents[0].name")
+            raise ValueError(
+                "Must provide --agent or ensure harbor config has agents[0].name"
+            )
 
         # Resolve per-model serve config from model_config/ (single source of
         # truth). Runs AFTER _apply_preset so a chosen preset wins over the
@@ -385,6 +413,7 @@ class EvalIrisLauncher(IrisLauncher):
         # tp_size + harbor_config are IGNORED on iris (tp derives from the TPU
         # chip count; --harbor_config is CLI-required).
         from hpc.model_config_apply import apply_to_launcher
+
         apply_to_launcher(args, log_prefix="[eval-iris]", iris=True)
 
         # Resolve the re-fire infra-error filter. Unset -> the default non-benign
@@ -420,7 +449,9 @@ class EvalIrisLauncher(IrisLauncher):
 
         # Load --secrets-env into os.environ on the launch host (these also
         # reach the worker via the iris submit's --secrets-env).
-        loaded = self.load_secrets_env_into_os_environ(getattr(args, "secrets_env", None))
+        loaded = self.load_secrets_env_into_os_environ(
+            getattr(args, "secrets_env", None)
+        )
         if loaded:
             print(
                 f"[eval-iris] Secrets:    loaded {loaded} entries from "
@@ -440,7 +471,9 @@ class EvalIrisLauncher(IrisLauncher):
         # wrong for. (Datagen uses force_build: false and DOES pre-build, via
         # data/cloud/launch_tracegen_iris.py.)
 
-    def pre_submit_precache(self, args: argparse.Namespace, *, remote_output_dir: str) -> dict:
+    def pre_submit_precache(
+        self, args: argparse.Namespace, *, remote_output_dir: str
+    ) -> dict:
         """Ensure the model + dataset are region-cached, then wire the offline plan.
 
         Runs after the region pin. On a full cache-HIT: serve the model from the
@@ -455,7 +488,9 @@ class EvalIrisLauncher(IrisLauncher):
         from hpc.iris.precache import precache_for_eval
 
         dataset_repos = (
-            [args._orig_dataset_repo] if getattr(args, "_orig_dataset_repo", None) else []
+            [args._orig_dataset_repo]
+            if getattr(args, "_orig_dataset_repo", None)
+            else []
         )
         result = precache_for_eval(
             args.model,
@@ -474,16 +509,27 @@ class EvalIrisLauncher(IrisLauncher):
         args._vllm_model_uri = result.model_serve_uri
         if dataset_repos and result.dataset_uris:
             args.dataset_path = result.dataset_uris[0]
-            print(f"[eval-iris] dataset -> {args.dataset_path} (offline GCS read)", flush=True)
-        print(f"[eval-iris] model serve URI -> {args._vllm_model_uri} "
-              "(runai_streamer); HF_HUB_OFFLINE=1", flush=True)
+            print(
+                f"[eval-iris] dataset -> {args.dataset_path} (offline GCS read)",
+                flush=True,
+            )
+        print(
+            f"[eval-iris] model serve URI -> {args._vllm_model_uri} "
+            "(runai_streamer); HF_HUB_OFFLINE=1",
+            flush=True,
+        )
         return result.env
 
-    def build_task_command(self, args: argparse.Namespace, remote_output_dir: str) -> List[str]:
+    def build_task_command(
+        self, args: argparse.Namespace, remote_output_dir: str
+    ) -> List[str]:
         cmd: List[str] = [
-            "python", "eval/local/run_eval.py",
-            "--harbor_config", args.harbor_config,
-            "--model", args.model,
+            "python",
+            "eval/local/run_eval.py",
+            "--harbor_config",
+            args.harbor_config,
+            "--model",
+            args.model,
         ]
 
         # Offline: serve the vLLM model from the region-local mirror URI while
@@ -504,13 +550,20 @@ class EvalIrisLauncher(IrisLauncher):
         # lives on pod-local disk; for gcs it is the same remote path.
         work_output_dir = getattr(args, "_work_output_dir", remote_output_dir)
 
-        cmd.extend([
-            "--agent", args.agent,
-            "--n_concurrent", str(args.n_concurrent),
-            "--n_attempts", str(args.n_attempts),
-            "--gpus", str(args.gpus),
-            "--experiments_dir", work_output_dir,
-        ])
+        cmd.extend(
+            [
+                "--agent",
+                args.agent,
+                "--n_concurrent",
+                str(args.n_concurrent),
+                "--n_attempts",
+                str(args.n_attempts),
+                "--gpus",
+                str(args.gpus),
+                "--experiments_dir",
+                work_output_dir,
+            ]
+        )
 
         if args.harbor_env:
             cmd.extend(["--harbor_env", args.harbor_env])
@@ -519,10 +572,12 @@ class EvalIrisLauncher(IrisLauncher):
         # getattr). Byte-for-byte the datagen pattern
         # (data/cloud/launch_tracegen_iris.py:246-249). Only forwarded when set to
         # a non-default; a bare launch keeps the byte-identical legacy command.
-        if getattr(args, "ingress_mode", "pinggy") and args.ingress_mode != "pinggy":
-            cmd.extend(["--ingress_mode", args.ingress_mode])
-        if getattr(args, "ingress_host", None):
-            cmd.extend(["--ingress_host", args.ingress_host])
+        _ingress_mode = getattr(args, "ingress_mode", None)
+        if _ingress_mode and _ingress_mode != "pinggy":
+            cmd.extend(["--ingress_mode", _ingress_mode])
+        _ingress_host = getattr(args, "ingress_host", None)
+        if _ingress_host:
+            cmd.extend(["--ingress_host", _ingress_host])
 
         if args.job_name:
             cmd.extend(["--job_name", args.job_name])

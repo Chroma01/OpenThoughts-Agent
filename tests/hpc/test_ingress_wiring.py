@@ -442,8 +442,12 @@ def test_wait_for_endpoint_mirror_returns_when_ready():
     slept = []
     # fake clock never advances past the deadline until resolver is ready
     wait_for_endpoint_mirror(
-        "otagent-x", resolver, timeout_s=100, interval_s=1,
-        sleep=slept.append, now=lambda: 0.0,
+        "otagent-x",
+        resolver,
+        timeout_s=100,
+        interval_s=1,
+        sleep=slept.append,
+        now=lambda: 0.0,
     )
     assert resolver.calls == 3  # two "not yet" + one ready
     assert slept == [1, 1]  # slept between the three polls
@@ -452,8 +456,12 @@ def test_wait_for_endpoint_mirror_returns_when_ready():
 def test_wait_for_endpoint_mirror_tolerates_transient_errors():
     resolver = _FakeResolver(ready_after=0, raise_first=2)
     wait_for_endpoint_mirror(
-        "otagent-x", resolver, timeout_s=100, interval_s=1,
-        sleep=lambda _s: None, now=lambda: 0.0,
+        "otagent-x",
+        resolver,
+        timeout_s=100,
+        interval_s=1,
+        sleep=lambda _s: None,
+        now=lambda: 0.0,
     )
     assert resolver.calls == 3  # 2 raised + 1 True
 
@@ -470,7 +478,12 @@ def test_wait_for_endpoint_mirror_times_out():
 
     with pytest.raises(TimeoutError, match="was not mirrored"):
         wait_for_endpoint_mirror(
-            "otagent-x", resolver, timeout_s=5, interval_s=2, sleep=sleep, now=now,
+            "otagent-x",
+            resolver,
+            timeout_s=5,
+            interval_s=2,
+            sleep=sleep,
+            now=now,
         )
 
 
@@ -478,7 +491,10 @@ def test_federated_cache_waits_for_mirror_then_mints_at_parent():
     minter = _FakeMinter(expires_at=10_000_000_000.0)
     resolver = _FakeResolver(ready_after=1)
     cache = FederatedCapabilityTokenCache(
-        minter, resolver, mirror_interval_s=0, mirror_timeout_s=100,
+        minter,
+        resolver,
+        mirror_interval_s=0,
+        mirror_timeout_s=100,
     )
     # first token: waits for mirror (2 polls) then mints once
     t1 = cache.token_for("otagent-fed", now=0.0)
@@ -492,7 +508,10 @@ def test_federated_cache_remint_does_not_repoll_mirror():
     minter = _FakeMinter(expires_at=1000.0)
     resolver = _FakeResolver(ready_after=0)
     cache = FederatedCapabilityTokenCache(
-        minter, resolver, mirror_interval_s=0, mirror_timeout_s=100,
+        minter,
+        resolver,
+        mirror_interval_s=0,
+        mirror_timeout_s=100,
     )
     cache.token_for("ep", now=0.0)
     assert minter.calls == 1 and resolver.calls == 1
@@ -505,7 +524,10 @@ def test_federated_cache_propagates_mirror_timeout():
     minter = _FakeMinter()
     resolver = _FakeResolver(ready_after=999)
     cache = FederatedCapabilityTokenCache(
-        minter, resolver, mirror_interval_s=0, mirror_timeout_s=0,
+        minter,
+        resolver,
+        mirror_interval_s=0,
+        mirror_timeout_s=0,
     )
     with pytest.raises(TimeoutError):
         cache.token_for("ep", now=0.0)
@@ -517,7 +539,10 @@ def test_federated_capability_api_base_builds_parent_url():
     resolver = _FakeResolver(ready_after=0)
     cache = FederatedCapabilityTokenCache(minter, resolver, mirror_interval_s=0)
     url = federated_capability_api_base(
-        "otagent-fedjob", ingress_host="iris.oa.dev", cache=cache, now=0.0,
+        "otagent-fedjob",
+        ingress_host="iris.oa.dev",
+        cache=cache,
+        now=0.0,
     )
     assert url == "https://iris.oa.dev/proxy/t/TKN-1/otagent-fedjob/v1"
 
