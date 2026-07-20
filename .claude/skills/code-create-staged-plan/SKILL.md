@@ -47,13 +47,15 @@ home; scoping evidence lives in dated `agent_logs/`.
 - **Composes with / depends on:** the upstream stages it assumes are already green.
 
 ## Isolated working copy — rsync-clone BEFORE you branch (do NOT branch the canonical clone)
-**Never cut the feature branch on the canonical clone** (`~/Documents/{OpenThoughts-Agent,harbor,MarinSkyRL,vllm}`).
+This rsync-clone path is for the **`penfever/working` self-merge repos: `~/Documents/{OpenThoughts-Agent,vllm}`.**
+(The **marin-forks — `harbor`, `MarinSkyRL`, `evalchemy` — use the git-worktree→PR→`main` flow instead**, not this
+rsync-clone-off-`penfever/working` recipe; see `supervisor-init`.) **Never cut the feature branch on the canonical clone.**
 Branching/checking-out there swaps the canonical copy off `penfever/working` and is the exact source of the
 branch-drift we keep hitting (a launcher or config silently reads the wrong tree). Instead, **rsync-clone the
 repo to an isolated working directory first, and cut the branch THERE:**
 ```bash
 # 1. rsync-clone the canonical repo (INCLUDING .git; skip heavy build/venv dirs) to an isolated copy
-SLUG=<change-slug>; REPO=OpenThoughts-Agent          # or harbor / MarinSkyRL / vllm
+SLUG=<change-slug>; REPO=OpenThoughts-Agent          # or vllm  (marin-forks harbor/MarinSkyRL/evalchemy use worktree→PR→main instead)
 SRC=/Users/benjaminfeuer/Documents/$REPO
 DST=/Users/benjaminfeuer/Documents/staged-work/$SLUG/$REPO
 mkdir -p "$(dirname "$DST")"
