@@ -31,7 +31,7 @@ The control machine: launches, uploads, Supabase queries, code edits, and analys
 ## Local codebases (`/Users/benjaminfeuer/Documents/`)
 All editable-installed into the relevant conda env; **edit here, commit, push, then `git pull` on the cluster** — never patch on the cluster. Branch SoT per repo:
 - **`OpenThoughts-Agent/`** — launcher/orchestration. Branch `penfever/working` (origin `open-thoughts/OpenThoughts-Agent`). See `.claude/projects/ot-agent/`.
-- **`harbor/`** — agent framework. Branch `penfever/working`; remote `marin` = `marin-community/harbor`. See `.claude/projects/harbor/`.
+- **`harbor/`** — agent framework. Branch `main` (`penfever/working` RETIRED — worktree→PR→main); remote `marin` = `marin-community/harbor`. See `.claude/projects/harbor/`.
 - **`MarinSkyRL/`** — RL framework. Branch `penfever/working` (= `marin-community/MarinSkyRL`). See `.claude/projects/marinskyrl/`.
 - **`vllm/`** — inference-engine fork (`mlfoundations/vllm`). Currently on `feuer/dcp-gqa-lse-fix`. Local clone is ground truth; **built from source on each cluster (per-arch) from the committed fork** (or baked into a SIF) — **never** rsync working-tree edits or hand-patch. Some envs run vanilla vLLM. See `.claude/projects/vllm/`.
 

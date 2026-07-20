@@ -33,9 +33,9 @@ cd /leonardo_work/AIFAC_5C0_290/bfeuer00/code/OpenThoughts-Agent
 > - **`$SCRATCH_FAST` (`/leonardo_scratch/fast/AIFAC_5C0_290/bfeuer00`, 1 TB Lustre, auto-purged)** — ONLY ephemeral caches/tmp (`VLLM_CONFIG_ROOT`/`TRITON_CACHE_DIR`/`FLASHINFER_WORKSPACE_BASE`). 1 TB, shared, chronically OVER quota — a checkpoint/export here fails with `OSError: [Errno 122] Disk quota exceeded` (NOT an OOM).
 > - **Any launch subagent MUST verify its sbatch's checkpoint/export paths resolve to `$WORK`/`$CHECKPOINTS_DIR`, not `$SF`/`$SCRATCH_FAST`, BEFORE submitting.**
 
-## Correct upstream per codebase (SoT = Mac clones under `/Users/benjaminfeuer/Documents/`; all on branch `penfever/working`)
-- **OpenThoughts-Agent** → `origin` = `open-thoughts/OpenThoughts-Agent`.
-- **harbor** → `marin` = `marin-community/harbor`.
+## Correct upstream per codebase (SoT = Mac clones under `/Users/benjaminfeuer/Documents/`; branch = `penfever/working` except harbor)
+- **OpenThoughts-Agent** → `origin` = `open-thoughts/OpenThoughts-Agent` (`penfever/working`).
+- **harbor** → `marin` = `marin-community/harbor`, branch `main` (`penfever/working` RETIRED — worktree→PR→main; migrate a stale cluster clone: `git checkout main && git pull` on next touch).
 - **MarinSkyRL** → `marin-community/MarinSkyRL` `penfever/working` (see `.claude/projects/marinskyrl/marinskyrl.md`).
 - Sync discipline: commit on Mac → push → `git pull` on the cluster (Leonardo can't push). SFT runs also need `git submodule update --init --remote sft/llamafactory`.
 

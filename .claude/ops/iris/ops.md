@@ -693,7 +693,7 @@ cleanly — teardown WORKS for completed trials; the pile was 100% kill-orphans.
 `DaytonaEnvironment` set `auto_stop_interval_mins=0` (auto-stop OFF) +
 `auto_delete_interval_mins=0` (delete-immediately-on-stop armed but never fires — `0` = immediate,
 `-1` = never; auto_stop=0 defeated delete-on-stop). **Fix — harbor `1143aba8`**
-(marin-community/harbor `penfever/working`): `auto_stop_interval_mins` default 0→5, so an idle
+(marin-community/harbor `main`): `auto_stop_interval_mins` default 0→5 (now **30** on `main`), so an idle
 orphan stops after 5 min → auto_delete removes it (the idle timer resets on every sandbox exec, so
 active trials never trip it). **Takes effect on the NEXT image rebake** (harbor is baked into the
 gpu-rl RL + eval images). **Until rebaked, manually reap after every kill:**

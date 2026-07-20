@@ -2,8 +2,8 @@
 
 The agent framework OT-Agent uses for **trace generation** (RL/SFT data) and **agentic eval**.
 
-- **Repo:** local `/Users/benjaminfeuer/Documents/harbor`, branch **`penfever/working`**. Editable-installed on every cluster; synced via git (commit→push→`git pull`), never patched on the cluster.
-- **⚠️ CANONICAL UPSTREAM = `marin-community/harbor`** (v0.7.0). `penfever/working` tracks `marin/penfever/working` — **always push here**. Other remotes (`laude`, `charlie`, `marianna`) are forks/mirrors — do not push to or pull from them. If a cluster `git pull` reports "Already up to date" but the fix isn't there, check `git remote get-url origin` points at `marin-community/harbor`.
+- **Repo:** local `/Users/benjaminfeuer/Documents/harbor`, branch **`main`** (`penfever/working` RETIRED 2026-07-17). Editable-installed on every cluster; synced via git (commit→push→`git pull`), never patched on the cluster.
+- **⚠️ CANONICAL UPSTREAM = `marin-community/harbor`** (v0.7.0). Track/push **`main`** (dev flow is worktree → PR → `main`; see below). Other remotes (`laude`, `charlie`, `marianna`) are forks/mirrors — do not push to or pull from them. If a cluster `git pull` reports "Already up to date" but the fix isn't there, check `git remote get-url origin` points at `marin-community/harbor`.
 - **CLI:** Typer app `harbor.cli.main:app` — `harbor run`, `harbor jobs start`, `harbor view`, `harbor trials start`.
 - **Two OT-Agent uses:** (1) **datagen trace-gen** — run an agent over a task set, record rollout trajectories → HF dataset; (2) **agentic eval** — run an agent over a benchmark, verify, compute metrics. Both go through `hpc/launch.py` (`--job_type datagen`/`eval`) or the unified eval listener.
 
@@ -18,7 +18,7 @@ The editable harbor install on each cluster lives in these clones — `git pull`
 Both clones' `origin` MUST be `https://github.com/marin-community/harbor.git`. **Gotcha (fixed 2026-06-17):** both were found pointing at the stale fork `laude-institute/harbor` (frozen at an old commit), so `git pull` reported "Already up to date" while silently missing every new push. Repointed via `git remote set-url origin https://github.com/marin-community/harbor.git`. Deploy pattern (clone is editable → live for new processes after pull; **running jobs keep the old code until they restart**):
 ```bash
 cd <clone> && git remote get-url origin   # MUST be marin-community/harbor
-git fetch origin penfever/working && git pull --ff-only origin penfever/working
+git fetch origin main && git pull --ff-only origin main   # migrate a stale clone: git checkout main && git pull first
 git log -1 --oneline                       # confirm the expected HEAD
 ```
 
@@ -270,7 +270,7 @@ Two layers, easy to conflate:
 
 ---
 
-## Fork facts / load-bearing commits (on `penfever/working`)
+## Fork facts / load-bearing commits (now on `main`)
 
 - **`94379963`** — `iter_trial_dirs` prunes the `os.walk` at the trial-dir level → trace export no longer GPFS-stat-storms on 30k-trial runs (the Step-8 cleanup fix; see `.claude/skills/rl-agentic-job-cleanup`).
 - **`8737426c`** — the TIS per-turn logprob/token-id length-parity guard (above).

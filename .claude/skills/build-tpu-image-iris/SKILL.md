@@ -6,7 +6,7 @@ description: >-
   CoreWeave `cw-us-east-02a` (a CPU-only amd64 build; NO CUDA/nvcc, so it's minutes not hours, and the Mac
   CANNOT build it — arm64 + linux/amd64-only). Covers WHY kaniko not buildkit (shared with the gpu-rl skill),
   the crane-export-over-ubuntu recipe, and — the load-bearing lesson this skill exists for — how to make a
-  canonical fast-moving dep (Harbor, our `marin-community/harbor` fork on `penfever/working`) ACTUALLY reach
+  canonical fast-moving dep (Harbor, our `marin-community/harbor` fork on `main`) ACTUALLY reach
   the worker: the RUNTIME gate is OT-Agent's `uv.lock` (the iris worker `uv sync --frozen --reinstall`s from
   it, OVERWRITING the image bake) — so deploying a harbor change is a `uv lock --upgrade-package harbor` +
   commit, NOT (only) an image rebuild; the Dockerfile `HARBOR_COMMIT` + `--force-reinstall` pin is a secondary
@@ -99,7 +99,7 @@ Load-bearing flags (already in the script — recognize them):
 > **THE ACTUAL DEPLOY LEVER for a canonical locked dep (harbor):**
 > ```bash
 > cd /Users/benjaminfeuer/Documents/OpenThoughts-Agent
-> uv lock --upgrade-package harbor      # re-resolves harbor from penfever/working HEAD → rewrites uv.lock
+> uv lock --upgrade-package harbor      # re-resolves harbor from main HEAD → rewrites uv.lock
 > git add uv.lock && git commit -m "chore(deps): re-lock harbor -> <ver> (<sha>)" && git push   # penfever/working
 > # verify: grep -A2 'name = "harbor"' uv.lock  → version + the intended rev
 > ```
@@ -129,7 +129,7 @@ runtime lock-sync above was the other half and the decisive one.
 **Principle (user directive, 2026-07-08): for our frequently-updated canonical repos, install FRESH FROM
 GITHUB (from-source at the intended commit), never a stale cached wheel** — and, decisively for iris,
 **keep the SAME commit in `uv.lock`** (the runtime authority). Harbor is exactly such a repo — our
-`marin-community/harbor` fork, canonical branch `penfever/working`, changed almost every campaign.
+`marin-community/harbor` fork, canonical branch `main`, changed almost every campaign.
 
 **Two mechanisms that guarantee freshness (the Dockerfile now does BOTH for harbor):**
 1. **Pin `ENV HARBOR_COMMIT=<sha>` and bump it every harbor change.** Changing the env line changes THIS
@@ -145,7 +145,7 @@ GITHUB (from-source at the intended commit), never a stale cached wheel** — an
            "harbor[daytona] @ git+https://github.com/marin-community/harbor.git@${HARBOR_COMMIT}" && \
        python -c "import harbor, importlib.metadata as m; print('baked harbor', m.version('harbor'))"
    ```
-   **Belt-and-suspenders that ALSO helped:** bump harbor's package version on `penfever/working`
+   **Belt-and-suspenders that ALSO helped:** bump harbor's package version on `main`
    (`0.8.0 → 0.8.1`, commit `2dde0bbf`) so `uv`'s resolver treats it as a new package and won't reuse a
    same-version cached wheel even on the base `[datagen-tpu]` resolve layer.
 
@@ -285,9 +285,9 @@ Do **NOT** rebuild the image to deploy:
 
 ## 8. Standing constraints
 
-- **`penfever/working` is canonical** for both OT-Agent and (harbor) `marin-community/harbor` — `git fetch` +
+- **Canonical branches:** OT-Agent = `penfever/working`; harbor `marin-community/harbor` = `main` (`penfever/working` RETIRED — worktree→PR→main). `git fetch` +
   FF-check before any push; leave the editable harbor checkout at `/Users/benjaminfeuer/Documents/harbor`
-  clean on `penfever/working` (datagen rescues depend on it).
+  clean on `main` (datagen rescues depend on it).
 - **PINNED-first, promote-after-smoke.** Never push straight to floating `:tpu`; other users' live datagen/eval
   jobs pull it.
 - **`source "$DC_AGENT_SECRET_ENV"`**; NEVER echo secret

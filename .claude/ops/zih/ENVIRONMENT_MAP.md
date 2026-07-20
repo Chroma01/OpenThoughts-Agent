@@ -56,7 +56,7 @@ purged; conda env + repos rebuilt from scratch). Re-confirm with §3 if acting o
   ```bash
   conda create -y -p $SCRATCH/miniconda3/envs/otagent python=3.12 && conda activate otagent
   pip install uv
-  cd $SCRATCH/harbor && uv pip install -e .            # editable, penfever/working
+  cd $SCRATCH/harbor && uv pip install -e .            # editable, main (migrate a stale clone: git checkout main && git pull)
   cd $SCRATCH/OpenThoughts-Agent && uv pip install -e ".[datagen]"
   ```
   `.[datagen]` pulls **prebuilt** `vllm[flashinfer]>=0.11.2,<=0.16.0` + `torch>=2.9.0,<=2.10.0` (cu128) +
@@ -64,7 +64,7 @@ purged; conda env + repos rebuilt from scratch). Re-confirm with §3 if acting o
   workstream is needed (the zih.md legacy notes did `.[datagen,cloud,sft]` + a torch cu128 force-reinstall
   + a flash-attn cu128 wheel for RL/SFT — do that ONLY when SFT/RL is the target, not for an eval smoke).
 - **Stack (verified live 2026-07-14):** **torch 2.9.1+cu128, vLLM 0.16.0 (vanilla, flashinfer),
-  transformers 4.57.3, harbor (editable, `penfever/working`)** + nvidia-cu12 12.8 libs, xgrammar 0.1.29,
+  transformers 4.57.3, harbor (editable, `main`)** + nvidia-cu12 12.8 libs, xgrammar 0.1.29,
   ray. This is byte-for-byte the SAME core stack as Leonardo's `otagent` (torch 2.9.1+cu128 / vLLM 0.16.0)
   — the x86_64 prebuilt wheels transfer directly.
 - **Use for:** everything — `hpc.launch`, the unified eval listener, datagen, uploads, agentic eval
@@ -96,7 +96,7 @@ WS=/data/cat/ws/befe330h-otagent
 $WS/miniconda3/envs/otagent/bin/python -c "import torch,vllm,transformers; print('otagent', torch.__version__, vllm.__version__, transformers.__version__)"
 # harbor editable + branch
 $WS/miniconda3/envs/otagent/bin/python -c "import harbor; print('harbor', harbor.__version__)"
-cd $WS/harbor && git rev-parse --abbrev-ref HEAD   # -> penfever/working
+cd $WS/harbor && git rev-parse --abbrev-ref HEAD   # -> main (migrate a stale clone: git checkout main && git pull)
 # GPU visible (from an srun/sbatch on capella, NOT the login node)
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader   # -> NVIDIA H100, 95830 MiB (x4)
 ```
@@ -142,7 +142,7 @@ serving). No `eval-qwen35` / `evalchemy` / `vllm_sandboxes` yet — add only whe
 (mirror Leonardo/TACC). **No containers** (bare-metal conda).
 
 **code clones (`$SCRATCH/`):** `OpenThoughts-Agent` (`penfever/working`, editable `.[datagen]`),
-`harbor` (`penfever/working`, editable), `MarinSkyRL` (`penfever/working`). (The `~/OpenThoughts-Agent`
+`harbor` (`main`, editable; migrate a stale clone on next touch), `MarinSkyRL` (`penfever/working`). (The `~/OpenThoughts-Agent`
 and `~/harbor` clones in /home are STALE leftovers — the canonical clones live in the workspace.)
 
 ---

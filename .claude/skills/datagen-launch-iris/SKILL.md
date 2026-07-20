@@ -16,7 +16,8 @@ description: Launch, monitor, and manually clean up a trajectory-generation (dat
 ## Prerequisites
 
 - **Python 3.12 env** (the iris client writes the launcher's `sys.version_info` into the worker's `uv sync --python`): `source /Users/benjaminfeuer/miniconda3/etc/profile.d/conda.sh && conda activate otagent` (or call `/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python`).
-- **Secrets**: `source "$DC_AGENT_SECRET_ENV"` (`DAYTONA_API_KEY` for host-side snapshot pre-build, `HF_TOKEN` for upload, `MARIN_HMAC_*` for runai_streamer). Also pass `--secrets-env <path>` so they reach the worker. Do not echo values.
+- **Secrets**: `source "$DC_AGENT_SECRET_ENV"` (`DAYTONA_API_KEY` for host-side snapshot pre-build, `HF_TOKEN` for upload, `MARIN_HMAC_*` for runai_streamer, `OPENAI_API_KEY` for LLM-judge datasets — see below). Also pass `--secrets-env <path>` so they reach the worker. Do not echo values.
+- **LLM-judge datasets need `OPENAI_API_KEY` in the TRIAL env** (`laion/stackexchange-superuser-sandboxes-verified`, `laion/stackexchange-tezos-sandboxes-verified`, and any nemotron_gym `llm_judge`/`*_judge` set). Each task's `task.toml` carries `[verifier] env = { OPENAI_API_KEY = "${OPENAI_API_KEY}", JUDGE_MODEL = "${JUDGE_MODEL:-}" }`; harbor's verifier resolves that `${OPENAI_API_KEY}` **from the worker process env** (`harbor/src/harbor/verifier/verifier.py` `verify()` → `resolve_env_vars(merged_env)` → `environment.exec(env=…)`) and injects it into the Daytona verifier sandbox where the litellm/gpt-4o-mini judge runs. **The mechanism is already wired: nothing extra to pass** — `--secrets-env "$DC_AGENT_SECRET_ENV"` loads every KEY=VALUE from the secrets file (including `OPENAI_API_KEY`) into the iris worker's `env_vars` (`hpc/iris/env.py:_load_worker_secrets_env`, plus an explicit `OPENAI_API_KEY` passthrough at `_forward_launcher_env`), so the launch recipe below (which already passes `--secrets-env`) propagates the key end-to-end. **The `${OPENAI_API_KEY}` template is REQUIRED (no default)** — if the secrets file lacks it, harbor raises a ValueError at verify time (not a silent 0.0). Just make sure `OPENAI_API_KEY` is present in `$DC_AGENT_SECRET_ENV`.
 - If a launch fails with `marin-iris client is too old`, run `git -C /Users/benjaminfeuer/Documents/marin pull --ff-only origin main` (editable install) — **not** `uv sync`.
 
 ## Launch
@@ -134,7 +135,7 @@ Campaign specifics (dataset order, keep-3 state, per-arm status) live in the tra
 - Worker in-job auto-upload lands **TEXT-ONLY** (the pinned `:tpu` predates the schema-pin fix) OR fails at **export-push** (harbor `FileExistsError` on preempt-resume — see caveat above) — both leave banked GCS trials + `logs/*_literal.jsonl` intact → **RESCUE** from GCS (see Manual cleanup) with `--served_model Qwen/Qwen3.5-122B-A10B-FP8`, verify `count_populated_literal_rows` ≈ correlation yield. "SUCCEEDED"/"repo exists" is NEVER proof of trainable literals — always check the true count.
 - A job with **0 valid traces** (100% `steps:0` / `NonZeroAgentExitCodeError exit 127` = agent binary absent in the sandbox) is GARBAGE → mark **BLOCKED**, NOT rescuable, needs a full re-run after the sandbox-install fix. Spot-check a few trials' `result.json`/`exception.txt` before rescuing.
 
-**Harbor editable guard:** the uploader imports harbor from `/Users/benjaminfeuer/Documents/harbor` — it MUST be on `penfever/working` (verify + `git checkout penfever/working` if drifted) before any rescue, or the export crashes.
+**Harbor editable guard:** the uploader imports harbor from `/Users/benjaminfeuer/Documents/harbor` — it MUST be on `main` (verify + `git checkout main && git pull` if drifted; `penfever/working` RETIRED) before any rescue, or the export crashes.
 
 ## Guardrails
 

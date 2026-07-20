@@ -13,7 +13,7 @@ Repo: `open-thoughts/OpenThoughts-Agent`. Local clone: `/Users/benjaminfeuer/Doc
 
 - **`penfever/working` = the source of truth.** Day-to-day work + all clusters track this branch (origin `open-thoughts/OpenThoughts-Agent`). `main` exists but lags. Sync discipline: commit+push from the laptop, then `git pull` on the cluster (editable installs → live immediately, no reinstall). Many stale feature branches exist (`richard/*`, `rz/*`, `marianna/*`, `charlie/*`, etc.) — ignore unless explicitly referenced.
 - **Companion repos** (also editable-installed on every cluster, edited locally + synced via git — never patched on the cluster):
-  - **Harbor** `/Users/benjaminfeuer/Documents/harbor` — agent framework, environment backends (daytona/docker/modal), terminus-2 agent. SoT branch `penfever/working`, remote `marin` = `marin-community/harbor`.
+  - **Harbor** `/Users/benjaminfeuer/Documents/harbor` — agent framework, environment backends (daytona/docker/modal), terminus-2 agent. SoT branch `main` (`penfever/working` RETIRED — worktree→PR→main), remote `marin` = `marin-community/harbor`.
   - **MarinSkyRL** `/Users/benjaminfeuer/Documents/MarinSkyRL` — the RL training framework (trainer, terminal_bench generator). SoT = `marin-community/MarinSkyRL` `penfever/working`. Full framework facts/gotchas: `.claude/projects/marinskyrl/marinskyrl.md`.
 - **Editable-install model:** Harbor, MarinSkyRL, and OT-Agent are all `pip install -e .` on every cluster — after `git pull` the new source is active immediately.
 

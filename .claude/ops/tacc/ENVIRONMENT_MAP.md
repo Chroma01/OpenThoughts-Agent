@@ -39,7 +39,7 @@ Last verified: **2026-06-27** (from `ops.md` + the fork-vLLM build + the tmax-9b
 
 ### 2a. `otagent` conda — orchestration + eval + datagen + agentic + qwen3_5 serving (the default)
 - **Path:** `/scratch/10635/penfever/miniconda3/envs/otagent/` (activate via the `ops.md` preamble: `source $SCRATCH/miniconda3/bin/activate otagent`).
-- **Stack:** **torch 2.11.0+cu128** (+ torchvision 0.26.0, torchaudio 2.11.0, triton 3.6.0), **transformers 5.12.1** (bumped 2026-06-26 from 4.57.3 — gives native `qwen3_5` support + aligns with Leonardo's `eval-qwen35`), **vLLM `0.1.dev16611+g76259c63a`** (fork `mlfoundations/vllm` @ `76259c63a` built FROM SOURCE for aarch64 + sm_90 — resolves `Qwen3_5ForConditionalGeneration` + `Qwen3_5MoeForConditionalGeneration` in the registry), harbor 0.8.0 (editable, `penfever/working`), flashinfer-python 0.6.3.
+- **Stack:** **torch 2.11.0+cu128** (+ torchvision 0.26.0, torchaudio 2.11.0, triton 3.6.0), **transformers 5.12.1** (bumped 2026-06-26 from 4.57.3 — gives native `qwen3_5` support + aligns with Leonardo's `eval-qwen35`), **vLLM `0.1.dev16611+g76259c63a`** (fork `mlfoundations/vllm` @ `76259c63a` built FROM SOURCE for aarch64 + sm_90 — resolves `Qwen3_5ForConditionalGeneration` + `Qwen3_5MoeForConditionalGeneration` in the registry), harbor 0.8.0 (editable, `main`), flashinfer-python 0.6.3.
 - **SFT extras:** deepspeed 0.18.0, liger-kernel 0.8.0, peft 0.19.1, trl 1.6.0, llamafactory 0.9.4.dev0 (editable at `sft/llamafactory`), gradio 6.17.3, torchao 0.17.0.
 - **NO standalone flash_attn** — no prebuilt aarch64 wheel exists for torch 2.11+cu128 (checked mjun0812 v0.9.39–0.9.41: no cu128/aarch64 combos). vLLM serving uses **SDPA** (PyTorch native scaled dot-product attention). The fork-vLLM auto-falls-back to SDPA when FA2 is unavailable.
 - **Use for:** everything — `hpc.launch`, the unified eval listener (`eval/tacc/eval_harbor.sbatch`, TP=1, 1 node, 24h), datagen, uploads, SFT (via LLaMA-Factory editable), AND serving qwen3_5/qwen3_5_moe models for agentic eval (the fork-vLLM + transformers 5.12.1 handles this natively — no separate `eval-qwen35` env needed, unlike Leonardo).
@@ -105,7 +105,7 @@ print('Qwen3_5MoeForConditionalGeneration in vLLM:', 'Qwen3_5MoeForConditionalGe
 
 **No containers.** Vista has no Singularity/Apptainer — everything is bare-metal conda. This is simpler than Leonardo (which has 3+ singularity sandboxes) but means the from-source vLLM build must succeed natively on aarch64.
 
-**code clones (`$SCRATCH/`):** `OpenThoughts-Agent` (this repo), `harbor` (editable, `penfever/working` branch), `evalchemy` (standard evals clone).
+**code clones (`$SCRATCH/`):** `OpenThoughts-Agent` (this repo), `harbor` (editable, `main` branch; migrate a stale clone on next touch), `evalchemy` (standard evals clone).
 
 ---
 

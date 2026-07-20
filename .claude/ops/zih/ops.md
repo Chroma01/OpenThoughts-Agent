@@ -40,7 +40,7 @@ cd $WS/OpenThoughts-Agent
   > (double `befe330h-`); the current `ws_allocate` naming produces `/data/cat/ws/befe330h-otagent`
   > (single). The old dotenv/notes path is dead. `zih_capella.env` was updated to the new path.
 - Code (`$DCFT`/`$DC_AGENT`): `$SCRATCH/OpenThoughts-Agent` (`penfever/working`)
-- Harbor: `$SCRATCH/harbor` (`penfever/working`)
+- Harbor: `$SCRATCH/harbor` (`main`; migrate a stale clone: `git checkout main && git pull` on next cluster touch)
 - MarinSkyRL: `$SCRATCH/MarinSkyRL` (`penfever/working`)
 - Conda (`$DCFT_CONDA`): `$SCRATCH/miniconda3` (env `otagent`)
 - Secrets (`$DC_AGENT_SECRET_ENV`): `~/secrets.env` (in /home; 52-line local secrets synced over)
@@ -113,7 +113,7 @@ module load GCC/13.2.0       # or 13.3.0 — for any from-source build (Hopper s
 ```
 
 ## Codebase + conda-env + dotenv layout (the standard pattern, mirrors TACC/Leonardo)
-- **Repos** (all in the workspace, all `penfever/working`): `OpenThoughts-Agent`, `harbor`, `MarinSkyRL`.
+- **Repos** (all in the workspace): `OpenThoughts-Agent` (`penfever/working`), `harbor` (`main`; migrate a stale clone on next touch), `MarinSkyRL` (`penfever/working`).
   Sync discipline: commit on the Mac (`/Users/benjaminfeuer/Documents/...`) → push → `git pull` on the
   cluster (the Python repos are editable installs — live after pull). NO divergent/untracked changes on
   the cluster. SFT also needs `git submodule update --init --remote sft/llamafactory`.

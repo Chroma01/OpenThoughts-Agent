@@ -106,7 +106,7 @@ srun -p gh -N 1 -n 1 -t 12:00:00 --pty bash -l
   is proven fine (the fork-vLLM runs on 5.12.1 on Leonardo), but the OTHER otagent workflows
   (datagen / SFT-llamafactory / harbor) on this env should be re-smoke-tested before relying on
   them, and the bump likely cascaded other deps (re-verify the rest of this block live).
-- harbor 0.8.0 (editable, `penfever/working` branch)
+- harbor 0.8.0 (editable, `main` branch; migrate a stale clone: `git checkout main && git pull` on next touch)
 - flashinfer-python 0.6.3
 - **SFT extras**: deepspeed 0.18.0, liger-kernel 0.8.0, peft 0.19.1, trl 1.6.0,
   llamafactory 0.9.4.dev0 (editable), gradio 6.17.3, torchao 0.17.0
