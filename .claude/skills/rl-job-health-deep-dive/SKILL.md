@@ -26,6 +26,43 @@ not a hedged NO-KILL (see §0).**
 
 ---
 
+## STEP 0 (DO THIS FIRST) — PULL THE LOGS LOCAL, THEN ANALYZE FROM FILES (mandatory; no live-grep dance)
+
+**Before any gate, before any `iris job logs` grep, sync the job's logs to disk with the ONE utility and do ALL
+analysis from those local files.** The endless live-Iris grep dance (repeated `iris job logs --since-ms/--max-lines`,
+per-pod `kubectl exec` greps) is BANNED as the primary method — it is slow, unbounded, misses the terminating line,
+and is unreproducible. Pull once, then grep the files as many times as you need for free.
+
+```bash
+set -a; source /Users/benjaminfeuer/Documents/secrets.env; set +a
+PY=/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python
+$PY /Users/benjaminfeuer/Documents/MarinSkyRL/infra/sync_rl_logs.py \
+    /benjaminfeuer/<job> --cluster <cw-us-east-02a|cw-rno2a> [--run run-<ts>] [--dest DIR] [--trace-jobs]
+# → ./<slug>-<run>/finelog.log   +   ./<slug>-<run>/ray_session_logs/
+#   (+ ./<slug>-<run>/<slug>_trace_jobs.tar.gz when --trace-jobs is passed — the Harbor rollout
+#      artifacts streamed into ONE archive; opt-in, since trace_jobs can be very large)
+```
+
+It pulls BOTH, and you need BOTH:
+- **`finelog.log`** = the aggregated controller/job stream — **this is where the terminating exception / NCCL timeout /
+  `store->get(...) got error` / `Worker rank N received signal` lives.** The per-actor ray logs are frequently
+  traceback-less (Ray's C++ core logs); a hang's root cause routinely appears ONLY in the finelog. Read this FIRST.
+- **`ray_session_logs/`** = the per-actor `worker-*.out/.err` + `python-*`/raylet/gcs — for per-rank NCCL `Init
+  COMPLETE`/`nranks`, weight-sync group construction, py-spy correlation, and the failing rank's own stderr.
+
+Analyze from the files (plain `grep`/`python` on disk; for NCCL/weight-sync collective structure use the companion
+`experiments/active/tasktrove-dq-sweep-opencode/artifacts/parse_collectives.py` on the `ray_session_logs/` dir —
+it extracts the weight-sync group, per-nranks `Init COMPLETE`, transport/interface, and terminal faults). The utility
+is idempotent (re-run to refresh a live job — same-size ray files skip, finelog re-fetches), and it auto-picks the
+right kubeconfig per cluster (ray logs always come from the east LOTA bucket; finelog per the job's cluster).
+
+**Then hand the verdict to the supervisor WITH the exact local file paths + quoted lines**, so the supervisor confirms
+from the SAME files — not a fresh live grep. Every gate's "READ + QUOTED artifact" (§0-contract table below) is a
+quote from these local files. Live probes are reserved for the ONE thing files can't give you: a **live py-spy** on a
+still-running wedge (the process dies with the job) — capture that too, but everything else is file-based.
+
+---
+
 ## §0. THE CONTRACT — evidence-or-ERROR (the load-bearing rule)
 
 **Return `VERDICT: ERROR` whenever you could not obtain the evidence**: a required tool failed (auth / PATH /
@@ -91,13 +128,17 @@ KILL**; a restart burned on a genuine transient it has since recovered from is b
 (failure_count / pod generation on CoreWeave; the `afterany` chain on SLURM) → `ops/<cluster>/`. Record `B burned /
 K max` and each prior attempt's terminal error.
 
-**Capture the artifacts** with the existing tool (never hand-roll a kubectl/R2 sync) — logs + trace_jobs + (if
-restarts burned) the FAILED generations. *Exact capture + finelog-fetch commands* → `ops/iris/…` §Observability +
-`scripts/iris/peek_rl_rollouts.sh`. *What the phase-Timers / step counter / `[MoE-PATH]` markers mean* →
+**Capture the artifacts = STEP 0's `sync_rl_logs.py` (finelog + ray_session_logs) — already done before you reach
+this gate.** Do NOT hand-roll a kubectl/R2 sync or a live `iris job logs` grep; work from the local files STEP 0
+pulled. (`scripts/iris/peek_rl_rollouts.sh` is still the tool for the per-trial `opencode.txt`/rollout view when you
+need rollout-quality detail beyond the logs.) *What the phase-Timers / step counter / `[MoE-PATH]` markers mean* →
 `projects/marinskyrl`. **The phase Timers are the progress truth — not a trace count, not a progress bar.** (0
 trials at +15 min on a long-episode arm is normal, not "done" and not "dead.")
 
-**⚡ ON ANY DEATH/WEDGE (CoreWeave), ALWAYS FETCH THE RAY ACTOR LOGS — the finelog/`job logs` do NOT carry the root cause.** A colocated-engine RL job routinely dies `exit=0` with NO traceback in the job log (you see only `ray-log-sync uploaded …` → `Killed ray::IDLE/raylet/gcs`); the real killer — a vLLM `EngineCore` fatal, a Ray `ObjectLostError`/`OwnerDiedError`, an actor crash, a `PicklingError` on a `RayTaskError` — survives ONLY in the per-actor Ray logs uploaded to S3 at **`<rendezvous-dir>/ray_session_logs/`** (the `--rendezvous-dir` path, not `…/<job>/trace_jobs`). Sync them (CW creds + `endpoint_url=https://cwobject.com` + `addressing_style=virtual`; ~225 MB/keep-1) and grep **`worker-*.out`/`worker-*.err`** (the actor stdout/stderr — NOT `python-core-*.log`, Ray's traceback-less C++ core logs) for the exception-terminating line. **A "clean" `exit=0` teardown with node RAM low is NOT a verdict — it's a missing-evidence ERROR until you've read the ray_session_logs.** Exact fetch recipe + the keep1-v22 worked example (silent ~34-min death = vLLM `EngineDeadError` `reshape_and_cache_flash … Meta tensors` during the first-step weight-sync with requests in-flight) → `ops/iris/ops.md` §object-store / RAY ACTOR LOGS.
+**⚡ ON ANY DEATH/WEDGE — READ BOTH `finelog.log` AND `ray_session_logs/` (STEP 0 pulled both). The root cause hides in ONE of them; which one varies.** Two failure classes, two homes:
+- The **finelog** carries the aggregated **terminating exception / NCCL timeout** — e.g. `store->get('...') got error: wait timeout after 1800000ms` + the `collective_rpc`/`broadcastUniqueNCCLID` traceback of a het weight-sync bootstrap hang, or a `Worker rank N received signal`. The per-actor ray logs frequently do NOT carry this (worker-*.err may hold only a benign metrics-RPC line). **Read `finelog.log` FIRST** (grep it for `got error`/`timeout`/`Traceback`/`received signal`/`Init COMPLETE`).
+- The **ray_session_logs** carry the per-actor detail: a vLLM `EngineCore` fatal, a Ray `ObjectLostError`/`OwnerDiedError`, an actor crash, per-rank NCCL `Init COMPLETE`/`nranks`, weight-sync group construction. Grep **`worker-*.out`/`worker-*.err`** (NOT `python-core-*.log`, Ray's traceback-less C++ core logs); for NCCL/weight-sync structure run `parse_collectives.py` on the dir (STEP 0). A colocated-engine job that dies `exit=0` with NO finelog traceback (only `Killed ray::IDLE/raylet/gcs`) has its killer here.
+- **A "clean" `exit=0` teardown with node RAM low is NOT a verdict — it's a missing-evidence ERROR until you've read BOTH local files.** Worked examples: keep1-v22 (silent ~34-min death = vLLM `EngineDeadError` `reshape_and_cache_flash … Meta tensors` at first-step weight-sync, found in ray_session_logs); keep1-ncclnet (het weight-sync bootstrap hang = `store->get('/skyrl/skyrl//cuda//0')` 1800000ms timeout via `collective_rpc`, found ONLY in the finelog). Deeper background → `ops/iris/ops.md` §object-store / RAY ACTOR LOGS.
 
 ---
 
