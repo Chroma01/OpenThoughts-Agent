@@ -183,7 +183,20 @@ echo "Harbor config agent: $CFG_AGENT_NAME (installed_agent=$IS_INSTALLED_AGENT)
 # Keys come from the secrets env (sourced above as $DC_AGENT_SECRET_ENV) — NEVER hardcode.
 DAYTONA_KEY_ORG1="${DAYTONA_API_KEY:?DAYTONA_API_KEY unset — source the secrets env ($DC_AGENT_SECRET_ENV) before launch}"
 DAYTONA_KEY_ORG2="${DAYTONA_DATA_API_KEY:?DAYTONA_DATA_API_KEY unset — source the secrets env ($DC_AGENT_SECRET_ENV) before launch}"
-if [ "$IS_INSTALLED_AGENT" = true ]; then
+if [ -n "$EVAL_DAYTONA_ORG" ]; then
+    # Explicit per-leg org override (org-spreading across the two eval orgs so no
+    # single org's concurrency/snapshot cap is hit → fewer SandboxBuildFailedError).
+    # Values: org1 (DAYTONA_API_KEY) | org2 (DAYTONA_DATA_API_KEY). Forwarded from the
+    # listener submit env via sbatch --export=ALL. Overrides the installed-agent
+    # strict-org2 default below; unset → default behavior unchanged.
+    if [ "$EVAL_DAYTONA_ORG" = "org1" ]; then
+        export DAYTONA_API_KEY="$DAYTONA_KEY_ORG1"
+        echo "Selected Daytona org: org1 (explicit EVAL_DAYTONA_ORG) (${DAYTONA_API_KEY:0:12}...)"
+    else
+        export DAYTONA_API_KEY="$DAYTONA_KEY_ORG2"
+        echo "Selected Daytona org: org2/DATA (explicit EVAL_DAYTONA_ORG) (${DAYTONA_API_KEY:0:12}...)"
+    fi
+elif [ "$IS_INSTALLED_AGENT" = true ]; then
     # Installed-agent evals (opencode) use STRICT 100% DATA org (org2) per the
     # per-experiment DATA policy. Gated on the installed-agent path so the running
     # terminus-2 evals keep their historical 3:1 org2:org1 load-spread unchanged.
