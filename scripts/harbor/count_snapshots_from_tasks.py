@@ -104,6 +104,55 @@ def load_tasks_from_local_dataset(
     return [tc.path for tc in task_configs]
 
 
+def load_tasks_from_hf_parquet(
+    dataset_name: str,
+    n_tasks: int | None = None,
+    download_dir: Path | None = None,
+    task_names: list[str] | None = None,
+    exclude_task_names: list[str] | None = None,
+) -> list[Path]:
+    """Load task dirs from a TaskTrove-style HF dataset.
+
+    Campaign task datasets are stored on the Hub as a ``tasks.parquet`` with columns ``path`` (str)
+    and ``task_binary`` (gzip-tar bytes of the task dir: ``environment/Dockerfile``, ``instruction.md``,
+    ...). This loader unpacks them so the same ``analyze_task_dockerfiles`` env-hash logic runs. It is
+    the fallback for datasets the harbor registry can no longer resolve (its ``latest``-tag lookup
+    drifted) — and matches how the datagen launcher itself loads ``--tasks_input_path`` HF ids.
+    """
+    import gzip
+    import io
+    import tarfile
+    import tempfile
+    from fnmatch import fnmatch
+
+    import pandas as pd
+    from huggingface_hub import hf_hub_download
+
+    parquet = hf_hub_download(repo_id=dataset_name, filename="tasks.parquet", repo_type="dataset")
+    df = pd.read_parquet(parquet)
+    if "task_binary" not in df.columns or "path" not in df.columns:
+        raise ValueError(
+            f"{dataset_name}/tasks.parquet lacks the expected 'path'+'task_binary' columns "
+            f"(got {list(df.columns)})"
+        )
+    out_root = Path(download_dir) if download_dir else Path(tempfile.mkdtemp(prefix="tasktrove_snap_"))
+    task_dirs: list[Path] = []
+    for path, task_binary in zip(df["path"], df["task_binary"]):
+        if n_tasks is not None and len(task_dirs) >= n_tasks:
+            break
+        name = str(path)
+        if task_names and not any(fnmatch(name, pat) for pat in task_names):
+            continue
+        if exclude_task_names and any(fnmatch(name, pat) for pat in exclude_task_names):
+            continue
+        task_dir = out_root / name
+        task_dir.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fileobj=io.BytesIO(gzip.decompress(task_binary))) as tar:
+            tar.extractall(task_dir, filter="data")
+        task_dirs.append(task_dir)
+    return task_dirs
+
+
 def load_tasks_from_registry_dataset(
     dataset_name: str,
     version: str | None = None,
@@ -259,14 +308,30 @@ def main():
                 n_tasks=args.n_tasks,
             )
         else:
-            task_dirs = load_tasks_from_registry_dataset(
-                dataset_name=args.registry_dataset,
-                version=args.version,
-                task_names=args.task_names,
-                exclude_task_names=args.exclude_task_names,
-                n_tasks=args.n_tasks,
-                download_dir=args.download_dir,
-            )
+            try:
+                task_dirs = load_tasks_from_registry_dataset(
+                    dataset_name=args.registry_dataset,
+                    version=args.version,
+                    task_names=args.task_names,
+                    exclude_task_names=args.exclude_task_names,
+                    n_tasks=args.n_tasks,
+                    download_dir=args.download_dir,
+                )
+            except Exception as reg_err:
+                # The harbor registry resolves a 'latest' tag that these datasets no longer carry;
+                # fall back to the TaskTrove HF tasks.parquet, which is where they actually live.
+                print(
+                    f"[count-snapshots] harbor registry load failed ({reg_err}); "
+                    f"falling back to HF tasks.parquet for {args.registry_dataset}",
+                    file=sys.stderr,
+                )
+                task_dirs = load_tasks_from_hf_parquet(
+                    dataset_name=args.registry_dataset,
+                    n_tasks=args.n_tasks,
+                    download_dir=args.download_dir,
+                    task_names=args.task_names,
+                    exclude_task_names=args.exclude_task_names,
+                )
     except Exception as e:
         print(f"Error loading tasks: {e}", file=sys.stderr)
         sys.exit(1)
