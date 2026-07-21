@@ -110,6 +110,10 @@ class IrisLauncher:
                        default=None,
                        help="Path to the iris cluster YAML (default: marin for TPU, "
                             "cw-us-east-02a for GPU, resolved in the marin repo).")
+        g.add_argument("--cluster", default=None,
+                       help="Named iris cluster: resolves lib/iris/config/<name>.yaml in "
+                            "the marin repo (e.g. --cluster cw-rno2a). Convenience over "
+                            "--cluster-config; --cluster-config wins if both are given.")
         g.add_argument("--task-image", "--task_image",
                        default=None,
                        help="Container image for the task (default: "
@@ -322,6 +326,11 @@ class IrisLauncher:
             raise SystemExit(
                 "--gpu requires a GPU task image. Omit --task-image to use "
                 f"{DEFAULT_GPU_TASK_IMAGE}, or pass an explicit GPU-capable image."
+            )
+
+        if args.cluster_config is None and getattr(args, "cluster", None):
+            args.cluster_config = self._resolve_cluster_config_default(
+                f"lib/iris/config/{args.cluster}.yaml"
             )
 
         if args.cluster_config is None:

@@ -23,7 +23,7 @@ if str(_repo_root) not in sys.path:
 import yaml
 
 from hpc.iris_launch_utils import IrisLauncher
-from hpc.cloud_launch_utils import repo_relative, parse_gpu_count, infer_harbor_env_from_config
+from hpc.cloud_launch_utils import repo_relative, infer_harbor_env_from_config
 from hpc.arg_groups import (
     add_harbor_args,
     add_harbor_env_arg,
@@ -113,13 +113,17 @@ class TracegenIrisLauncher(IrisLauncher):
         add_ingress_literal_args(parser)
 
     def normalize_paths(self, args: argparse.Namespace) -> None:
-        # On TPU, --gpus drives vLLM tensor_parallel_size — derive from TPU chip count.
+        # --gpus drives vLLM tensor_parallel_size. On the GPU path it is the whole-node
+        # GPU count (H100x8 -> 8, so a TP=8 serve sees all 8 GPUs); on TPU it is the
+        # slice's chip/core count. Derive from the already-resolved accelerator (run()
+        # resolves it before normalize_paths). Previously this only parsed --tpu and fell
+        # back to 1 on GPU, which starved Ray of GPUs and broke multi-GPU serves.
         if args.gpus is None:
-            try:
-                chips = int(args.tpu.rsplit("-", 1)[-1])
-                args.gpus = chips
-            except (ValueError, AttributeError):
-                args.gpus = parse_gpu_count(getattr(args, "accelerator", "") or "")
+            accelerator = self.resolved_accelerator(args)
+            if accelerator.is_gpu:
+                args.gpus = accelerator.gpu_count
+            else:
+                args.gpus = int(args.tpu.rsplit("-", 1)[-1])
 
         args.harbor_config = repo_relative(args.harbor_config, self.repo_root)
         args.datagen_config = repo_relative(args.datagen_config, self.repo_root)
