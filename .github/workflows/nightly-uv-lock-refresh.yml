@@ -1,0 +1,65 @@
+name: Nightly uv-lock fork-pin refresh
+
+# Keep the git dependencies that track a moving branch fresh in uv.lock.
+#
+# uv.lock records a precise commit for every git dependency (reproducible installs).
+# A dependency declared as "@main" (marin-community/harbor) therefore freezes to a
+# commit and drifts behind the fork's main over time. When that pin goes stale, the
+# eval/datagen pods install an old harbor: e.g. a stale pin once shipped harbor without
+# the opencode baseURL fix (PR #8), so every agentic-eval trial scored 0 because the
+# agent built "undefined/chat/completions" and never contacted the model.
+#
+# This job re-resolves the fork pins to their current branch HEAD each night and opens
+# a PR when the lock changes. Review + merge keeps the pins current and reproducible.
+# Add more packages to the `uv lock --upgrade-package` line to track more forks.
+#
+# NOTE: scheduled workflows run only from the repository's DEFAULT branch, so this file
+# must be merged to the default branch to fire on schedule. `workflow_dispatch` lets you
+# run it by hand from any branch that has it.
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh-fork-pins:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Re-resolve the forked git-@main pins
+        run: uv lock --upgrade-package harbor
+
+      - name: Open a PR when uv.lock changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- uv.lock; then
+            echo "uv.lock is unchanged — the fork pins are already current. Nothing to do."
+            exit 0
+          fi
+          echo "uv.lock changed. Opening a PR."
+          BRANCH="nightly/uv-lock-refresh-$(date -u +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add uv.lock
+          git commit -m "chore(deps): nightly refresh of forked git pins (harbor @main)"
+          git push -u origin "$BRANCH" --force
+          # Reuse an open PR from a same-day rerun if one exists; otherwise open one.
+          if ! gh pr view "$BRANCH" >/dev/null 2>&1; then
+            gh pr create \
+              --title "Nightly uv-lock refresh: forked git pins" \
+              --body "Automated nightly re-resolve of the git-\`@main\` fork pins in \`uv.lock\` (harbor). Keeps the pins current with the fork's main and prevents stale-pin drift. Review the diff, run CI, then merge." \
+              --head "$BRANCH"
+          fi
