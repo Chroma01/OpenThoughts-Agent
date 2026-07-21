@@ -39,11 +39,21 @@ vllm_server:
   tool_call_parser: glm47
   reasoning_parser: glm45
   trust_remote_code: true
+  # The image is built on a CUDA *runtime* base (no nvcc), so any kernel that JIT-compiles at runtime
+  # via nvcc/ninja crashes the engine (FlashInfer sampling did: "nvcc: not found" -> WorkerProc
+  # exception). Disable the runtime-JIT paths — exactly what the GLM-5.1 AWQ template does:
+  #   use_flashinfer_sampler:false (native sampler), use_deep_gemm:false, fuse_allreduce_rms:false
+  #   (skip the FlashInfer trtllm all-reduce JIT). vLLM's own kernels (FlashMLA sparse attn, Marlin
+  #   WNA16 MoE) are precompiled and unaffected.
+  use_deep_gemm: false
+  use_flashinfer_sampler: false
   extra_args:
   - --dtype
   - bfloat16
   - --kv-cache-dtype
   - fp8
+  - --compilation-config
+  - '{"pass_config":{"fuse_allreduce_rms":false}}'
   - --enable-chunked-prefill
   - --enable-prefix-caching
   - --max-num-batched-tokens
