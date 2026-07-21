@@ -63,7 +63,9 @@ from hpc.iris.regions import (
 )
 from hpc.iris.settings import (
     DEFAULT_CLUSTER_CONFIG,
+    DEFAULT_DISK,
     DEFAULT_GPU_CLUSTER_CONFIG,
+    DEFAULT_GPU_DISK,
     DEFAULT_GPU_TASK_IMAGE,
     DEFAULT_PRIORITY,
     DEFAULT_TASK_IMAGE,
@@ -144,14 +146,17 @@ class IrisLauncher:
                             "or ~400B AWQ-4-bit with comfortable headroom. "
                             "Bump for larger models; drop to 64GB for small "
                             "smokes if you want to be polite to the queue.")
-        g.add_argument("--disk", default="100GB",
-                       help="Ephemeral disk (default 100GB). marin's v6e/v5p "
-                            "workers cap per-VM disk at 100GB; requests above "
-                            "that queue forever waiting on the autoscaler which "
-                            "can't provision a larger-disk worker. For models "
-                            "whose weights exceed 100GB, use --load-format "
-                            "runai_streamer + gs://-hosted weights instead of "
-                            "bumping disk.")
+        g.add_argument("--disk", default=None,
+                       help=f"Ephemeral disk (default {DEFAULT_DISK} on marin TPU, "
+                            f"{DEFAULT_GPU_DISK} on CoreWeave GPU). marin's v6e/v5p "
+                            "workers cap per-VM disk at 100GB; requests above that "
+                            "queue forever waiting on an autoscaler that can't "
+                            "provision a larger-disk worker (on TPU, for weights "
+                            ">100GB use --load-format runai_streamer + gs://-hosted "
+                            "weights instead of bumping disk). CoreWeave GPU nodes "
+                            "have large local disk, so the GPU default is higher to "
+                            "fit big model weight downloads without an ephemeral-"
+                            "storage eviction.")
         g.add_argument("--priority", default=DEFAULT_PRIORITY,
                        choices=["production", "interactive", "batch"],
                        help="Iris priority band (default interactive).")
@@ -336,6 +341,9 @@ class IrisLauncher:
         if args.cluster_config is None:
             config = DEFAULT_GPU_CLUSTER_CONFIG if accelerator.is_gpu else DEFAULT_CLUSTER_CONFIG
             args.cluster_config = self._resolve_cluster_config_default(config)
+
+        if args.disk is None:
+            args.disk = DEFAULT_GPU_DISK if accelerator.is_gpu else DEFAULT_DISK
 
     def resolved_accelerator(self, args: argparse.Namespace) -> ResolvedIrisAccelerator:
         accelerator = getattr(args, "_resolved_iris_accelerator", None)
