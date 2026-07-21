@@ -22,7 +22,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_IRIS_BIN = "/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris"
-_CAPABILITY_URL_RE = re.compile(r"^https://\S+/v1$")
+_CAPABILITY_URL_RE = re.compile(r"https://[^\s]+/v1")
 
 
 def mint_capability_api_base(
@@ -49,11 +49,7 @@ def mint_capability_api_base(
             f"Iris endpoint mint failed (exit {result.returncode}): "
             f"{result.stderr[-800:]}"
         )
-    urls = [
-        line.strip()
-        for line in result.stdout.splitlines()
-        if _CAPABILITY_URL_RE.fullmatch(line.strip())
-    ]
+    urls = _CAPABILITY_URL_RE.findall(result.stdout)
     if len(urls) != 1:
         raise RuntimeError(
             "Iris endpoint mint returned no unambiguous capability URL; refusing to launch."

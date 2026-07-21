@@ -19,7 +19,9 @@ def test_mint_requires_one_capability_url(monkeypatch):
     class Result:
         returncode = 0
         stderr = ""
-        stdout = "https://iris.oa.dev/proxy/t/token/serve.example/v1\n"
+        stdout = (
+            "Capability API base: https://iris.oa.dev/proxy/t/token/serve.example/v1\n"
+        )
 
     monkeypatch.setattr(_MODULE.subprocess, "run", lambda *a, **k: Result())
     assert _MODULE.mint_capability_api_base(
