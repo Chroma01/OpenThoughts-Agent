@@ -64,15 +64,18 @@ agents:
     # summary turn) — rarely fires. But 4096 TRUNCATED the verbose SFT models
     # asymmetrically (densemixer 17% of trials / base 6%), confounding the A/B.
     # Here the SERVED window is bumped to 65536 (registry max_model_len), so
-    # max_output can return to 16384 AND limit.context stays large:
-    #   limit.context = max_input(65536) - max_output(16384) - margin(1024) = 48128
+    # max_output can return to 16384 AND limit.context stays large. Keep a 2k
+    # protocol margin so a request at the OpenCode boundary cannot overflow the
+    # 65536-token served vLLM window.
+    #   limit.context = max_input(64512) - max_output(16384) - margin(1024) = 47104
     # -> no early summarization (crash-free) AND no output truncation (fair). The
-    # served vLLM max_model_len MUST equal max_input_tokens (both 65536).
+    # The served vLLM max_model_len remains 65536; max_input_tokens is the
+    # deliberately lower OpenCode protocol cap.
     opencode_config:
       compaction:
         auto: false
     model_info:
-      max_input_tokens: 65536
+      max_input_tokens: 64512
       max_output_tokens: 16384
       input_cost_per_token: 0
       output_cost_per_token: 0
