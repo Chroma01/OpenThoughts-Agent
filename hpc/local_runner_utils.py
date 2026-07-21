@@ -371,6 +371,13 @@ def start_ray(
     return process
 
 
+# vLLM's internal collective_rpc watchdog (VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS) is derived from our
+# serve-bringup healthcheck window times this ratio, so the OUTER healthcheck (run_endpoint_health_check)
+# always decides a slow/stuck bringup first — a clean "healthcheck exhausted" failure rather than vLLM
+# tripping EngineDeadError mid first-inference JIT. >1 guarantees the internal watchdog never pre-empts us.
+EXECUTE_MODEL_TIMEOUT_HEALTHCHECK_RATIO = 1.5
+
+
 def start_vllm_controller(
     model: str,
     host: str,
@@ -385,6 +392,7 @@ def start_vllm_controller(
     served_model_name: Optional[str] = None,
     extra_cli_args: Optional[List[str]] = None,
     extra_env_vars: Optional[dict] = None,
+    execute_model_timeout: Optional[int] = None,
 ) -> ManagedProcess:
     """Start a vLLM controller process.
 
@@ -412,6 +420,12 @@ def start_vllm_controller(
 
     if extra_env_vars:
         env.update(extra_env_vars)
+
+    # Couple the internal execute_model watchdog to our healthcheck window (see the ratio constant).
+    # setdefault so an explicit VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS (from the inherited env or the
+    # datagen config's env_vars) still wins.
+    if execute_model_timeout is not None:
+        env.setdefault("VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS", str(int(execute_model_timeout)))
 
     cmd = [
         sys.executable,
@@ -1295,6 +1309,11 @@ class LocalHarborRunner:
                 served_model_name=getattr(args, "_served_model_id", None),
                 extra_cli_args=getattr(args, "_vllm_cli_args", []),
                 extra_env_vars=getattr(args, "_vllm_env_vars", {}),
+                execute_model_timeout=int(
+                    args.health_max_attempts
+                    * args.health_retry_delay
+                    * EXECUTE_MODEL_TIMEOUT_HEALTHCHECK_RATIO
+                ),
             )
             self.processes.append(vllm_proc)
         else:
