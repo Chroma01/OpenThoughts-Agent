@@ -58,6 +58,25 @@ Per-engine `Running` sawtoothing PEAK(=engine cap)→TROUGH 1 with `Waiting=0` +
 An **opencode** agentic-RL config with **`max_turns: 999999`** (unbounded) DEADLOCKS the run: the `-Thinking-` / compaction-off opencode agent does NOT reliably self-terminate, so with the generator's turn cap removed it LOOPS past the `override_timeout_sec` wall → the verifier never runs → no `result.json` is written → **0 trial completions / no first policy step** (looks like a decode-capacity/throughput stall — the deep `Waiting` queue is loopers manufacturing fake demand, NOT a real capacity ceiling). Diagnose via Daytona REST: sandboxes aging PAST `override_timeout` and still `STARTED` = looping. Always set a bounded `max_turns` (fullgate went green at n=8 with `max_turns: 30` + `override_timeout_sec: 600`); never inherit `999999`.
 **⚠ DEEPER BUG (under investigation 2026-07-18) — the kill/timeout path itself is broken for opencode:** v10's trials were alive at 51 min, PAST the 30-min `override_timeout` — so harbor's wall-clock kill did NOT terminate them. Lowering `override_timeout` does NOT help (a trial that ignored 1800 s ignores 600 s). **CONFIRMED insufficient (keep1-v11, 2026-07-18): `max_turns` is a NO-OP for opencode.** `opencode.py` wires NO turn cap (`CLI_FLAGS = --variant` only) — unlike the other 4 installed agents (claude_code/goose `max_turns`, hermes `max_turns:90`, trae `max_steps`) — AND opencode is a single detached `opencode run --format=json` `run_async` Daytona command (`environment.py:1595`) run WITHOUT `timeout_sec`. The only stop is `trial.py:336` `asyncio.wait_for(agent.run(), timeout=override_timeout_sec)`, but on timeout it cancels the LOCAL poll coroutine while `_poll_response`/`_sandbox_exec` have no `except CancelledError` that KILLS the remote command → the detached opencode keeps running. v11 (max_turns:30, override 600s) looped identically to v10: 193/200 sandboxes alive past 20 min. **The real fix is TWO harbor levers (worktree→PR→--harbor-ref):** (1) plumb the agent timeout into opencode's exec so the server-side `timeout {N}` wrapper kills it + add `except CancelledError → remote-kill` in `_poll_response`; (2) wire a real `max_turns` into `opencode.py` (native flag or count `step_finish` + process-group-kill). Reference for "what a healthy trial looks like": ~8 calls / ~13 min (`experiments/complete/rno2a-30b-coder-throughput`). (keep1-v10/v11 2026-07-18.)
 
+### opencode (installed agent) REQUIRES `--ingress-mode controller` — NOT `direct` (sandbox-reachability)
+**Confirmed with hard evidence 2026-07-21.** opencode is an INSTALLED agent that runs INSIDE the Daytona
+sandbox and drives the model over HTTP (its `api_base`). `--ingress-mode direct` sets that `api_base` to the
+**cluster-internal serving IP** (observed in the opencode trial `config.json`: `"api_base":
+"http://10.168.192.223:8000/v1"`) — which the Daytona sandbox has **NO route to** (the sandbox only reaches
+the served vLLM over a public tunnel). So on `direct`, every opencode model call hangs → **0-byte
+`opencode.txt` (agent emits nothing), no engine activity (`Running: 0 reqs`), 1800 s `AgentTimeoutError`, 288
+`config.json` / 0 `result.json`** (identical on the pre- and post-#80 images). **`--ingress-mode controller`
+is REQUIRED** — it mints the public `iris.oa.dev/proxy/t/<token>/v1` capability URL that the sandbox CAN
+reach (`run_rl.py` sets `++terminal_bench_config.agent_api_base=<minted proxy>` only in the controller
+branch). This is exactly what `launch_rl_iris.py` autoconfigure derives (opencode→controller on CoreWeave);
+overriding to `--ingress-mode direct` BREAKS opencode. **terminus-2 works on `direct` ONLY because it is an
+IN-PROCESS agent** (the trainer process reaches the internal 10.* IP directly — no sandbox network hop).
+⇒ **This REFUTES the earlier "opencode-direct 0-rollouts is opencode-specific, NOT ingress" premise — it IS
+an ingress/reachability problem.** PR #80 (publish `OPENCODE_DUMMY_KEY` in direct too) closed a real but
+INSUFFICIENT gap: a keyless agent refuses to start, but even with the key the direct `api_base` is
+unreachable from the sandbox. opencode-RL is therefore genuinely coupled to the controller `/proxy/t` path
+(the #7448 question); terminus-2 is not.
+
 ### Hydra struct — every run-YAML key must be declared in `ppo_base_config.yaml`
 
 A run-YAML key not declared in the base struct `skyrl-train/skyrl_train/config/ppo_base_config.yaml` (at the launch's `--skyrl-ref`) is **REJECTED at config-parse**. OmegaConf loads the base in struct mode → `Could not override '<key>'. Key '<key>' is not in struct` → `HydraException` → driver exits 1 ~8–30 s after Ray-attach, **before `init_model`** (no NCCL, no training). Grep the finelog for `not in struct`.

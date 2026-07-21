@@ -16,32 +16,34 @@ Shared env/setup every iris operation needs.
   `/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python` (symlinks fail in the sandbox).
 - **`iris` binary = `/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris`** — the reliable
   default. The marin `.venv` ships a **broken `kubernetes`** (dist-info present, module not
-  importable) → every **CoreWeave** `iris` command (`job summary`, `query`, `job list`, …)
-  dies with `ImportError: Install iris[controller]` (cw is a k8s controller backend). The
-  otagent env has a working `kubernetes` 35.0.0 + the editable iris package. For the **TPU
-  `marin`** cluster the marin `.venv` iris works: `IRIS=/Users/benjaminfeuer/Documents/marin/.venv/bin/iris`
+  importable) → every **CoreWeave** `iris` command dies with
+  `ImportError: Install iris[controller]` (cw is a k8s controller backend). The otagent env has
+  working `kubernetes` 35.0.0 + editable iris. For the **TPU `marin`** cluster the marin `.venv`
+  iris works: `IRIS=/Users/benjaminfeuer/Documents/marin/.venv/bin/iris`
   (or `conda activate marin && uv run iris`).
-- **`source "$DC_AGENT_SECRET_ENV"`** before any submit/mirror script — load-bearing: the
-  launcher forwards `HF_TOKEN` / `WANDB_*` / `DAYTONA_*` from the launch host's env into the
-  task pod. Without `DAYTONA_*` every agentic trajectory finalizes
-  `VerificationNotCompletedError` reward 0; without `HF_TOKEN` weight/data resolution fails.
+- **`source "$DC_AGENT_SECRET_ENV"`** before any submit/mirror script — the launcher forwards
+  `HF_TOKEN` / `WANDB_*` / `DAYTONA_*` from the launch host's env into the task pod. Without
+  `DAYTONA_*` every agentic trajectory finalizes `VerificationNotCompletedError` reward 0; without
+  `HF_TOKEN` weight/data resolution fails.
 - **`export KUBECONFIG=~/.kube/coreweave-iris-gpu`** is a HARD PREREQUISITE for every
   **CoreWeave** job/query. This Mac's default `~/.kube/config` points at a different context
   (TPU/`marin`/other); without the export, `kubectl` inspects the wrong cluster and `iris` cw
-  commands open the tunnel against the wrong backend → misleading "0 pods / not found" / auth
-  errors that look like a dead job but are really the wrong kubeconfig. Re-export in any fresh
-  shell or background call. (rno2a uses `~/.kube/coreweave-iris` — see §2.)
+  commands fail with misleading "0 pods / not found" / auth errors. Re-export in any fresh shell
+  or background call. (rno2a uses `~/.kube/coreweave-iris` — see §2.)
+  - **⚠ Order matters: `source $DC_AGENT_SECRET_ENV` (secrets.env) EXPORTS `KUBECONFIG=~/.kube/lambdaconfig`**
+    (Beta/k3d/EmpireAI context), which LACKS `marin-gpu_US-EAST-02A` → any CoreWeave poll after
+    sourcing secrets fails. **`source secrets.env` FIRST, then `export KUBECONFIG=~/.kube/coreweave-iris-gpu`**
+    (both `coreweave-iris` and `coreweave-iris-gpu` carry the East context; either works).
 - **All `iris`/`kubectl` calls SYNCHRONOUS — never background them.**
-- **`--cluster=cw-us-east-02a` is a TOP-LEVEL flag on the `iris` CLI** (BEFORE the subcommand:
+- **`--cluster=cw-us-east-02a` is a TOP-LEVEL flag** (BEFORE the subcommand:
   `iris --cluster=cw-us-east-02a job logs …`), not a per-subcommand option. Bare
   `job stop <jid>` errors "No controller specified"; `job stop <jid> --cluster …` errors
   "No such option". `stop`/`kill` are aliases → prints `Terminated jobs:`.
 - **⚠ SECRET-BEARING kubectl (all iris clusters):** `kubectl describe pod <task-pod>` and
-  `kubectl get pod <task-pod> -o yaml` dump `IRIS_JOB_ENV` — i.e. the pod's **live API keys**
-  (`DAYTONA_*`, `HF_TOKEN`, `WANDB_API_KEY`, `OPENAI_API_KEY`, …) — into their output. Do NOT
-  run `describe`/`-o yaml` on a task pod when you only need state; use `kubectl … get pods`
-  (state) or read ONE var by name via `kubectl -n iris exec <pod> -- printenv <VAR>` (never
-  echo the value). Bake this bound into subagent prompts.
+  `kubectl get pod <task-pod> -o yaml` dump `IRIS_JOB_ENV` — the pod's **live API keys**
+  (`DAYTONA_*`, `HF_TOKEN`, `WANDB_API_KEY`, `OPENAI_API_KEY`, …) — into their output. Do NOT run
+  `describe`/`-o yaml` on a task pod when you only need state; use `kubectl … get pods` (state)
+  or read ONE var via `kubectl -n iris exec <pod> -- printenv <VAR>` (never echo the value).
 
 ---
 
@@ -94,16 +96,15 @@ H100x8 node totals:
   the policy mesh, inter-engine) go over IB → keep TP intra-node, shard the slower axes
   (FSDP/CP) across nodes.
 
-**How this informs RL geometry (the practical upshot):**
+**RL geometry implications:**
 - **640 GiB HBM/node** hosts a TP=8 vLLM engine for a 30B–35B-class MoE at long context: the
   131k MoE arm runs **4 engines × TP=8 / DCP=2** (32 inference GPU = 4 nodes) — each engine one
-  node, KV + weights under 640 GiB at `gpu_memory_utilization 0.80`. (Contrast Jupiter's
-  4-GPU/96 GiB GH200 nodes, which forced DCP=1 and made TP=8 unplaceable.)
+  node, KV + weights under 640 GiB at `gpu_memory_utilization 0.80`.
 - **H100-80GB < GH200-96GB HBM** → porting a GH200 config, the per-GPU budget tightens: drop
   `gpu_memory_utilization` (0.80→0.75) / `max_num_seqs` first on a KV-bind OOM.
 - **~2 TB host DRAM** is generous for `cpu_offload`, but host-RAM OOM at FSDP weight-load on
-  the policy nodes is still possible at 131k + EP8 + offload (observed on a 30B run); reduce
-  `n_concurrent` / the rollout-worker count if it recurs.
+  the policy nodes is still possible at 131k + EP8 + offload; reduce `n_concurrent` / the
+  rollout-worker count if it recurs.
 - **sm_90** everywhere → from-source builds (vLLM fork, flash-attn) target
   `TORCH_CUDA_ARCH_LIST="9.0"` (baked in the gpu-rl image; canonical build in **MarinSkyRL**
   `docker/Dockerfile.gpu-rl` + `docker/build_gpu_rl_kaniko.sh` — see `build-gpu-rl-image-iris`).
@@ -160,10 +161,8 @@ v6e-8 vs v5p-32 — same nominal bf16 throughput, very different memory:
 | host count | 1 | 4 (cross-host comms cost) |
 | host DRAM | 1,410 GiB | 1,859 GiB (across 4) |
 
-This is why 122B-FP8 fits on v5p-32 but not v6e-8 [memory: v6e8_cannot_fit_122b_fp8]: 122B weights × 1
-byte ≈ 122 GiB > the 256 GiB v6e-8 budget once activations, MoE fixed footprint, and compile-time peaks
-are subtracted. v5p-32 gives 6× the HBM at the cost of multi-host coordination, no native FP8, and ~3×
-lower per-chip HBM bandwidth.
+122B-FP8 fits on v5p-32 but not v6e-8: 122B weights × 1 byte ≈ 122 GiB > the 256 GiB v6e-8
+budget once activations, MoE fixed footprint, and compile-time peaks are subtracted.
 
 **Serving gotcha — prefer single-host DP=1 (marin#6136 multi-host decode bug):** ⚠️ Multi-host TPU
 serving hits a decode bug (marin#6136) that forces `max_num_seqs` down (e.g. seqs=2), crippling
@@ -179,31 +178,23 @@ note in §3.)
 ## §2 CoreWeave GPU cluster (`cw-us-east-02a`)
 
 The **GPU RL path**: driven via `python -m cloud.iris.launch_rl_iris` (run **from the
-MarinSkyRL repo root**, `cd ~/Documents/MarinSkyRL`) + the `gpu-rl` Docker image.
-
-> **⚠ Launcher moved (cutover 2026-07-16).** The canonical live entry point is now the
-> **self-contained MarinSkyRL launcher** `cloud/iris/launch_rl_iris.py` (repo
-> `~/Documents/MarinSkyRL`, on `main` / any branch containing `cloud/iris/`), invoked as
-> **`python -m cloud.iris.launch_rl_iris`** with `--rl_config cloud/iris/configs/<cfg>.yaml`.
-> The old OT-Agent copy `python -m rl.cloud.launch_rl_iris` has been **REMOVED** — launch only
-> from the MarinSkyRL module above. The env, kubeconfig, secrets, priority bands, node cap,
-> rendezvous, and Daytona particulars below are unchanged; only the repo + module path + config
-> location change. Validated end-to-end 2026-07-16 (1-node Qwen3-8B FSDP2 smoke reached training
-> via the MarinSkyRL launcher). The controller + helper scripts
-> (`start_rl_iris_controller.py`, `tilelang_cache_sync.py`, `run_rl.py`, config translation) are
-> now `cloud/iris/*` in MarinSkyRL, synced to `/app`; `PYTHONPATH=/app:/opt/skyrl/skyrl-train`
-> (skyrl-train stays baked in the image at `/opt/skyrl`).
+MarinSkyRL repo root**, `cd ~/Documents/MarinSkyRL`) + the `gpu-rl` Docker image. The
+self-contained **MarinSkyRL launcher** `cloud/iris/launch_rl_iris.py` is the sole live entry
+point (`python -m cloud.iris.launch_rl_iris` with `--rl_config cloud/iris/configs/<cfg>.yaml`);
+the old OT-Agent copy `python -m rl.cloud.launch_rl_iris` has been **REMOVED**. The controller
++ helpers (`start_rl_iris_controller.py`, `tilelang_cache_sync.py`, `run_rl.py`, config
+translation) are `cloud/iris/*` in MarinSkyRL, synced to `/app`; `PYTHONPATH=/app:/opt/skyrl/skyrl-train`
+(skyrl-train baked in the image at `/opt/skyrl`).
 
 **Access:** Launch from the **local Mac** (preamble in §0), **`cd ~/Documents/MarinSkyRL`**
 first (the `-m cloud.iris.launch_rl_iris` module resolves from the MarinSkyRL repo root; the
 `iris` SDK itself is installed in the otagent env). The local MarinSkyRL checkout must be on
-**`main`** (or a branch that contains `cloud/iris/`) — the current working branch
+**`main`** (or a branch containing `cloud/iris/`) — the current working branch
 `feuer/megatron-backend-transformers5` does NOT have the port. There is **no cluster login / no
-SSH** — you talk to the cluster through the `iris` SDK over a controller tunnel, and the
-launcher uploads your **local MarinSkyRL** workspace to `/app` (a local commit takes effect on
-the next launch immediately — there is no Iris clone to pull). The runtime is self-contained:
-`/app` provides `cloud.iris.*` + configs; `skyrl_train` imports from the baked `/opt/skyrl`
-(swap with `--skyrl-ref`). No OpenThoughts-Agent workspace is uploaded any more.
+SSH** — talk to the cluster through the `iris` SDK over a controller tunnel; the launcher uploads
+your **local MarinSkyRL** workspace to `/app` (a local commit takes effect on the next launch
+immediately). Runtime is self-contained: `/app` provides `cloud.iris.*` + configs;
+`skyrl_train` imports from the baked `/opt/skyrl` (swap with `--skyrl-ref`).
 
 **Cluster config** auto-resolves to `~/Documents/marin/lib/iris/config/cw-us-east-02a.yaml`
 (`launch_rl_iris.py:_resolve_cluster_config_default`); override with `--cluster-config` only if
@@ -211,13 +202,13 @@ it moved.
 
 ### Sibling CoreWeave GPU cluster: `cw-rno2a` (RNO2A / Reno) — 512 H100, added 2026-07 (marin PR #6909)
 
-A **second, larger** CoreWeave GPU cluster is now live alongside `cw-us-east-02a`. Same
-KubernetesProvider / Kueue-gang model; different region, kubeconfig, and node shape.
+Second, larger CoreWeave GPU cluster. Same KubernetesProvider / Kueue-gang model; different
+region, kubeconfig, and node shape.
 
 - **Fleet:** **64× `gd-8xh100ib-i128` (8× H100-80GB + IB each) = 512 H100** + 1 `turin-gp-l`
-  CPU controller node (65 nodes total). The H100 pool is **pinned fully warm**
-  (`buffer_slices: 64` = the whole reservation stays provisioned even when idle) — so a gang
-  admits without a cold node-provision wait. **4× the East cluster (which is ~36 nodes / ~256 GPU).**
+  CPU controller node (65 nodes total). Pool **pinned fully warm** (`buffer_slices: 64` = whole
+  reservation stays provisioned even when idle) → gang admits without cold node-provision wait.
+  **4× the East cluster** (~36 nodes / ~256 GPU).
 - **Access — DIFFERENT kubeconfig + context from East (don't reuse East's):**
   - `KUBECONFIG=~/.kube/coreweave-iris` (NOTE: **no `-gpu` suffix** — East is `~/.kube/coreweave-iris-gpu`).
     This is a 5-context file (a fresh `…-july-token` covering East/West/rno2a/oa-*); perms 600.
@@ -231,14 +222,15 @@ KubernetesProvider / Kueue-gang model; different region, kubeconfig, and node sh
   `signing_key`, `trusted_cidrs`) → `extra_forbidden` at config-load. Direct `kubectl` (above)
   works regardless. Object store: `object_storage_endpoint: http://cwlota.com`,
   `external_object_storage_endpoint: https://cwobject.com`. Finelog server: `finelog deploy up cw-rno2a`.
-- **⚠ NCCL bring-up gotcha (do NOT carry East's value over):** the RNO2A bring-up bug (marin
-  **#6940**, fixed 2026-07-04) was a wrong `NCCL_SOCKET_IFNAME` (`=enp90s0np0`) that broke
-  multi-node NCCL bootstrap (`Bootstrap: no socket interface found`). The **correct socket
-  interface is cluster-specific** — a port of our RL configs (which set `NCCL_SOCKET_IFNAME`)
-  must use the rno2a-correct PF, not `cw-us-east-02a`'s. Also fixed: **#6950** (128k grug-MoE
-  gangs hung on first-step NCCL collective — bad IB leaf-group 71). Both closed; but **large-gang
-  MoE stability is still being shaken out** by the marin team (several `jaxpp-rno2a-*` W&B runs
-  crashed ~2026-07-10) — treat a first big multi-node run here as UNTESTED (deep-dive it).
+- **⚠ NCCL_SOCKET_IFNAME on rno2a — verbatim value (use in `extra_env`):**
+  `NCCL_SOCKET_IFNAME: "^ibs,ibp,lo,docker,veth,cilium,lxc"` — an EXCLUDE pattern (`^`): skip
+  IB/IPoIB + virtual ifaces so the bootstrap socket falls back to the host ethernet PF. An exact
+  `=enpXsYnpZ` pin is fragile per-node/region. Source of truth: `cw-rno2a.yaml:128`; also carried
+  by `128GPU_80B_A3B_next_cp1.yaml:275` + `tasktrove_dq_sweep_30b.yaml`. ⚠ ANY RL config launched
+  on rno2a MUST set this — omitting it lets NCCL **and Ray's raylet/GCS** (all ifaces visible under
+  `host_network:true`) mis-detect → raylets `Failed to establish connection` → the 4-node gang
+  never forms → silent 0-progress wedge. No-op on cw-us-east-02a (East uses `enp157s0np0`).
+  (#6940 + #6950 closed; large-gang MoE stability still shaken out — see below.)
 - **Ownership:** this is a **marin-team** reservation (rjpower/dlwh/Rafal Wojdyla run grug/jaxpp
   MoE experiments on it). Not our dedicated cluster — coordinate before parking a large long run.
 - **Status snapshot (2026-07-13):** 512 H100 / 64 nodes **entirely idle** (0 GPUs in use; only
@@ -246,43 +238,33 @@ KubernetesProvider / Kueue-gang model; different region, kubeconfig, and node sh
 
 ### Node shape & storage (see §1 for chip specs)
 
-Whole-node-exclusive ⇒ REQUEST ALL the node's allocatable resources (no co-tenants, so
-under-requesting is wasted capacity AND a footgun). Node allocatable ≈ **128 CPU / ~2014 GiB
-mem / 8 GPU**. Launcher defaults (`launch_rl_iris.py`): **`--cpu 48`** (max-admittable — >~60
-fails the IB gang), **`--memory 1400GB`** (≈ full ~2 TB leaving daemonset headroom — see Binding
-gotchas for the validated middle), **`--gpus_per_node 8`**, `--disk 512GB` (rendezvous/ckpts go
-to the CW object store `s3://marin-us-east-02a`, not node-local).
+Whole-node-exclusive ⇒ REQUEST ALL the node's allocatable resources (under-requesting is wasted
+capacity AND a footgun). Node allocatable ≈ **128 CPU / ~2014 GiB mem / 8 GPU**. Launcher defaults
+(`launch_rl_iris.py`): **`--cpu 48`** (max-admittable — >~60 fails the IB gang), **`--memory 1400GB`**
+(≈ full ~2 TB leaving daemonset headroom — see Binding gotchas for the validated middle),
+**`--gpus_per_node 8`**, `--disk 512GB` (rendezvous/ckpts go to the CW object store
+`s3://marin-us-east-02a`, not node-local).
 
-- **⚡ IB (NET/IB GPUDirect RDMA) — the userspace is now BAKED (gpu-rl-7d15b25a, 2026-07-08).**
-  CoreWeave auto-exposes the RDMA devices into every pod (`/dev/infiniband/{uverbs0..8,rdma_cm}`,
-  `/sys/class/infiniband/mlx5_0..8`, all 9 ports `state=ACTIVE` @ `100 Gb/sec 4X EDR`) — the
-  pod/config side needs NO change (no `rdma/*` resource request, no hostNetwork edit). But EVERY
-  gpu-rl image BEFORE gpu-rl-7d15b25a shipped **no IB verbs userspace** (`ldconfig` had no
-  libibverbs/librdmacm/libmlx5; `ibv_devices` not found), so NCCL's built-in IB transport — which
-  DLOPENS `libibverbs.so.1` + the `libmlx5` provider at runtime — silently fell back to
-  **`NET/Socket`** (TCP over `enp157s0np0`). Fix = the rl-stage apt-get now installs
-  `rdma-core ibverbs-providers libibverbs1 librdmacm1 ibverbs-utils` (Dockerfile.gpu-rl). **No
-  external `libnccl-net.so`/OFI plugin is needed on Mellanox IB — the "Could not find
-  libnccl-net.so" health-probe line is BENIGN.** Expected on-launch signal with `NCCL_DEBUG=INFO`:
-  `NET/IB : Using [0]mlx5_0:1/IB` + `GPU Direct RDMA Enabled` (was
-  `NET/Socket : Using [0]enp157s0np0:…`). Ref: `/Users/benjaminfeuer/Documents/agent_logs/2026-07-08_gpu-rl-ib-enable.md`.
-- **NCCL DEFAULTS — use them (MoE-salad doubt FALSIFIED 2026-06-27).** On H100+IB, do NOT set the
-  GH200/SIF disables (`NCCL_P2P_DISABLE` / `NCCL_NVLS_ENABLE=0` / `NCCL_COLLNET_ENABLE=0`): they
-  cripple the intra-node NVLink all-reduce a TP=8 (DCP) engine depends on. NCCL defaults give
-  NVLink intra-node + IB inter-node. Keep the observability/raised-timeout env (`NCCL_DEBUG=INFO`,
-  `SKYRL_WORKER_NCCL_TIMEOUT_IN_S`, `TORCH_NCCL_*`). *(The CJK token-salad observed on
-  `rl-131k-cpdcp2r3-think2507-r9` was NOT an NCCL issue — it was the FusedMoE `w13` gate/up swap
-  not re-applied on the disaggregated RL weight update, fixed by `SKYRL_W13_RELOAD_BRACKET`
-  [MarinSkyRL `2bb70a88`; default on]. Record:
-  `/Users/benjaminfeuer/Documents/agent_logs/2026-06-27_coreweave_nccl_defaults_doubt.md`.)*
-- **Egress: CoreWeave nodes have internet.** Models/data are pulled from HF **online** — do NOT
-  set `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` (contrast Leonardo/Jupiter compute nodes, which have
-  none). The cost is the transient HF-weight-resolution flake below.
-- **Storage/scratch:** ephemeral per-node disk via the `--disk` request (default `512GB`);
-  multi-node Ray rendezvous + banked traces go through the CW `s3://` object store
-  (`s3://marin-us-east-02a`; store moved R2→CW 2026-07-05, see Scheduling), not node-local disk.
-  No shared persistent POSIX scratch like Leonardo's `$WORK` — checkpoints/exports go to HF / the
-  object store.
+- **⚡ IB (NET/IB GPUDirect RDMA) — userspace BAKED (gpu-rl-7d15b25a, 2026-07-08).** CoreWeave
+  auto-exposes the RDMA devices into every pod (`/dev/infiniband/{uverbs0..8,rdma_cm}`,
+  `/sys/class/infiniband/mlx5_0..8`, all 9 ports `state=ACTIVE` @ `100 Gb/sec 4X EDR`) — no
+  pod/config change needed. EVERY gpu-rl image BEFORE gpu-rl-7d15b25a shipped **no IB verbs
+  userspace**, so NCCL silently fell back to `NET/Socket` (TCP). Expected on-launch signal with
+  `NCCL_DEBUG=INFO`: `NET/IB : Using [0]mlx5_0:1/IB` + `GPU Direct RDMA Enabled`. **No external
+  `libnccl-net.so`/OFI plugin is needed on Mellanox IB — the "Could not find libnccl-net.so"
+  health-probe line is BENIGN.**
+- **NCCL DEFAULTS — use them.** Do NOT set the GH200/SIF disables
+  (`NCCL_P2P_DISABLE` / `NCCL_NVLS_ENABLE=0` / `NCCL_COLLNET_ENABLE=0`): they cripple the
+  intra-node NVLink all-reduce a TP=8 (DCP) engine depends on. NCCL defaults give NVLink
+  intra-node + IB inter-node. Keep the observability/raised-timeout env (`NCCL_DEBUG=INFO`,
+  `SKYRL_WORKER_NCCL_TIMEOUT_IN_S`, `TORCH_NCCL_*`).
+- **Egress: CoreWeave nodes have internet.** Models/data pulled from HF **online** — do NOT set
+  `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` (contrast Leonardo/Jupiter compute nodes). The cost is
+  the transient HF-weight-resolution flake below.
+- **Storage/scratch:** ephemeral per-node disk via `--disk` (default `512GB`); multi-node Ray
+  rendezvous + banked traces go through the CW `s3://` object store (`s3://marin-us-east-02a`;
+  store moved R2→CW 2026-07-05, see Scheduling), not node-local disk. No shared persistent POSIX
+  scratch like Leonardo's `$WORK` — checkpoints/exports go to HF / the object store.
 - **The `gpu-rl` image is deps-only; source is synced at runtime.** The image
   (`ghcr.io/open-thoughts/openthoughts-agent`, pinned by **immutable `@sha256:` digest** in
   `launch_rl_iris.py:DEFAULT_RL_DOCKER_IMAGE` — NOT the floating `:gpu-rl` tag, which stale-caches
@@ -290,16 +272,15 @@ to the CW object store `s3://marin-us-east-02a`, not node-local).
   torch 2.11 + the **vLLM fork built from source** + flash-attn 2.8.3), **MarinSkyRL editable** at
   `/opt/skyrl`, and harbor. The launcher syncs the **local OT-Agent workspace to `/app`** (first on
   PYTHONPATH) → first-party edits live on the next launch **without an image rebuild**. A
-  MarinSkyRL fix that landed after the image build can be picked up live via `--skyrl-ref <commit>`
-  (editable checkout); only the compiled vLLM fork requires an image rebuild (then **bump the
-  digest**, using the immutable `:gpu-rl-<gitsha>` tag's digest).
+  MarinSkyRL fix that landed after the image build can be picked up live via `--skyrl-ref <commit>`;
+  only the compiled vLLM fork requires an image rebuild (then **bump the digest**, using the
+  immutable `:gpu-rl-<gitsha>` tag's digest).
 - **⚠ BUILD THE IMAGE MULTI-LAYER (`SINGLE_SNAPSHOT=0`) — a single >8 GB layer is UN-PULLABLE cold
   over the CoreWeave→ghcr egress.** A kaniko `--single-snapshot` build collapses everything kaniko
   adds into ONE ~16.6 GB layer; the first **fresh** pull of that single-stream layer never
   completes — containerd restarts each attempt from byte 0 (`short read: expected … got <N>`) and
   dies at 8–11 GB every time, so all pods sit `ImagePullBackOff` indefinitely (NOT transient —
-  don't wait it out; a relaunch re-pulls the same blob). The incremental-`FROM`-base trick does
-  NOT help (same 16.6 GB base pull). **Fix = re-layer:** build `SINGLE_SNAPSHOT=0`
+  don't wait it out; a relaunch re-pulls the same blob). **Fix = re-layer:** build `SINGLE_SNAPSHOT=0`
   (per-instruction layers) and split the big torch/nvidia-CUDA installs into a few pinned
   pre-install RUNs so **no single layer exceeds ~8 GB** (validated r5 image `gpu-rl-efd77b98` = 48
   layers, max 3.46 GB → pulled clean, Running in ~5 min). Quality-gate any new image with a
@@ -312,46 +293,40 @@ to the CW object store `s3://marin-us-east-02a`, not node-local).
   — all N nodes co-scheduled on **one InfiniBand leaf fabric**, all-or-nothing. `cw-us-east-02a`
   enables **Kueue gang admission** (`kueue.cluster_queue: iris-cq`, `host_network: true` for
   NCCL/IB), so the N-task gang admits **atomically** (all N whole nodes granted, or it queues).
-  At submit you see `replicas=N, coscheduling=leafgroup`; pods then sit **SchedulingGated**
-  (normal Kueue gang pre-admit) until admitted.
-- **⚠ JUST SUBMIT — do NOT pre-check free-node count and withhold the submit (operator 2026-07-10).**
-  A gang sitting `SchedulingGated`/pending because a transient `cw-hpc-verification`/`nhc-*`
-  health-check sweep or another tenant's job holds nodes is NORMAL — **Kueue admits it atomically
-  the moment N whole nodes free, with zero babysitting.** Polling the free-node count and refusing
-  to submit until ≥N are free is the WRONG pattern (it was mine, corrected): it keeps the job OUT
-  of the queue entirely, so it never gets its turn, and every transient sweep looks like a
-  permanent block. **Submit, let Iris/Kueue schedule, report the id + state (running or
-  SchedulingGated — both fine), move on.** The health checks are NOT blocking — the scheduler
-  handles them. The ONLY real "doomed gang" is a CONFIG mis-size that can't fit one IB leaf (e.g.
-  `--cpu 64` → the `topology 'infiniband' allows to fit only 2 out of N` message below); `--cpu 48`
-  avoids it. Transient occupancy is not that — never gate a submit on it.
-- **The single-IB-leaf gang constraint is what `--cpu 48` is about.** The gang must fit on ONE IB
-  leaf; with `--cpu 64` only ~2/32 nodes have ≥64 free cores (the daemonset overhead above), so an
-  N-node single-leaf gang sits SchedulingGated forever with a Kueue `topology 'infiniband' allows
-  to fit only 2 out of N pod(s)` message. `--cpu 48` fits all nodes → admits immediately
-  (QuotaReserved=True).
+  Pods sit **SchedulingGated** (normal Kueue gang pre-admit) until admitted.
+- **⚠ JUST SUBMIT — do NOT pre-check free-node count and withhold the submit.** A gang sitting
+  `SchedulingGated`/pending because a transient `cw-hpc-verification`/`nhc-*` health-check sweep
+  or another tenant's job holds nodes is NORMAL — **Kueue admits it atomically the moment N whole
+  nodes free, with zero babysitting.** Polling the free-node count and refusing to submit until
+  ≥N are free keeps the job OUT of the queue entirely, so it never gets its turn. **Submit, let
+  Iris/Kueue schedule, report the id + state (running or SchedulingGated — both fine), move on.**
+  The health checks are NOT blocking — the scheduler handles them. The ONLY real "doomed gang"
+  is a CONFIG mis-size that can't fit one IB leaf (`--cpu 64` → the `topology 'infiniband' allows
+  to fit only 2 out of N` message); `--cpu 48` avoids it.
+- **`--cpu 48` is the single-IB-leaf gang constraint.** The gang must fit on ONE IB leaf; with
+  `--cpu 64` only ~2/32 nodes have ≥64 free cores (daemonset overhead), so an N-node single-leaf
+  gang sits SchedulingGated forever with a Kueue `topology 'infiniband' allows to fit only 2 out
+  of N pod(s)` message. `--cpu 48` fits all nodes → admits immediately (QuotaReserved=True).
 - **Multi-node Ray rendezvous via an `s3://` object-store bucket.** `--num-nodes>1` REQUIRES
   `--rendezvous-dir` (the launcher hard-errors otherwise). Use an `s3://` URI under the cluster's
   default bucket (`marin-us-east-02a`), e.g. `s3://marin-us-east-02a/iris/rl-<slug>/<run>`.
-  **✅ DURABLE PATTERN (prefer this) — DON'T hardcode the region bucket; derive the storage root
-  from `marin_prefix()` (`rigging.filesystem`, returns `data_config().resolved_root()`), which
-  AUTO-RESOLVES to the active cluster's correct bucket for your job.** Build `--rendezvous-dir` /
-  `--s3-output-dir` / `--gcs-output-dir` (and read paths) off `marin_prefix()` and a launch follows
-  a store migration automatically — future-proofing against exactly the R2→CW break below. Region
-  helpers: `marin_prefix_for_region(region)` (`marin.rl.placement`), `marin_region()`. Hardcode the
-  `s3://marin-us-east-02a` / `gs://marin-models-us` literal only as a fallback when you can't call it.
+  **✅ DURABLE PATTERN — DON'T hardcode the region bucket; derive the storage root from
+  `marin_prefix()`** (`rigging.filesystem`, returns `data_config().resolved_root()`), which
+  AUTO-RESOLVES to the active cluster's correct bucket. Build `--rendezvous-dir` /
+  `--s3-output-dir` / `--gcs-output-dir` off `marin_prefix()` so a launch follows a store
+  migration automatically. Region helpers: `marin_prefix_for_region(region)`
+  (`marin.rl.placement`), `marin_region()`. Hardcode `s3://marin-us-east-02a` /
+  `gs://marin-models-us` only as a fallback.
   **⚠ Store moved R2 (`s3://marin-na`) → CW (`s3://marin-us-east-02a`) on 2026-07-05 (marin
-  `c7caecc95a`):** pods now inject CW creds + `AWS_ENDPOINT_URL=cwlota.com` and can NO LONGER reach
+  `c7caecc95a`):** pods inject CW creds + `AWS_ENDPOINT_URL=cwlota.com` and can NO LONGER reach
   `s3://marin-na` (R2) — a `marin-na` rendezvous PUT resolves to the nonexistent
-  `marin-na.cwlota.com` and STALLS (this killed CP4 v1/v2/v3). The cluster injects working creds
-  into every task pod via the **`iris-task-env` k8s Secret** (`envFrom`, because
-  `storage.remote_state_dir` is an `s3://` URI), so **no external creds are needed** — and you must
-  **NOT forward `AWS_*`/`R2_*`**: explicit container `env` overrides `envFrom`, so forwarding the
-  launch host's `AWS_*` (different account, no `AWS_ENDPOINT_URL`) clobbers the pod's injected creds
-  and silently targets real AWS S3. Use a **fresh sub-path per run** so a stale head file from a
-  prior attempt isn't picked up. Mechanism: one `start_rl_iris_controller.py` per node; rank 0
-  writes `ray_head.json` to the rendezvous, workers poll for it and join; rank 0 publishes
-  `ray_head.done` on completion.
+  `marin-na.cwlota.com` and STALLS. The cluster injects working creds via the **`iris-task-env`
+  k8s Secret** (`envFrom`, because `storage.remote_state_dir` is an `s3://` URI), so **no external
+  creds needed** — and you must **NOT forward `AWS_*`/`R2_*`**: explicit container `env` overrides
+  `envFrom`, so forwarding the launch host's `AWS_*` (different account, no `AWS_ENDPOINT_URL`)
+  clobbers the pod's injected creds and silently targets real AWS S3. Use a **fresh sub-path per
+  run** so a stale head file isn't picked up. Mechanism: one `start_rl_iris_controller.py` per
+  node; rank 0 writes `ray_head.json`, workers poll + join; rank 0 publishes `ray_head.done`.
   **Inspecting a `marin-us-east-02a` object FROM THE MAC — YES, via the EXTERNAL endpoint (validated 2026-07-18).**
   The cluster config exposes BOTH `object_storage_endpoint: http://cwlota.com` (in-cluster LOTA — the pods'
   injected `AWS_ENDPOINT_URL`, unroutable from the laptop) AND **`external_object_storage_endpoint: https://cwobject.com`**
@@ -380,7 +355,7 @@ to the CW object store `s3://marin-us-east-02a`, not node-local).
     aws s3 sync s3://marin-us-east-02a/iris/<slug>/run-<ts>/ray_session_logs/ <scratch>/ray/ --endpoint-url https://cwobject.com --quiet
     ```
   - **The application tracebacks live in `worker-*.out` / `worker-*.err`** (the Ray actor stdout/stderr — RolloutCoordinator, `AsyncVLLMInferenceEngine`/`EngineCore`, run_rl driver), NOT `python-core-*.log` (Ray's C++ core event logs, no Python traceback) and NOT the 1172× `event_*` files. Locate with `grep -rlE "Traceback \(most recent call last\)|<ErrorClass>" <scratch>/ray`, then read the `worker-*.out/.err` — the exception-terminating lines (`^[A-Za-z_.]*Error:`) are the root cause. The rank subdir + `session_latest/` holds the freshest.
-  - **Worked example (keep1-v22, 2026-07-19):** a silent ~34-min "death" (`exit=0`, clean teardown, node RAM 6%, coordinator RSS bounded) was explained ONLY by the ray logs: vLLM `EngineDeadError` from `_C_cache_ops::reshape_and_cache_flash: attempted to run this operator with Meta tensors` (a KV-cache write against meta-device model tensors during the first-policy-step weight-sync, with 9 opencode requests still in-flight) → the un-pickleable `_pickle.PicklingError: Can't pickle RayTaskError(EngineDeadError)` → driver cascade → orderly teardown. NONE of this appeared in `iris job logs`.
+  - **Worked example (keep1-v22, 2026-07-19):** a silent ~34-min "death" (`exit=0`, clean teardown) was explained ONLY by the ray logs: vLLM `EngineDeadError` from `_C_cache_ops::reshape_and_cache_flash: attempted to run this operator with Meta tensors` (a KV-cache write against meta-device model tensors during the first-policy-step weight-sync) → un-pickleable `_pickle.PicklingError: Can't pickle RayTaskError(EngineDeadError)` → driver cascade → orderly teardown. NONE of this appeared in `iris job logs`.
   (Aside — the on-disk shape of a marin/Levanter *training* checkpoint there: `<run>-<hash>/.executor_info`
   + `checkpoints/step-N/{metadata.json, manifest.ocdbt, d/<content-addressed blobs>}` = **Orbax OCDBT /
   TensorStore JAX** format, NOT HF transformers — no `config.json`/`*.safetensors`/`tokenizer.json`;
@@ -390,8 +365,7 @@ to the CW object store `s3://marin-us-east-02a`, not node-local).
 
 **Verify access** (cheap, before submitting):
 ```bash
-# iris-side: my live jobs (JobState: 0=UNSPECIFIED 1=PENDING 2=BUILDING 3=RUNNING 4=SUCCEEDED
-#                          5=FAILED 6=KILLED 7=WORKER_FAILED 8=UNSCHEDULABLE)
+# iris-side: my live jobs (JobState enum — see §5 watch_job_state.py)
 /Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris --cluster=cw-us-east-02a query \
   "SELECT job_id,state FROM jobs WHERE state IN (1,2,3) AND job_id LIKE '/benjaminfeuer/%'" -f csv
 
@@ -400,13 +374,13 @@ kubectl get nodes        # with KUBECONFIG=~/.kube/coreweave-iris-gpu  (Ready co
 ```
 
 **Are nodes actually free? Use Kueue + a per-node free-GPU count — NOT `kubectl get nodes` or a
-pod request-sum.** `kubectl get nodes` shows *Ready*, not *free*; a naive "sum
-`requests.nvidia.com/gpu` over running pods vs 36×8" is wrong twice over (verified 2026-06-26):
-(a) allocatable GPUs is **~256, not 288** — only **~32 of the ~36 Ready nodes carry 8 GPUs** (the
-rest are util/control nodes with 0 GPU), and (b) the request-sum **undercounts** because some pods
-declare GPUs via `limits`, not `requests`. Both errors make a busy cluster look free → you relaunch
-into contention and get **preempted by higher-priority `/power` jobs** (interactive < production).
-Use the two authoritative signals instead:
+pod request-sum.** `kubectl get nodes` shows *Ready*, not *free*; the naive "sum
+`requests.nvidia.com/gpu` over running pods vs 36×8" is wrong twice over: (a) allocatable GPUs is
+**~256, not 288** — only **~32 of the ~36 Ready nodes carry 8 GPUs** (the rest are util/control
+nodes with 0 GPU), and (b) the request-sum **undercounts** because some pods declare GPUs via
+`limits`, not `requests`. Both errors make a busy cluster look free → relaunch into contention and
+get **preempted by higher-priority `/power` jobs** (interactive < production). Use the two
+authoritative signals instead:
 
 ```bash
 # (1) Kueue ClusterQueue = the SCHEDULER'S OWN accounting — literally what decides gang admission.
@@ -439,52 +413,39 @@ print(f"GPU nodes:{gpu_nodes}  fully-free 8-GPU nodes:{free}  total free GPUs:{s
 ```
 Decision rule for relaunching an idle gang: only submit when **`pendingWorkloads == 0`** AND
 **fully-free 8-GPU nodes ≥ N** (the gang size; e.g. ≥16 for a 30B+35B pair). If `/power` is
-bursting (free nodes oscillating), either wait for it to drain or escalate to
-`--priority production` — do NOT churn-relaunch at interactive into contention. The in-container
-invocation the launcher ultimately drives is `uv run iris --cluster=cw-us-east-02a job run …` (the
-SDK `IrisClient.submit` path); you do not type that by hand — `python -m cloud.iris.launch_rl_iris`
-builds it.
+bursting (free nodes oscillating), wait for it to drain or escalate to `--priority production` —
+do NOT churn-relaunch at interactive into contention. The in-container invocation the launcher
+ultimately drives is `uv run iris --cluster=cw-us-east-02a job run …` (the SDK `IrisClient.submit`
+path); you do not type that by hand — `python -m cloud.iris.launch_rl_iris` builds it.
 
 **⚑ Priority bands + node cap (operator 2026-07-16).** `--priority {production, interactive, batch}`
 (`cloud/iris/launch_rl_iris.py` → `PRIORITY_BAND_*`; default `interactive`). Bands are ordered
 production > interactive > batch; a higher band preempts a lower one.
-- **`--priority batch` → NO node cap. Surge freely.** Batch is the lowest band, fully preemptible —
-  it yields to every higher-priority job (ours or a teammate's), so it can never block anyone.
-  Submit as many batch nodes as the clusters will hold across BOTH CW clusters.
+- **`--priority batch` → NO node cap. Surge freely.** Batch is the lowest band, fully preemptible;
+  submit as many batch nodes as the clusters will hold across BOTH CW clusters.
 - **Non-batch (`interactive`/`production`) → the ~24-node soft cap applies** across ALL my
-  non-batch CW jobs combined (these contend with / preempt other tenants, so keep the footprint
-  bounded; 24 is the current operator-set value — treat the latest authorization as binding).
+  non-batch CW jobs combined (24 is the current operator-set value — treat the latest authorization
+  as binding).
 - **Accounting:** sum only **non-batch** node usage against the ~24 cap; batch jobs don't count.
 - **Cross-cluster moves are autonomous.** Relocate a job between `cw-us-east-02a` and `cw-rno2a`
-  freely when one cluster is packed and the other has room (East fills with larger teammate runs
-  while rno2a's 65 nodes sit near-empty; a job gated `SchedulingGated` for hours on one admits in
-  seconds on the other). Placement is launch-flag-level (`--cluster` / `--cluster-config` /
-  `--rendezvous-dir`); the rl_config is mostly cluster-agnostic. **Before any move, grep the
-  config for hardcoded interface/PF/host/region values in `extra_env`.** The trap is
-  **`NCCL_SOCKET_IFNAME`**: East's Ethernet PF `enp157s0np0` does not exist on rno2a, so a
-  hardcoded PF dies upstream of everything with NCCL `Bootstrap: no socket interface found`. Use
-  the cluster-PORTABLE exclusion list `"^ibs,ibp,lo,docker,veth,cilium,lxc"` (matches
+  freely when one cluster is packed and the other has room. Placement is launch-flag-level
+  (`--cluster` / `--cluster-config` / `--rendezvous-dir`); the rl_config is mostly cluster-agnostic.
+  **Before any move, grep the config for hardcoded interface/PF/host/region values in `extra_env`.**
+  The trap is **`NCCL_SOCKET_IFNAME`**: East's Ethernet PF `enp157s0np0` does not exist on rno2a,
+  so a hardcoded PF dies upstream of everything with NCCL `Bootstrap: no socket interface found`.
+  Use the cluster-PORTABLE exclusion list `"^ibs,ibp,lo,docker,veth,cilium,lxc"` (matches
   cw-rno2a.yaml's default; auto-picks Ethernet on either cluster) instead of a hardcoded PF.
   Kubeconfigs: East `~/.kube/coreweave-iris-gpu` (`--cluster=cw-us-east-02a`), rno2a
   `~/.kube/coreweave-iris` (`--cluster=cw-rno2a`).
-- **⚑ Priority preemption now actually WORKS (marin #7207 + #7206, merged 2026-07-16) — this is
-  what makes "batch yields to everyone" true.** BEFORE #7207 it did NOT: multi-host gangs are
-  admitted through Kueue (pods held `SchedulingGated` until the whole Workload admits), so the
-  native kube-scheduler PriorityClass preemption never saw them, and the ClusterQueue carried no
-  preemption policy → a higher-priority gang could NOT evict running lower-priority `batch` gangs,
-  and a full cluster of batch would **starve** it indefinitely (Kueue's default `BestEffortFIFO`
-  even backfilled freed nodes with the next small batch gang). #7207 makes **Kueue MANDATORY on
-  the k8s backend** (composer / LocalQueue reconcile / pod builder all fail fast if
-  `kubernetes_provider.kueue.cluster_queue` is unset — for us it's `iris-cq`; no non-Kueue path
-  remains, which is what makes preemption sound — a single-pod GPU job that bypassed Kueue used to
-  silently defeat preemption of the gangs beside it) and adds
-  `preemption.withinClusterQueue: LowerPriority` so higher bands evict lower. #7206 makes
+- **⚑ Priority preemption works (marin #7207 + #7206, 2026-07-16).** Kueue is MANDATORY on the
+  k8s backend (`kubernetes_provider.kueue.cluster_queue` must be set — for us `iris-cq`); a single-pod
+  GPU job that bypassed Kueue used to silently defeat preemption of the gangs beside it.
+  `preemption.withinClusterQueue: LowerPriority` makes higher bands evict lower; #7206 makes
   preempt-and-place **atomic** (the preemptor binds to the worker its victim frees — no gap where
   the freed worker is stranded, stolen by a solo first-fit task, or over-preempts fresh victims
-  tick after tick; gangs re-form on the freed slice). **Implications for us:** (a) the "surge freely
-  on batch, it never blocks anyone" model is now genuinely sound — batch WILL be evicted the moment
-  a higher band needs the nodes; (b) precisely because batch now gets preempted for real, the
-  ckpt→s3 durable-resume fix below is load-bearing for any long batch run.
+  tick after tick; gangs re-form on the freed slice). The "surge freely on batch, it never blocks
+  anyone" model is now genuinely sound — batch WILL be evicted the moment a higher band needs the
+  nodes — so the ckpt→s3 durable-resume fix below is load-bearing for any long batch run.
 - **⚠ Preemption trade-off — checkpoint-resume is NOT yet plumbed for CoreWeave preemption
   (2026-07-16).** A batch job WILL get preempted when a higher band needs the nodes. But our RL
   runs write the resumable checkpoint to **ephemeral pod-local disk**, not s3: `ckpt_path` is null
@@ -502,8 +463,7 @@ production > interactive > batch; a higher band preempts a lower one.
 **Monitor liveness — state-poll, NOT a log-string watch.** Poll the authoritative iris job
 lifecycle state, never grep rank-0 logs for a content string. A clean kill / eviction /
 preemption / early crash often emits **no** terminal log line, and the pods are reaped, so a
-content-watch sits idle while the job is gone (this is how the `rl-131k-cpdcp2r3` watch missed
-the run ending `killed`/"Terminated by user" with 0 pods). The watch primitive:
+content-watch sits idle while the job is gone. The watch primitive:
 ```bash
 PY=/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python
 $PY scripts/iris/watch_job_state.py /benjaminfeuer/<job> --once --json    # authoritative state now
@@ -520,22 +480,18 @@ Absence-after-existence is TERMINAL; never hand-roll a `state IN (4,5,6)` watche
 watcher that polls `iris query "SELECT state FROM jobs WHERE job_id='...'"` and only fires on a
 terminal `state` (4 SUCCEEDED / 5 FAILED / 6 KILLED) will **poll forever past a real completion**:
 the controller's background pruner DELETES a terminal job's row, so once pruned the query returns
-an **EMPTY result** (no `state` row) and the terminal case never matches. Empty ≠ "still running"
-— it means "no record", which for a job you have already seen means **"finished + aged out."**
-(`job summary` reads the same DB, so it too returns "no record" once the row is pruned — this is
-consistent, not a summary-vs-query discrepancy.)
-- **Pruning mechanics (marin `lib/iris/src/iris/cluster/controller/`):** the pruner
+an **EMPTY result** (no `state` row) and the terminal case never matches. (`job summary` reads
+the same DB, so it too returns "no record" once the row is pruned.)
+- **Pruning mechanics (marin `lib/iris/src/iris/cluster/controller/`):** pruner
   (`pruner.py:_prune_terminal_jobs`) runs every `prune_interval` (**1 h**, `controller.py:236`)
   and deletes terminal jobs older than `job_retention` (**7 days** default, `controller.py:239`;
-  **no override in `lib/iris/config/cw-us-east-02a.yaml`**). **BUT a FEDERATED job ages out sooner
-  + less predictably:** `find_prunable_job` (`reads.py:488-505`) excludes non-local rows
+  **no override in `lib/iris/config/cw-us-east-02a.yaml`**). **A FEDERATED job ages out sooner +
+  less predictably:** `find_prunable_job` (`reads.py:488-505`) excludes non-local rows
   (`jobs.cluster == 'local'`, `types.py:107`) from the 7-day time-prune — a federated job's
   parent-side **mirror row is instead deleted the moment the PEER issues a tombstone**
   (`federation_changelog.tombstone=1`, `schema.py:641`) that federation-sync mirrors. A job
-  submitted via the `iris.oa.dev` meta-scheduler (parent-minting → routed to a peer CW cluster) is
-  exactly this case: its row can vanish right after the peer prunes it, well inside a 7-day window.
-  (This is how a ~120 s SQL-state watcher silently missed a Grug HF-export completion — the job
-  finished, published, aged out, and the watcher polled an empty row forever.)
+  submitted via the `iris.oa.dev` meta-scheduler is exactly this case: its row can vanish right
+  after the peer prunes it, well inside a 7-day window.
 - **ROBUST recipe:**
   1. **Prefer `watch_job_state.py` — it already handles absence-as-terminal.** Its order is
      `job summary` → `query` fallback → if BOTH have no record **AND** `kubectl` reports **0 pods**,
@@ -582,6 +538,25 @@ path needs torchtitan, not in the gpu-rl image.)
 - **`job summary` is FLAKY on cw-rno2a** (intermittent `execute_unary` controller blips). Drive
   rno2a liveness through `iris query` / `watch_job_state.py --once` instead; retry-or-fall-back
   rather than trusting one `job summary` failure.
+  - **⚠ The blip can masquerade as a false `absent` / "job not found" — even `watch_job_state.py --once`
+    is not safe as a single shot.** Observed 2026-07-20: 4 freshly-launched (and 1 long-running) rno2a RL
+    jobs ALL read `state=absent src=absent pods=0 'no controller record AND 0 pods (disappeared)'` — the
+    summary RPC hit `execute_unary` 3× (→ a definitive-looking `ConnectError: Job … not found`) AND that
+    same invocation's kubectl cross-check returned pods=0, so watch_job_state concluded "disappeared." It
+    was a lie: **`iris query` SQL showed all 5 at `state=3`, and a fresh `kubectl -n iris get pods` showed
+    4 Running pods per job.** So on rno2a, a `not found`/`absent` verdict is NOT terminal proof — a launcher
+    that printed `Submitted` + a controller blip is the likelier story. **Ground-truth a scary rno2a
+    absent/terminal read with BOTH `iris query "SELECT job_id,state FROM jobs WHERE state IN (1,2,3) AND
+    job_id LIKE '/<user>/<prefix>%'" -f csv` AND a fresh standalone `kubectl -n iris get pods -o wide |
+    grep <job-substr>` before believing a job died or never registered.**
+- **⚠ `iris job kill/stop <id>` is a PREFIX kill — it defaults to `--include-children`, terminating
+  EVERY job whose id starts with `<id>`.** So `job kill /benjaminfeuer/rl-opencode-keep1` ALSO kills
+  `rl-opencode-keep1-lp`, `rl-opencode-keep1-v2`, etc. (learned the hard way 2026-07-21: killing the old
+  `rl-opencode-keep1` also reaped the freshly-relaunched `rl-opencode-keep1-lp`). **To kill exactly one
+  job whose name is a prefix of another live job, pass `--no-include-children`.** Always `--dry-run`
+  first when the target name could be a prefix of a job you want to keep. Corollary for NAMING: don't
+  suffix a relaunch onto a live job's exact name (`<name>-lp`) — pick a sibling-distinct stem
+  (`rl-ocfix-v81`, not `rl-opencode-keep1-lp`) so a later prefix-kill can't cross-hit it.
 - **jobs-table columns are the `*_ms` names** (`submitted_at_ms`, `started_at_ms`,
   `finished_at_ms`, `error`, `exit_code`) — a bare `submitted_at`/`failure_count` errors `no such
   column`. If a `query` column errors, drop it and re-select `name, state` (don't abandon the query).
@@ -631,14 +606,11 @@ Then apply the ops.md recipe to the fetched `result.json` fields.
 > workers start, or raise `HF_HUB_DOWNLOAD_TIMEOUT`.)
 
 > **⚠ `--memory` default is `1400GB`** (`launch_rl_iris.py:DEFAULT_MEMORY_PER_NODE`). `1800GB`
-> (≈1676 GiB) sits so close to node-allocatable (~2014 GiB) that after the daemonset +
-> persistent-reservation overhead a leafgroup (all-or-nothing, one IB leaf) gang can't fit all its
-> pods → Kueue `topology 'infiniband' allows to fit only K of N … excluded: resource "memory"` →
-> **SchedulingGated stall**. **`1400GB` is validated** for the 8-node 131k EP8 run (admits cleanly
-> + does the full weight-load with no cgroup-OOM); drop to `1000–1200GB` for 2-node smokes. On an
-> admission stall, LOWER `--memory` toward the real need — **never raise a cap**. (The old `512GB`
-> was the opposite footgun — a weight-load cgroup-OOM; `1400GB` is the validated middle, and now
-> the default so no flag is needed.)
+> sits so close to node-allocatable (~2014 GiB) that after daemonset + persistent-reservation
+> overhead a leafgroup gang can't fit all its pods → Kueue
+> `topology 'infiniband' allows to fit only K of N … excluded: resource "memory"` →
+> **SchedulingGated stall**. **`1400GB` is validated** for the 8-node 131k EP8 run; drop to
+> `1000–1200GB` for 2-node smokes. On an admission stall, LOWER `--memory` — **never raise a cap**.
 
 - **Ray agent ports collide with `worker_ports` nondeterministically — pin them all.** `ray start`
   (head AND worker) lets Ray RANDOMIZE several system ports (`metrics_export`,
@@ -653,11 +625,10 @@ Then apply the ops.md recipe to the fetched `result.json` fields.
   dashboard_agent_listen=8094, node_manager=8076, object_manager=8077`. Rides the `/app` upload (no
   rebuild).
 - **Nodes have NODE-LOCAL storage (no shared GPFS) → stage the agentic task dataset on EVERY node.**
-  Unlike the SLURM clusters (shared GPFS — one rank extracts, all nodes see it), CoreWeave's
-  `/opt/openthoughts/tasks` is node-local, so a rank-0-only `parquet→tasks` extraction leaves the 7
-  workers with EMPTY task dirs → every rollout throws
+  CoreWeave's `/opt/openthoughts/tasks` is node-local, so a rank-0-only `parquet→tasks` extraction
+  leaves the 7 workers with EMPTY task dirs → every rollout throws
   `FileNotFoundError: /opt/openthoughts/tasks/<dataset>/<instance>/task.toml` → reward 0. This is a
-  SILENT data-starvation: the compute path looks green (grouped-mm/R3 fine, no crash) but
+  SILENT data-starvation: compute path looks green (grouped-mm/R3 fine, no crash) but
   `avg_num_tokens≈1.0` and all rewards are 0. **Fix (committed `7c135780`):** the launcher forwards
   `--train-data` to the controller, which stages on every node before Ray via
   `resolve_rl_train_data`. Verify in bring-up: each rank logs
@@ -673,30 +644,24 @@ Then apply the ops.md recipe to the fetched `result.json` fields.
 ### Daytona (orgs + sandbox lifecycle)
 
 **Org routing — RL ALWAYS on the RL org.** Agentic RL (Daytona backend) runs on the dedicated
-**Daytona RL org** (`DAYTONA_RL_API_KEY`, sha1 `f8f0296c1680`) — ~6000 fast sandboxes, so many
-concurrent gangs fit; do NOT spread RL across other orgs to "balance load." Route it via the
-committed **`--daytona-api-key-env DAYTONA_RL_API_KEY`** flag
+**Daytona RL org** (`DAYTONA_RL_API_KEY`, sha1 `f8f0296c1680`) — ~6000 fast sandboxes. Route it via
+the committed **`--daytona-api-key-env DAYTONA_RL_API_KEY`** flag
 (`cloud/iris/launch_rl_iris.py`), NOT a pre-launch `export DAYTONA_API_KEY=…` — the launcher
 re-sources `secrets.env` after any shell export (`hpc/iris/env.py` "file overrides shell") and
 CLOBBERS it. VERIFY in-pod: `kubectl exec … printenv DAYTONA_API_KEY | sha1sum` == the RL key hash.
 - **DATA (`DAYTONA_DATA_API_KEY`) and main (`DAYTONA_API_KEY`) are interchangeable** general-purpose
   pools (evals use main, datagen uses DATA; either takes the other's overflow).
 - **B org (`DAYTONA_B_KEY`) is USER-ONLY — NO agents / no automated jobs there, ever** (~250-sandbox
-  cap; do not confuse it with the RL org). Never pass `DAYTONA_B_KEY` in an agent launch.
+  cap). Never pass `DAYTONA_B_KEY` in an agent launch.
 
 **Killed jobs ORPHAN their in-flight sandboxes → reap after every kill.** Harbor auto-destroys a
 trial's sandbox only when the trial COMPLETES normally (the live RolloutCoordinator tears it down).
 An `iris --cluster coreweave job stop` HARD-kills → the coordinator dies **before** destroying its
-in-flight sandboxes → ~250–384 sandboxes ORPHAN and linger. (Verified 2026-07-04: killing 3 probes
-in a day left ~579 stale >120min-idle sandboxes on the RL org, while a concurrent live job cycled
-cleanly — teardown WORKS for completed trials; the pile was 100% kill-orphans.) Root cause:
-`DaytonaEnvironment` set `auto_stop_interval_mins=0` (auto-stop OFF) +
-`auto_delete_interval_mins=0` (delete-immediately-on-stop armed but never fires — `0` = immediate,
-`-1` = never; auto_stop=0 defeated delete-on-stop). **Fix — harbor `1143aba8`**
-(marin-community/harbor `main`): `auto_stop_interval_mins` default 0→5 (now **30** on `main`), so an idle
-orphan stops after 5 min → auto_delete removes it (the idle timer resets on every sandbox exec, so
-active trials never trip it). **Takes effect on the NEXT image rebake** (harbor is baked into the
-gpu-rl RL + eval images). **Until rebaked, manually reap after every kill:**
+in-flight sandboxes → ~250–384 sandboxes ORPHAN and linger. **Fix — harbor `1143aba8`**
+(marin-community/harbor `main`): `auto_stop_interval_mins` default 0→5 (now **30** on `main`), so
+an idle orphan stops after 5 min → auto_delete removes it (the idle timer resets on every sandbox
+exec, so active trials never trip it). **Takes effect on the NEXT image rebake** (harbor is baked
+into the gpu-rl RL + eval images). **Until rebaked, manually reap after every kill:**
 `python scripts/daytona/cleanup_stale_sandboxes.py --api-key-env DAYTONA_RL_API_KEY --threshold 120 --delete`
 (`--threshold ≥120` so you never reap an active trial while OTHER jobs run — active agentic trials
 idle 15–60 min, never >2h). Orphans take ~1h to cross the idle threshold, so a kill + immediate reap
@@ -710,9 +675,7 @@ MISSES them — reap ~1–2h later (or let the monitor/harvest cron catch them a
   HANGS — the last real line is a benign heartbeat (e.g. an `fd-monitor` from `skyrl_entrypoint`),
   then silence for the whole wall-clock until the job goes terminal. Do NOT read "vLLM up + state 3"
   as healthy. Liveness for a trainer = **forward advancement** (a fresh training step / rising
-  banked-gs / the run's `finished_at` horizon moving), never engine-bring-up completion. (2026-07-17:
-  `megatron-parity-v0m-mcore-east16/east17` both looked "up" then wedged post-bring-up for ~68 min →
-  terminal `FAILED(5)`; the log-string watcher never fired.)
+  banked-gs / the run's `finished_at` horizon moving), never engine-bring-up completion.
 - **While ANY debug thread is in flight, a single 30-minute cron re-verifies EVERY active debug job's
   authoritative state** (jobs-table `state` / `watch_job_state.py --once`), independent of each job's
   own watcher — the cron backstops watchers that go silent on a clean kill/eviction/post-bring-up
@@ -730,47 +693,52 @@ MISSES them — reap ~1–2h later (or let the monitor/harvest cron catch them a
   runs differing only in the fix (env flag or `--skyrl-ref`) — fix-OFF must FAIL and fix-ON must
   PASS; one arm alone proves nothing. Do NOT build reduced/faster "canary" configs (smaller
   ctx/batch/steps) to debug a bug you have NOT proven they reproduce — a green result with no failing
-  control is INCONCLUSIVE (`canary_moe_dispatchfix_8k` [config retired 2026-07-08] "validated" a
-  MoE-wedge fix by completing 2 steps but was never run WITHOUT the fix → never proved the 8k config
-  reproduces the 131k wedge). A slower GUARANTEED repro beats a fast UNCERTAIN one; reduced configs
-  are for SPEED of a *proven* repro only.
+  control is INCONCLUSIVE. Reduced configs are for SPEED of a *proven* repro only.
 - **py-spy forensic on a wedged/hung job — capture BEFORE the kill.** A kill destroys the only live
   evidence of a hang (NCCL flight-recorder dumps are lost to pod GC), so on a suspected deadlock /
   collective-desync, py-spy the stuck ranks first, then recommend the kill with the stacks as
   evidence. VERIFIED working on CoreWeave despite `ptrace_scope=1` (the `task` container carries
-  `CAP_SYS_PTRACE`):
-  `kubectl exec -n iris <pod> -c task -- /opt/openthoughts/.venv/bin/py-spy dump --pid <ray::skyrl_entrypoint PID>`.
-  Dump several ranks to `agent_logs/`, and compare a LEADING vs LAGGING rank to pin which rank is
-  stuck in which collective (the desync source). **A py-spy snapshot is NOT a wedge verdict:** ranks
-  at `dist.barrier()` while others are mid-`forward`, plus a single NCCL
-  `Watchdog caught collective … ran for N ms` LOG LINE, does not prove a terminal deadlock — a real
-  tripped watchdog ABORTS the process (pod crash/restart). Require pod-restarts==0 + an actual
-  abort/terminal state + stalled FRESH logs (all nodes) before calling wedge, and reconcile any cited
-  timeout against the run's own timeline (a 3600 s collective can't predate the phase it is in). On
-  Leonardo py-spy is BLOCKED (`ptrace_scope=2`) — use another forensic.
+  `CAP_SYS_PTRACE`). **py-spy is NOT on `$PATH` and NOT at `/opt/openthoughts/.venv/bin/` (stale — the
+  RL venv is `/opt/openthoughts/envs/rl`, which has no `pip`/`py-spy`).** On the current gpu-rl image
+  py-spy ships only in the **uv cache**; resolve it at call time (works across image rebuilds):
+  ```bash
+  # 1) find the rank pods (job name is TRUNCATED in the pod name — grep the user/model, not the -vN suffix):
+  kubectl -n iris get pods -o wide | grep -aiE '<user>|<model-substr>'
+  # 2) py-spy a stuck rank via the cached binary (no install; NO network needed):
+  kubectl -n iris exec <pod> -c task -- bash -lc \
+    'P=$(find /root/.cache/uv /uv/cache -name py-spy -type f 2>/dev/null | head -1); "$P" dump --pid <PID>'
+  # (equivalently `uvx py-spy dump --pid <PID>` — /usr/local/bin/uvx exists — but the cache-binary form
+  #  avoids a uvx resolve that can hit the network.)
+  ```
+  Find the target PID inside the pod with `ps -eo pid,args | grep -aiE 'skyrl_entrypoint|FSDPPolicy|EngineCore'`
+  (the driver = `ray::skyrl_entrypoint`; policy rank = `ray::FSDPPolicyWorkerBase`; engine = the vLLM
+  `EngineCore`/`RayWorkerProc`). The stuck Python frame is the **`(active)`** thread, not `MainThread`
+  (which idles in Ray's `main_loop` awaiting the actor method). Dump several ranks to `agent_logs/`, and
+  compare a LEADING vs LAGGING rank to pin which rank is stuck in which collective (the desync source).
+  **A py-spy snapshot is NOT a wedge verdict:** ranks at `dist.barrier()` while others are mid-`forward`,
+  plus a single NCCL `Watchdog caught collective … ran for N ms` LOG LINE, does not prove a terminal
+  deadlock — a real tripped watchdog ABORTS the process (pod crash/restart). Require pod-restarts==0 +
+  an actual abort/terminal state + stalled FRESH logs (all nodes) before calling wedge, and reconcile any
+  cited timeout against the run's own timeline. On Leonardo py-spy is BLOCKED (`ptrace_scope=2`) — use
+  another forensic.
 
 ### iris.oa.dev federated GPU submission (NEW 2026-07-09, operator — IN FLUX, bugs expected)
 - **New path:** submit to `iris.oa.dev` requesting GPUs; an **H100 request auto-routes to a CW
-  cluster** via a **meta-scheduler** (a simple scheduler over the per-cluster schedulers that only
-  decides "which cluster can I go to"). `--target-cluster <name>` pins a specific CW cluster. **Only
-  OpenAthena accounts are authorized for CW** (we are `ben.feuer@openathena.ai` → authorized).
-- **Auth:** the new path needs `iris login` with the openathena.ai gmail (kludgy OAuth). **Iris
-  REJECTS jobs submitted via the OLD-STYLE SSH TUNNEL** (to keep legacy non-OA users off CW).
-- **Our EXISTING paths still work (operator + validated 2026-07-09):** the current CW submission
+  cluster** via a **meta-scheduler**. `--target-cluster <name>` pins a specific CW cluster. **Only
+  OpenAthena accounts are authorized for CW** (we are `ben.feuer@openathena.ai`).
+- **Auth:** needs `iris login` with the openathena.ai gmail (kludgy OAuth). **Iris REJECTS jobs
+  submitted via the OLD-STYLE SSH TUNNEL** (to keep legacy non-OA users off CW).
+- **Our EXISTING paths still work (validated 2026-07-09):** the current CW submission
   (MarinSkyRL `cloud/iris/launch_rl_iris.py` → `bundle.controller.tunnel()` +
   `KUBECONFIG=~/.kube/coreweave-iris-gpu`) and the marin-TPU eval submission (`launch_eval_iris`
-  `--cluster=marin`) — 80B **v5** launched + a **TPU eval refill (r438)** both succeeded via the
-  existing path this session, so we are NOT being rejected. `iris.oa.dev` is an EASIER path that
-  becomes the default as bugs are fixed; NOT mandatory yet.
-- ⚠ **Known-rough (operator, 2026-07-09):** (1) NO queuing at the main server yet — an H100 request
-  WITHOUT `--target-cluster` is RANDOMLY dispatched to a CW cluster (fix pending: hold at main until a
-  cluster reports enough free GPUs) → on the new path ALWAYS pass an explicit cluster; (2)
-  log-forwarding slow (finelog push pending, ~that night); (3) a long tail of rollout bugs.
-- **Our exposure:** we always pass an explicit `--cluster=cw-us-east-02a` (RL) / `--cluster=marin`
-  (TPU-eval), so the random-routing does NOT hit us; SLURM clusters (Leonardo/TACC) don't touch iris.
-  **⚠ OPEN:** confirm whether our `bundle.controller.tunnel()` submission IS the rejected "old-style
-  SSH tunnel" — recent submissions succeeded, so evidently a DIFFERENT (still-valid) mechanism; watch
-  the next submission for an auth/tunnel rejection → if so, migrate the launchers to `iris login` +
+  `--cluster=marin`) are NOT the rejected "old-style SSH tunnel". `iris.oa.dev` is an EASIER path
+  that becomes the default as bugs are fixed; NOT mandatory yet.
+- ⚠ **Known-rough:** (1) NO queuing at the main server yet — an H100 request WITHOUT
+  `--target-cluster` is RANDOMLY dispatched to a CW cluster → on the new path ALWAYS pass an
+  explicit cluster; (2) log-forwarding slow (finelog push pending); (3) long tail of rollout bugs.
+- **Our exposure:** we always pass explicit `--cluster=cw-us-east-02a` (RL) / `--cluster=marin`
+  (TPU-eval), so the random-routing does NOT hit us; SLURM clusters don't touch iris. **⚠ OPEN:**
+  watch the next submission for an auth/tunnel rejection → if so, migrate launchers to `iris login` +
   `iris.oa.dev`. (Serving ingress already uses `iris.oa.dev/proxy/t/*` — see §4.)
 
 ### Cross-reference
@@ -809,12 +777,10 @@ TPU cloud. Canonical upstream ops: `marin:lib/iris/OPS.md`. Conventions in §0; 
 
 ### Launch
 
-> **ℹ NEW federated submission `iris.oa.dev` (2026-07-09) — see §2 iris.oa.dev.** An easier path is
-> coming: submit to `iris.oa.dev` (needs `iris login` w/ the openathena.ai gmail); an **H100 request
-> auto-routes to a CW cluster via a meta-scheduler**, `--target-cluster` pins one. It will become the
-> default as bugs settle; **our existing paths (this doc's `--cluster=marin` TPU submission + the CW
-> controller-tunnel launcher) still work** and are NOT the rejected "old-style SSH tunnel" (validated
-> 2026-07-09). On the new path always pass an explicit cluster (no-target ⇒ random dispatch).
+> **ℹ NEW federated submission `iris.oa.dev` (2026-07-09) — see §2 iris.oa.dev.** Our existing
+> paths (`--cluster=marin` TPU submission + the CW controller-tunnel launcher) still work and are
+> NOT the rejected "old-style SSH tunnel". On the new path always pass an explicit cluster
+> (no-target ⇒ random dispatch).
 
 Two entrypoints (both submit `--no-wait`; a launchd fetch daemon mirrors outputs back — see Monitor):
 - **datagen / tracegen** → `data/cloud/launch_tracegen_iris.py`
@@ -828,28 +794,26 @@ fsspec/UPath straight to GCS. (Full templates: `run-datagen-iris` / `run-eval-ir
 **Eval on `dev_set_v2` — pass `--hf-offline-mode off`.** The default `auto` runs an inline
 `snapshot_download` of the full `dev_set_v2` tree (300 task-environment folders, hundreds of tiny
 files) + GCS mirror **before** submit → a 15–25 min submit-stall. Only heavy unmirrored datasets
-bite; model side stays inert. Safe to kill a stalled launcher mid-`snapshot_download` (GCS upload
-only starts after the snapshot completes) — clean the tmp mirror dir.
+bite. Safe to kill a stalled launcher mid-`snapshot_download` (GCS upload only starts after the
+snapshot completes) — clean the tmp mirror dir.
 
 #### Before you submit — region, disk, node shape
 
 **Region (cross-region egress is the #1 cost footgun).** Model **weight** buckets stay
 multi-region: `gs://marin-models-us/...` and `gs://marin-models-eu/...` (durable inputs). Transient
-**outputs** (trace dirs, eval outputs, `xla_cache`) now route to a co-located **single-region**
-bucket (`gs://marin-us-east5`, `gs://marin-eu-west4`, …) — ~half the multi-region cost, still
-read/write-local. Cross-continent reads are a major cost driver and project policy forbids them
-(`AGENTS.md`).
-- Keep **model weight bucket + worker region in the same multi-region** (all US or all EU); the
-  launcher handles output placement.
-- The launcher auto-pins the job to the region with most capacity for the TPU type
+**outputs** (trace dirs, eval outputs, `xla_cache`) route to a co-located **single-region** bucket
+(`gs://marin-us-east5`, `gs://marin-eu-west4`, …) — ~half the multi-region cost, still read/write-local.
+Keep model weight bucket + worker region in the same multi-region (all US or all EU); the launcher
+handles output placement.
+- Launcher auto-pins the job to the region with most capacity for the TPU type
   (`hpc/iris/regions.py:discover_region_for_tpu`) and routes output to that region's
-  **single-region** bucket (`output_bucket_for_region`). It records the chosen output URI in the
-  registry, so readers resolve it via `hpc.iris.job_output_resolver` (never a hardcoded bucket).
+  **single-region** bucket (`output_bucket_for_region`). Records the chosen output URI in the
+  registry; readers resolve via `hpc.iris.job_output_resolver` (never hardcoded bucket).
   **Static default `DEFAULT_GCS_OUTPUT_ROOT` is `gs://marin-eu-west4/...`** (single-region EU) — the
   discovery-failed fallback; a US placement that lands here reads EU = egress, so let the pin run.
 - `--gcs-output-dir gs://marin-models-us/ot-agent` **opts out of the region pin AND the
   single-region routing** (forces that multi-region bucket; places on first free worker in any US
-  region — the fix for a collapsed single-region pool, stuck-PENDING below). A deliberate override;
+  region — the fix for a collapsed single-region pool, stuck-PENDING below). Deliberate override;
   prefer leaving the pin on.
 
 **Local disk (~100 GB/node ceiling).** Each TPU worker node has only ~100 GB.
@@ -861,20 +825,20 @@ read/write-local. Cross-continent reads are a major cost driver and project poli
   container (~256 GB host RAM, distinct from the 100 GB disk).
 - `--disk` defaults to 5 GB ephemeral; raising it does not change the node ceiling.
 
-**Node shape — get chip/host counts from the codebase, not arithmetic.** "Chips ÷ 4 = hosts" is wrong
-(v5p counts *cores not chips*; v6e single-host packs up to 8 chips). Authoritative sources:
-- **Host/process count:** `iris.cli.job.get_tpu_topology("<variant>").vm_count`. Known good: `v5p-8 → 1`,
-  `v5p-16 → 2`, `v5p-32 → 4`, `v6e-8 → 1`, `v6e-16 → 4`. The launcher uses this to auto-set `--replicas`.
-- **v5p naming is CORES, not chips:** `v5p-N` = N cores = **N/2 chips**. So `v5p-8` = 4 chips (1 host),
-  `v5p-32` = 16 chips (4 hosts). **Tensor-parallel degree must be ≤ chip count, not core count** —
-  TP=8 won't fit v5p-8 (4 chips).
+**Node shape — get chip/host counts from the codebase, not arithmetic.** "Chips ÷ 4 = hosts" is
+wrong (v5p counts *cores not chips*; v6e single-host packs up to 8 chips). Authoritative sources:
+- **Host/process count:** `iris.cli.job.get_tpu_topology("<variant>").vm_count`. Known good:
+  `v5p-8 → 1`, `v5p-16 → 2`, `v5p-32 → 4`, `v6e-8 → 1`, `v6e-16 → 4`. Launcher uses this to
+  auto-set `--replicas`.
+- **v5p naming is CORES, not chips:** `v5p-N` = N cores = **N/2 chips**. So `v5p-8` = 4 chips (1
+  host), `v5p-32` = 16 chips (4 hosts). **Tensor-parallel degree must be ≤ chip count, not core
+  count** — TP=8 won't fit v5p-8 (4 chips).
 - **Live capacity + real chip counts:** query the cluster's `workers` table —
   ```bash
   $IRIS --cluster=marin query "SELECT device_variant, count(*) workers, sum(total_tpu_count) chips FROM workers WHERE device_type='tpu' GROUP BY device_variant ORDER BY device_variant" -f csv
   ```
 - **Pools / variants / zones:** `marin:lib/iris/config/marin.yaml`. Per-chip HBM + slice totals in §1.
-- 122B-FP8 fits **v5p** (95 GB HBM/chip) but **not v6e-8** (32 GB/chip, 256 GB/slice) — weights + MoE
-  footprint + compile peak exceed it.
+- 122B-FP8 fits **v5p** (95 GB HBM/chip) but **not v6e-8** (32 GB/chip, 256 GB/slice).
 
 **Cold-compile budget:** 122B-FP8 first-serve compile can take ~60 min. Pass
 `--health_max_attempts 600`; the default (~50 min) kills the job before it serves.
@@ -896,11 +860,9 @@ $IRIS --cluster=marin job logs -f /benjaminfeuer/<job>    # live workload logs (
 
 > **⚠️ Never trust `iris job logs <job> --tail --max-lines N` for stats or debugging.** It truncates
 > from the tail only — verbose Ray state-dumps crowd out the lines you care about, **under-sampling
-> throughput by 10–100×**. The rollout/Harbor warning lines (e.g. a per-episode `AttributeError` in
-> a Ray generator-worker actor → `generate/errors/*`) and throughput emissions live deep in the body.
-> **Use `analyze_job_history.py`** — it paginates the entire log via fixed `--since-ms` + `--no-tail`
-> windows and filters in python; even `--max-lines 200000` misses body lines the windowed walk
-> recovers.
+> throughput by 10–100×**. **Use `analyze_job_history.py`** — it paginates the entire log via fixed
+> `--since-ms` + `--no-tail` windows and filters in python; even `--max-lines 200000` misses body
+> lines the windowed walk recovers.
 
 Outputs land in `~/.ot-agent/runs/<job>/` (daemon rsync) + `.iris-job.log`. Health signal =
 productive-trial rate (`non_empty/total`) + `harbor_exception_stats`; gen tok/s varies by dataset
@@ -912,43 +874,40 @@ state-4 success — verify the repo exists before any manual rescue.
 #### Preemption (`--preemptible` workers)
 - Normal and frequent; a slice can take 10+ preempts in a few hours. Each preempt → fresh worker →
   **cold XLA recompile** (~60 min v5p-8 cold; ~13–20 min warm).
-- **XLA persistent cache** makes warm restarts fast. Namespaced per CPU-microarch and per model under
-  `OT_AGENT_XLA_CACHE_BASE` (region-matched bucket, auto-set on iris) — do not point two different
-  host CPUs at the same cache subdir (cross-host poison → wrong execution).
-- **harbor resumes from the gs:// `jobs_dir`** — completed trials persist across preempts; only the
+- **XLA persistent cache** makes warm restarts fast. Namespaced per CPU-microarch and per model
+  under `OT_AGENT_XLA_CACHE_BASE` (region-matched bucket, auto-set on iris) — do not point two
+  different host CPUs at the same cache subdir (cross-host poison → wrong execution).
+- **harbor resumes from the gs:// `jobs_dir`** — completed trials persist across preempts; only
   recompile time is lost.
 - `IRIS_TASK_ID` gains a `:N` suffix on retried/preempted attempts (e.g. `/user/job/0:2`) —
   rank-parsing must strip it (`.rsplit('/',1)[-1].split(':',1)[0]`) or it crashes on retry.
-- **Stuck PENDING** = no capacity for that TPU type in the pinned region (preemptible pool can scale
-  to zero). A finished job does NOT free its snapshot or instantly free capacity. For a fresh DATAGEN
-  launch that won't place, the documented remedy is to relaunch **unpinned** with
+- **Stuck PENDING** = no capacity for that TPU type in the pinned region (preemptible pool can
+  scale to zero). A finished job does NOT free its snapshot or instantly free capacity. For a fresh
+  DATAGEN launch that won't place, relaunch **unpinned** with
   `--gcs-output-dir gs://marin-models-us/ot-agent` (iris places on any free US worker; note this
   override reverts outputs to the pricier multi-region bucket). Kill the stuck submission only with
   user permission.
 - **⚑ PREEMPTIBLE JOBS STAY ON PREEMPTIBLE — a capacity-pending wait is NOT an escalation (operator,
   2026-07-09).** When a `--preemptible` job (datagen OR a training child respawned by its
   coordinator) sits PENDING for hours on "no workers match constraints" = pure preemptible-pool
-  scarcity, that is the EXPECTED steady state, not a fault. **Do NOT** propose/repin to a
-  non-preemptible / on-demand slice, **do NOT** probe other zones to "rescue" it, and **do NOT**
-  surface it to the user as a decision — the operator's standing answer is "jobs on preemptible stay
-  there." Just report the pending status and let it self-place; a durable parent (`--max-retries`) or
-  coordinator guarantees resume the moment a slice frees. (This overrides the earlier "escalate a
-  long capacity stall" reflex. The unpinned-relaunch remedy above is still fine for a *fresh* datagen
-  launch that never placed — that's a region-pin fix, not an on-demand upsell.)
+  scarcity, that is the EXPECTED steady state. **Do NOT** propose/repin to a non-preemptible /
+  on-demand slice, **do NOT** probe other zones to "rescue" it, and **do NOT** surface it to the
+  user as a decision. Just report the pending status and let it self-place; a durable parent
+  (`--max-retries`) or coordinator guarantees resume the moment a slice frees. (The unpinned-relaunch
+  remedy above is still fine for a *fresh* datagen launch that never placed — that's a region-pin
+  fix, not an on-demand upsell.)
 - **⚑ DON'T GATE keep-N REFILLS ON A CAPACITY GUESS — let iris's scheduler place them (operator,
   2026-07-09).** When keep-N is below target, SUBMIT the refill(s) and let the iris queue manager
   decide placement; a submitted job that sits PENDING behind a full pool is fine (it places when a
   slice frees). **Do NOT withhold or defer a refill because you eyeballed "0 free TPUs" / a long
-  pending queue** — that is the scheduler's job, not yours, and guessing just starves the campaign.
-  Submit to keep-N every tick; only skip on a HARD blocker you can act on (Daytona snapshot cap with
-  nothing reclaimable → note + move on). A pending refill is not an escalation (see the preemptible
-  rule above).
+  pending queue.** Submit to keep-N every tick; only skip on a HARD blocker you can act on
+  (Daytona snapshot cap with nothing reclaimable → note + move on). A pending refill is not an
+  escalation (see the preemptible rule above).
 
 #### How the pools work — monotonic tier ladder + crash-vs-preempt reservations (2026-07-11)
 
-Two mechanics explain almost every long `v5p…`/`v6e…` PENDING, including multi-hour ones. Both are
-**capacity behavior, not config faults** — HOLD FAST applies; do NOT mis-escalate them as
-quota/config blocks.
+Two mechanics explain almost every long `v5p…`/`v6e…` PENDING. Both are **capacity behavior,
+not config faults** — HOLD FAST; do NOT mis-escalate as quota/config blocks.
 
 - **Monotonic tier ladder (per pool).** Each preemptible pool (e.g. `v5p-preemptible/us-east5-a`) has
   a **tier ladder by slice size** — `v5p-8` = tier 1, `v5p-16` = tier 2, `v5p-32` = tier 3, `v5p-64`
@@ -963,27 +922,18 @@ quota/config blocks.
 
 - **A crash tears down the reservation; a preempt holds it.** While a training child is RUNNING it
   *holds* its slice, so the tier gate above is moot — which is why days of **preempt→resume** work
-  fine (a preempt keeps the slice reserved and re-attaches). But a **hard crash (e.g. SIGSEGV exit
-  139) destroys the slice entirely**; the coordinator's `--max-retries` respawn must then
-  **re-acquire the tier-N slice from scratch**, and *that* is when it hits the monotonicity gate at
-  whatever the current contention is. So a crash-resume can be dramatically slower to place than a
-  preempt-resume, even for the identical job — expected, not a wedge.
-
-Worked example (midtrain `1e23_p33m67_k0p20`, 2026-07-10→11): child SIGSEGV'd @18:42Z → respawn sat
-**13h12m** PENDING with zero task-attempts on `tier_blocked` behind a last-24h surge of others'
-`v5p-8` demand (`calvinxu/dm-delphi` sweeps, `tonyhlee/eval-chimera`, GCP zone `us-east5-a` capacity
-exhausted) → **self-placed @07:55Z** the moment that tier-1 backlog drained, on a freshly-formed
-v5p-64 slice, resuming from its last checkpoint. No config change, no quota grant, no intervention —
-the HOLD-FAST wait was correct.
+  fine. But a **hard crash (e.g. SIGSEGV exit 139) destroys the slice entirely**; the coordinator's
+  `--max-retries` respawn must then **re-acquire the tier-N slice from scratch**, and *that* is when
+  it hits the monotonicity gate at whatever the current contention is. So a crash-resume can be
+  dramatically slower to place than a preempt-resume, even for the identical job — expected, not a wedge.
 
 #### Wedged / stalled TRAINING run (coordinator + child) — checkpoint-resume
 > **⚠ The Executor + `ExecutorStep` are RETIRED (marin PR #6649, 2026-07-09) → lazy `ArtifactStep`
 > (`marin.execution.lazy`, `remote(fn,…)`, `name@version`). See
 > `.claude/projects/marin-executor/`.** The coordinator/child + `.executor_info` model below still
 > describes OLD executor-launched runs (Delphi midtrains) — read them the same way — but NEW Levanter
-> training uses `ArtifactStep`. `StepRunner` + its per-step distributed lock survive and
-> **DEADLOCK an SPMD (srun N-rank GPU) launch** (one rank wins the lock, the rest spin, the JAX mesh
-> never forms — issue #7080); the workaround is to call the Levanter entrypoint directly in every
+> training uses `ArtifactStep`. `StepRunner` + its per-step distributed lock DEADLOCK an SPMD
+> (srun N-rank GPU) launch (issue #7080); workaround: call the Levanter entrypoint directly in every
 > rank (bypass `StepRunner`). Full detail in the marin-executor project doc.
 
 For executor-dispatched training (a CPU **coordinator** submits a v5p **child** training job, e.g. a
@@ -993,7 +943,7 @@ Levanter midtrain), recovery differs from datagen:
   `state 3` but frozen — never FAILED, no retry). It also **reuses the launch-time bundle**, so a
   CODE fix reaches the worker only on a FRESH relaunch.
 - **Stopping the COORDINATOR is TERMINAL** — `iris job stop <coordinator>` kills children AND does
-  NOT relaunch (it's the *abandon* path). Do NOT expect `--max-retries` to bring it back.
+  NOT relaunch (it's the *abandon* path).
 - **Liveness/wedge = ADVANCEMENT, not presence.** A training run can be `state 3 RUNNING` with
   `iris job logs` showing a recent step yet be dead — the CLI/IAP log window freezes at a stale
   timestamp. Judge by **SAVED-CHECKPOINT step AND its GCS mtime** advancing — but **use the RIGHT
@@ -1001,13 +951,11 @@ Levanter midtrain), recovery differs from datagen:
   - **⚠ The PERMANENT path is COARSE (retains only sparse N×1500-step checkpoints) — do NOT use it
     for wedge detection.** For delphi/levanter it keeps only every-1500-steps (…3000, 4500, 6000,
     7500…), so at ~76 s/step its newest checkpoint can be **>1 DAY old on a perfectly healthy run** →
-    a FALSE "frozen/wedged" reading. (2026-07-08: permanent path stuck at step-6000 from 2 days prior
-    while training was live at step ~7256.)
+    a FALSE "frozen/wedged" reading.
     `gs://<bucket>/checkpoints/<run>/checkpoints/step-*/metadata.json`
   - **✅ Use the fine-grained TEMP (TTL) rolling-checkpoint path — that is the real liveness signal**
     (a fresh checkpoint every N steps, ~10-20 steps behind live):
     `gsutil ls -l 'gs://<bucket>/tmp/ttl=14d/checkpoints-temp/<bucket>/checkpoints/<run>/checkpoints/step-*/metadata.json' | sort -k2 | tail`
-    (e.g. delphi `b6607e`: temp step-7235 @ 17:33Z, ~20 steps behind live 7256 — advancing = healthy.)
   - Cross-check with `iris job logs` live-step advancement too. Frozen TEMP-path checkpoint mtime for
     hours + frozen logs + healthy cgroup = progress WEDGE (not OOM/leak). NEVER declare a wedge off
     the permanent path alone.
@@ -1015,41 +963,38 @@ Levanter midtrain), recovery differs from datagen:
   - **Option A (PRIMARY): stop the wedged CHILD only, NOT the coordinator.**
     `iris job stop <child_task_id>` forces the child terminal (KILLED) → the coordinator's executor
     respawn loop spawns a FRESH child that auto-resumes from the latest checkpoint on the pinned
-    output dir. Proven recovery; preserves the healthy coordinator, `--max-retries` durability, and
-    W&B run identity. Confirm the new child loads step-N (tqdm `Nk/29.9k` / cgroup callback), not
-    step 0.
+    output dir. Preserves the healthy coordinator, `--max-retries` durability, and W&B run identity.
+    Confirm the new child loads step-N (tqdm `Nk/29.9k`), not step 0.
   - **Option B (FALLBACK): stop-coordinator → relaunch-FRESH on the SAME output dir.** Use ONLY if
-    the coordinator is dead/won't respawn, OR to deploy a CODE fix (child-only bounce reuses the old
-    bundle). Verify the relaunch targets the SAME output-dir tag (step-0 start = wrong dir = lost
-    progress).
-- **Standing authority (user, 2026-07-08):** a CONFIRMED-wedged training run (frozen checkpoint
-  mtime + frozen logs for hours, cgroup healthy) may be auto-bounced (stop-coordinator +
-  relaunch-fresh) autonomously.
+    the coordinator is dead/won't respawn, OR to deploy a CODE fix (child-only bounce reuses the
+    old bundle). Verify the relaunch targets the SAME output-dir tag (step-0 start = wrong dir =
+    lost progress).
+- **Standing authority:** a CONFIRMED-wedged training run (frozen checkpoint mtime + frozen logs
+  for hours, cgroup healthy) may be auto-bounced autonomously.
 
 #### Daytona snapshot cap
-Launches build a per-env Daytona snapshot; the shared `cli` org caps at 60. On
-`SnapshotCapExceeded`, delete **only `MISSING`-state `harbor__*` snapshots** (broken builds, safe).
-NEVER broad-prune (`cleanup_unused_snapshots`) on the shared org — it removes ACTIVE snapshots other
-jobs depend on. Snippet in the `run-datagen-iris` skill.
+Launches build a per-env Daytona snapshot; shared `cli` org caps at 60. On `SnapshotCapExceeded`,
+delete **only `MISSING`-state `harbor__*` snapshots** (broken builds, safe). NEVER broad-prune
+(`cleanup_unused_snapshots`) on the shared org — removes ACTIVE snapshots other jobs depend on.
+Snippet in the `run-datagen-iris` skill.
 
 #### Local-storage growth on the launch host
-The daemon mirror under `~/.ot-agent/runs/` (and `.iris-job.log`, 10s of MB) accumulates across jobs.
+Daemon mirror `~/.ot-agent/runs/` (and `.iris-job.log`, 10s of MB) accumulates across jobs.
 `python -m hpc.local_paths inventory` lists sizes; `... clean --older-than 30d --apply` purges old
-runs. (Launch *host*; distinct from the 100 GB worker-node ceiling in §Launch.)
+runs. (Launch host; distinct from the 100 GB worker-node ceiling in §Launch.)
 
 #### Empty GCS prefix after a "successful" job
-The workload didn't route through UPath. Confirm
-`--harbor_extra_arg=--jobs-dir=<gcs>` is in the submitted command (`iris job bug-report <id>`) and
-that the harbor pin is the UPath-aware build.
+Workload didn't route through UPath. Confirm `--harbor_extra_arg=--jobs-dir=<gcs>` is in the
+submitted command (`iris job bug-report <id>`) and the harbor pin is the UPath-aware build.
 
 #### TPU agentic eval `--upload_to_database` is a NO-OP (GCS-only results)
-An `eval/cloud/launch_eval_iris.py` eval with `--upload_to_database` does NOT push traces to HF and
+`eval/cloud/launch_eval_iris.py` eval with `--upload_to_database` does NOT push traces to HF and
 does NOT register the score to Supabase — post-eval upload keys off a local Harbor job dir
 (`/app/jobs/<job>`) that doesn't exist on the TPU runtime (trials stream to GCS). Log tell:
 `[upload] Expected Harbor job directory /app/jobs/<job> does not exist; upload skipped.`
 GPU/SLURM has the local dir so upload works there; TPU is the broken path. Results land in **GCS
-only**, under the job's recorded output prefix `<job_output_dir>/<job>/` (single- or multi-region —
-resolve it with `python -m hpc.iris.job_output_resolver <job> --cluster …/marin.yaml`, don't hardcode
+only**, under the job's recorded output prefix `<job_output_dir>/<job>/` (resolve via
+`python -m hpc.iris.job_output_resolver <job> --cluster …/marin.yaml`, don't hardcode
 `gs://marin-models-us`).
 - **Harvest scores from GCS**, not Supabase: `result.json` → `stats.evals.<id>.reward_stats`
   (+ `exception_stats`).
@@ -1070,8 +1015,7 @@ $IRIS --cluster=marin job kill /benjaminfeuer/<job>
   `scripts/harbor/make_and_upload_trace_dataset.py --job_dir /tmp/<job> --repo_id penfever/<slug>-... --episodes last --filter none --skip_register`.
 - **NEVER** `iris cluster restart` / stop / bounce the cluster without explicit user approval — it
   kills every running job. `job kill` is job-scoped (safe with permission); cluster ops are not.
-  Killing the job frees its workers; there is no separate teardown step for the TPU slice (iris
-  reclaims preemptible workers).
+  Killing the job frees its workers; iris reclaims preemptible workers.
 - To stop a **CoreWeave** GPU job: `iris --cluster coreweave job stop /<user>/<job>` (full binary
   `/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris`; `which iris` fails); export
   `KUBECONFIG=~/.kube/coreweave-iris-gpu` first. A hard-kill ORPHANS in-flight Daytona sandboxes —
@@ -1115,6 +1059,29 @@ the Daytona sandbox reaches vLLM through the controller's public host.
 - **If a job fails specifically on `/proxy/t`** (401/403/base_url), do NOT redeploy pinggy — flag it.
   It has not recurred since cutover.
 
+### ⛔ cw-rno2a has NO public endpoint-serving ingress → AGENTIC (opencode) workloads CANNOT reach the served model there (root-caused 2026-07-20)
+**Non-agentic RL works on rno2a; agentic (opencode-in-Daytona) does NOT.** The opencode agent runs INSIDE a
+Daytona sandbox (OUTSIDE the cluster VPC) and must reach the job's served vLLM via the public capability URL
+`https://iris.oa.dev/proxy/t/<token>/otagent-<slug>/v1`. On **cw-rno2a** every agent turn silently hangs → the
+`opencode.txt` transcript is **0 bytes** → `harbor.trial.errors.AgentTimeoutError` at the 1800 s ceiling → 0/N trials
+finalize (no `result.json`), while the in-VPC RolloutCoordinator generates fine (it uses the internal head IP
+`10.168.x:8010` directly, bypassing the proxy). **Root cause = a CLUSTER-PROVISIONING gap, not our launch flags:**
+`marin/lib/iris/config/cw-us-east-02a.yaml` carries `provisioning.coreweave.ingress: {ingress_class: traefik,
+acme_email, cluster_issuers: [letsencrypt-*]}` + `dashboard_url: https://iris-cw-us-east-02a.oa.dev` (added by the
+Pulumi IaC `470ae1e7a4`), so east's controller serves `/proxy/t` capability URLs over a valid public HTTPS ingress
+the parent `iris.oa.dev` forwards to. **`cw-rno2a.yaml` has NONE of that block** — it only got the IP-locked
+*federation* ingress (`install_cw_network.py`, controller↔controller RPC; the per-cluster host
+`iris-cw-rno2a.oa.dev` answers 403 = IP-locked to marin CIDRs, unreachable from a Daytona sandbox). So the parent has
+no public rno2a endpoint-serving route to forward to. **Proof (A/B):** east keep-1 (`10.184.x`) + rno2a keep-6
+(`10.168.x`) used the *identical* `iris.oa.dev/proxy/t` api_base — east opencode worked (`reward=1.0`,
+`n_output_tokens=484`), rno2a produced empty transcripts. `iris.oa.dev/proxy/t/badtoken/...` → 401 (global ingress
+UP), so the plane is fine; only rno2a's per-cluster serving ingress is missing.
+- **Do NOT** try to fix this with launch flags, `--ingress-host`, a relaunch, or by pointing at `iris-cw-rno2a.oa.dev`
+  (IP-locked). It is not our code/config — it is the rno2a controller's missing public serving ingress.
+- **Unblock NOW:** run agentic RL/eval on **cw-us-east-02a** (proven GREEN). **Proper fix:** provision rno2a's
+  controller with the `provisioning.coreweave.ingress` traefik/ACME block + `dashboard_url` (the Pulumi IaC east got)
+  — a Marin cluster-admin change (file a marin issue; do NOT re-provision a live cluster unilaterally).
+
 ### Cutover provenance (marin #6847 / PR #6857, merged origin/main `b3df2573b`)
 Native replacement for the pinggy sidecar: first-class per-endpoint auth-gated public ingress.
 - **Endpoint access modes** — `EndpointAccess.ENDPOINT_ACCESS_{PRIVATE,PUBLIC,BEARER,…}`
@@ -1123,10 +1090,6 @@ Native replacement for the pinggy sidecar: first-class per-endpoint auth-gated p
   `/proxy/<name>/…` gate; it carries **no RPC authority** and is minted under the owning user
   (surfaces in `iris key list`). Wiring: `hpc/ingress_utils.py`,
   `hpc/local_runner_utils.py::_serving_endpoint_meta`.
-- **First prod validation (2026-07-06, job `tracegen-iris-20260706-175823`):** worker registered +
-  minted, vLLM logged repeated `POST /v1/chat/completions 200 OK` at Running 31–32 reqs (= 32 Daytona
-  trials), zero ingress errors. Verdict: WORKS. Details in the campaign history log
-  (`~/Documents/agent_logs/2026-07-08_qwen3.5-122b-131k-datagen-opencode-iris_history.md`).
 
 ### Retired: pinggy sidecar (rollback lever only)
 Before 2026-07-06 the public front was a standalone **non-preemptible CPU-only iris job**
@@ -1141,10 +1104,10 @@ healthz, redeploys if down, re-emits `INGRESS_HOST=`). Retired via
   `CONTROLLER_PROXY_BASE=http://<controller-addr>:10000`, `IRIS_CONTROLLER_AUTH` unset (in-cluster
   controller view is unauthenticated).
 - ⚠️ **pinggy DNS quirk (Mac-only):** from the launch Mac, plain `curl https://<id>.a.pinggy.link`
-  returns 000 (ISP returns a bogus IP for `*.a.pinggy.link`). Health checks must resolve the real edge
-  first:
+  returns 000 (ISP returns a bogus IP for `*.a.pinggy.link`). Health checks must resolve the real
+  edge first:
   `EDGE=$(dig @1.1.1.1 +short <host> | tail -1); curl -sk --resolve "<host>:443:$EDGE" https://<host>/healthz`.
-  Daytona sandboxes (cloud DNS) reach pinggy fine — the quirk is Mac-only.
+  Daytona sandboxes reach pinggy fine — quirk is Mac-only.
 
 ---
 
@@ -1171,12 +1134,10 @@ kills/evictions/preemptions/early crashes that emit no terminal log line.
 - **JobState enum:** `0` UNSPECIFIED `1` PENDING `2` BUILDING `3` RUNNING `4` SUCCEEDED `5` FAILED
   `6` KILLED `7` WORKER_FAILED `8` UNSCHEDULABLE.
 - **Why this over a hand-rolled `SELECT state … WHERE state IN (4,5,6)` watcher:** the `jobs` table
-  is PRUNED (terminal rows deleted; federated mirror rows age out on the peer's tombstone — often
-  well inside the 7-day local default), so a completed job's `query` returns an EMPTY row and a naive
-  `state IN (4,5,6)` watcher polls forever. `watch_job_state.py` treats **absence-after-existence + 0
-  pods** as terminal (`absent`, exit 2). Needs a correct `KUBECONFIG` to confirm 0 pods, or absence
-  stays a transient read-error. Full rule + the artifact-watch pattern for HF-export/s3 jobs
-  (durable ground-truth signal): §2 Observability "Empty job-state ≠ still-running".
+  is PRUNED, so a completed job's `query` returns an EMPTY row and a naive terminal-state watcher
+  polls forever. `watch_job_state.py` treats **absence-after-existence + 0 pods** as terminal
+  (`absent`, exit 2). Needs a correct `KUBECONFIG` to confirm 0 pods. Full rule + the artifact-watch
+  pattern for HF-export/s3 jobs: §2 Observability "Empty job-state ≠ still-running".
 
 #### `analyze_job_history.py` — full-log pull + throughput/preemption stats *(the science tool)*
 Paginates the ENTIRE job log by fixed time windows (`--since-ms` + `--no-tail`, the only way past
@@ -1262,32 +1223,30 @@ skip (guards `device.memory_stats()` on multi-host slices >v6e-8 where non-local
 > they live only in the cluster's `iris`-namespace secret **`finelog-cw-use02a-env`** (`AWS_*` keys
 > incl. `AWS_ENDPOINT_URL`). Source that secret into the env — **values never printed** — before
 > running the analyzer against `--cluster cw-us-east-02a`. Without it the run crashes
-> `FileNotFoundError: The specified bucket does not exist` (s3fs silently falls back to **real AWS
-> S3**, where `marin-na` does not exist).
+> `FileNotFoundError: The specified bucket does not exist` (s3fs falls back to **real AWS S3**,
+> where `marin-na` doesn't exist).
 >
-> The finelog **archive** is a SEPARATE, marin-controlled location that genuinely **stays on R2**
-> (`s3://marin-na/finelog/…`), read **Mac-side with these R2 creds** — distinct from the RL/eval
+> The finelog **archive** is a SEPARATE marin-controlled location that stays on R2
+> (`s3://marin-na/finelog/…`), read Mac-side with these R2 creds — distinct from the RL/eval
 > **write-path** (`s3://marin-us-east-02a`). Don't "repoint" the finelog archive to CW.
 
 ### Why this bites (the failure mode)
 
-The analyzer fetches each job's complete log as **live ∪ GCS-archive**, deduped on `seq`. The split
-differs by cluster; the **archive half** is where the cred gap is:
+The analyzer fetches each job's complete log as **live ∪ GCS-archive**, deduped on `seq`. The
+archive half is where the cred gap is:
 
 | cluster | finelog `client_url` | LIVE half | ARCHIVE half (`remote_log_dir`) | archive creds |
 |---|---|---|---|---|
 | `marin` (TPU) | set | IAP proxy (`marin-login login marin`) | `gs://…` (GCS) | the IAP/ADC session covers it |
 | `cw-us-east-02a` (CoreWeave) | **None** | **k8s tunnel** (no IAP needed) | **`s3://marin-na/finelog/cw-us-east-02a`** (**R2**) | **R2 creds — NOT on the Mac** |
 
-On CoreWeave the live half is *easier* than the skill implies (a tunnel, no IAP login), but the
-**archive half needs R2 creds** the Mac lacks. `fsspec.url_to_fs("s3://marin-na/…")` with no R2
-endpoint/creds resolves to **AWS S3**, where the bucket isn't there → the run aborts in
-`_list_namespace_segments → fs.ls` **before** duckdb reads, so it is *not* caught by the script's
-compaction-race retry (that only catches 404/NoSuchKey mid-read). Hard `FileNotFoundError`.
-
-This is the **same Mac-lacks-marin-na-R2-creds** fact noted for `trials_dir` in §5 (the launch-host
-Mac lacks marin-na R2 creds, so all R2 ops run INSIDE the pod). For finelog we work around it from
-the Mac by borrowing the pod's creds out of the k8s secret.
+On CoreWeave the live half is *easier* (a tunnel, no IAP login), but the archive half needs R2
+creds the Mac lacks. `fsspec.url_to_fs("s3://marin-na/…")` with no R2 endpoint/creds resolves to
+**AWS S3**, where the bucket isn't there → the run aborts in `_list_namespace_segments → fs.ls`
+**before** duckdb reads, so it is *not* caught by the script's compaction-race retry (that only
+catches 404/NoSuchKey mid-read). Hard `FileNotFoundError`. Same Mac-lacks-marin-na-R2-creds fact
+noted for `trials_dir` in §5; for finelog work around from the Mac by borrowing the pod's creds out
+of the k8s secret.
 
 ### Where the creds are (and the var-name trap)
 
@@ -1345,20 +1304,20 @@ print('LS OK:', len(fs.ls(cfg.remote_log_dir, detail=False)), 'entries')"
 
 ### Caveats / gotchas
 
-- **Terminal vs running jobs.** For a **terminal** (old) job the live tunnel often has nothing left —
-  the archive (R2) is the real source, so R2 creds are mandatory. For a **running** job you need
-  *both* (live tunnel for the recent L0 tail + R2 for the compacted history); a live-half failure
-  still surfaces as a loud coverage gap, not a silent fragment.
-- **GPU-RL jobs have no harbor trial sidecars**, so `analyze_job_history.py` §2 is empty — for GPU-RL
-  diagnosis use **rl-job-health-deep-dive** instead. But the *log-acquisition* machinery here (live ∪
-  R2-archive) is generic for pulling a terminal RL run's full finelog history: the default
+- **Terminal vs running jobs.** For a **terminal** (old) job the live tunnel often has nothing left
+  — archive (R2) is the real source, R2 creds mandatory. For a **running** job you need *both*
+  (live tunnel for the recent L0 tail + R2 for compacted history); a live-half failure surfaces as
+  a loud coverage gap, not a silent fragment.
+- **GPU-RL jobs have no harbor trial sidecars**, so `analyze_job_history.py` §2 is empty — for
+  GPU-RL diagnosis use **rl-job-health-deep-dive**. The log-acquisition machinery here (live ∪
+  R2-archive) is generic for terminal RL run's full finelog history: the default
   `FINELOG_CONTAINS_PATTERNS` filter is TPU/datagen-tuned, so to capture RL signals
   (`WORKER_FORWARD_ENTER`, `global_step`, `[weight-sync]`, mesh_fsdp watchdog) swap those
   `contains(data, …)` patterns when reusing `fetch_live`/`fetch_gcs`.
-- **Secret hygiene.** These are shared marin-infra R2 creds. Source them by the loop above — never
-  paste a value into a prompt, file, or chat; a subagent that needs them gets *this procedure*, not
-  the values. They do not belong in `secrets.env` — borrow from the live secret each time so a
-  rotation can't leave a stale copy on disk.
+- **Secret hygiene.** Shared marin-infra R2 creds. Source by the loop above — never paste a value
+  into a prompt/file/chat; a subagent that needs them gets *this procedure*, not the values. They
+  don't belong in `secrets.env` — borrow from the live secret each time so a rotation can't leave
+  a stale copy on disk.
 
 ### Cross-references
 - **Skill:** `analyze-job-history-iris` (the analyzer how-to + sidecar parsing; this doc supplies its
