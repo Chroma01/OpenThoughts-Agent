@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -111,6 +112,14 @@ class TracegenIrisLauncher(IrisLauncher):
 
         # Literal-token capture + controller-ingress passthrough to the worker.
         add_ingress_literal_args(parser)
+
+        parser.add_argument(
+            "--baked-venv", "--baked_venv", dest="baked_venv", action="store_true",
+            help="Run the worker from the image's baked /opt/openthoughts/.venv instead of "
+                 "letting the iris bootstrap rebuild /app/.venv from uv.lock. Required for "
+                 "images whose venv carries deps NOT in the locked pin (e.g. the gpu-glm52 "
+                 "image's fork vLLM for GLM-5.2, which a `uv sync --reinstall` would clobber "
+                 "back to the pinned version).")
 
     def normalize_paths(self, args: argparse.Namespace) -> None:
         # --gpus drives vLLM tensor_parallel_size. On the GPU path it is the whole-node
@@ -278,6 +287,17 @@ class TracegenIrisLauncher(IrisLauncher):
             cmd.extend(["--upload_hf_token", args.upload_hf_token])
         if args.upload_hf_private:
             cmd.append("--upload_hf_private")
+
+        if getattr(args, "baked_venv", False):
+            # Emit a bash entrypoint (command[0] != "python") so the iris bootstrap does NOT
+            # wrap this with `uv sync --frozen --reinstall` — that would rebuild /app/.venv from
+            # the locked vLLM pin and clobber the baked fork vLLM (GLM-5.2). PYTHONPATH=/app keeps
+            # the synced worker code authoritative over the baked editable install.
+            bash = (
+                "cd /app && export PYTHONPATH=/app:${PYTHONPATH:-} && "
+                "export PATH=/opt/openthoughts/.venv/bin:$PATH && exec " + shlex.join(cmd)
+            )
+            return ["bash", "-c", bash]
 
         return cmd
 
