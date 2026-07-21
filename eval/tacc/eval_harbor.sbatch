@@ -312,6 +312,24 @@ export HF_HUB_OFFLINE=0
 # raw-resume path serve at TP=1. See agent_logs/2026-07-02_tacc-resume-tp4-bug.md.
 export EVAL_VLLM_TENSOR_PARALLEL_SIZE="${EVAL_VLLM_TENSOR_PARALLEL_SIZE:-1}"
 
+# --- Installed-agent (opencode) tool-calling: serve WITH the tool parser --------
+# opencode drives the OpenAI tool-calling API with tool_choice="auto", which vLLM
+# REJECTS with HTTP 400 ("\"auto\" tool choice requires --enable-auto-tool-choice
+# and --tool-call-parser to be set") unless the serve carries those flags. The eval
+# baseline registry profile does NOT export a tool_call_parser for this model, so the
+# 2026-07-16 opencode legs (836536/836538/836539) 400'd on EVERY trial -> all rewards
+# 0.0 (agent_logs / STATE qwen3-30b-thinking-id-evals-opencode). build_vllm_cmd.sh
+# already emits `--enable-auto-tool-choice --tool-call-parser <val>` when
+# EVAL_VLLM_TOOL_CALL_PARSER is set; set it here, GATED to installed agents so the
+# terminus-2 host-agent path stays byte-identical (terminus parses tool-calls
+# client-side and must NOT get vLLM-side tool parsing). Default: hermes (the Qwen3
+# family parser — every qwen3 model_config uses it). An explicit
+# EVAL_VLLM_TOOL_CALL_PARSER from the listener wins (e.g. qwen3_coder).
+if [ "$IS_INSTALLED_AGENT" = true ]; then
+    export EVAL_VLLM_TOOL_CALL_PARSER="${EVAL_VLLM_TOOL_CALL_PARSER:-hermes}"
+    echo "[opencode] vLLM serve tool-calling ENABLED: --enable-auto-tool-choice --tool-call-parser ${EVAL_VLLM_TOOL_CALL_PARSER}"
+fi
+
 echo "Starting vLLM server for model: $MODEL"
 source "$DCFT/eval/build_vllm_cmd.sh"
 build_vllm_cmd "$SERVE_PYTHON_BIN" "$MODEL" "$GPU_MEMORY_UTIL"
