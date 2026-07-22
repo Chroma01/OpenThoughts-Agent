@@ -9,6 +9,7 @@ import tarfile
 from types import SimpleNamespace
 
 import pytest
+from botocore.exceptions import ClientError
 
 from scripts.iris import coreweave_ops
 from scripts.iris.iris_ops import job_bundle, job_id_parts, load_bundle_manifest, write_bundle_manifest
@@ -346,3 +347,48 @@ def test_recent_trace_jobs_requires_remote_last_modified_metadata():
             "iris/rl/trace_jobs/",
             trace_sync_limit=500,
         )
+
+
+def test_trace_sync_skips_object_that_disappears_after_listing(tmp_path):
+    class MissingObjectClient:
+        def download_file(self, _bucket, _key, _destination):
+            raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
+
+    cluster = watch_coreweave_rl.Cluster("cw-rno2a", Path("/tmp/kubeconfig"), None)
+    job = watch_coreweave_rl.RlJob(cluster, "/user/rl-job", "running", 0, "")
+    root = "iris/rl-job/trace_jobs/"
+    trace = watch_coreweave_rl.TraceJobObjects(
+        "trial-1",
+        datetime(2026, 7, 22, 10, tzinfo=UTC),
+        (
+            {
+                "Key": f"{root}trial-1/result.json",
+                "Size": 1,
+                "LastModified": datetime(2026, 7, 22, 10, tzinfo=UTC),
+            },
+        ),
+        True,
+    )
+    inventory = watch_coreweave_rl.TraceInventory(
+        job, "bucket", root, MissingObjectClient(), (trace,), available=1, completed=1
+    )
+
+    status, available, completed, error = watch_coreweave_rl.sync_trace_inventory(
+        inventory,
+        tmp_path / "trace_jobs",
+        [trace],
+        max_non_log_bytes=0,
+        trace_sync_limit=500,
+        fleet_available=1,
+        fleet_selected=1,
+    )
+
+    assert status.endswith("0 copied, 1 skipped")
+    assert (available, completed, error) == (1, 1, None)
+    assert json.loads((tmp_path / "trace_jobs" / "skipped_objects.json").read_text()) == [
+        {
+            "key": "trial-1/result.json",
+            "reason": "missing_after_listing",
+            "size": 1,
+        }
+    ]

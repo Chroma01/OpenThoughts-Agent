@@ -33,6 +33,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from botocore.exceptions import ClientError
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -87,6 +89,7 @@ ERROR_PATTERNS = (
     re.compile(r"Train loop failed", re.IGNORECASE),
 )
 LOG_SUFFIXES = (".log", ".out", ".err", ".jsonl", ".txt")
+MISSING_OBJECT_ERROR_CODES = {"404", "NoSuchKey", "NoSuchObject", "NotFound"}
 
 
 @dataclass(frozen=True)
@@ -489,6 +492,12 @@ def is_log_object(relative_path: str) -> bool:
     )
 
 
+def is_missing_object_error(error: ClientError) -> bool:
+    """Return whether a listed object disappeared before it could be downloaded."""
+    error_details = error.response.get("Error", {})
+    return str(error_details.get("Code")) in MISSING_OBJECT_ERROR_CODES
+
+
 def recent_trace_jobs(
     objects: list[dict[str, Any]], root_prefix: str, trace_sync_limit: int
 ) -> tuple[list[TraceJobObjects], int, int]:
@@ -639,7 +648,16 @@ def sync_trace_inventory(
                         )
                     continue
                 local_path.parent.mkdir(parents=True, exist_ok=True)
-                inventory.client.download_file(inventory.bucket, item["Key"], str(local_path))
+                try:
+                    inventory.client.download_file(inventory.bucket, item["Key"], str(local_path))
+                except ClientError as error:
+                    if not is_missing_object_error(error):
+                        raise
+                    skipped += 1
+                    skipped_objects.append(
+                        {"key": relative, "size": size, "reason": "missing_after_listing"}
+                    )
+                    continue
                 copied += 1
                 if progress and (inspected == candidate_objects or inspected % 25 == 0):
                     progress.phase(
