@@ -4,7 +4,7 @@ Quick harness to sanity‑check whether OpenAI (or any LiteLLM-supported) chat m
 returns ``reasoning_content`` when invoked the same way Harbor's Terminus-2 agent does.
 
 Usage example:
-    python scripts/datagen/test_reasoning_content.py \
+    python scripts/datagen/reasoning_content_smoke.py \
         --model openai/gpt-5-mini-2025-08-07 \
         --prompt "Summarize the benefits of zero-knowledge proofs."
 

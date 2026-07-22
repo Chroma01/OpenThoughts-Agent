@@ -18,13 +18,14 @@ columns. This tool rebuilds each row into a structurally serve-shaped SFT exampl
   with verbatim ``<think>`` reasoning preserved as the assistant ``content``,
 - ``role: tool`` observation turns (NOT ``role: user``).
 
-Rendered under the base tools-aware Qwen3 chat template (``chat_template: tokenizer_default`` in the
-SFT config, which is byte-identical to what opencode serves), this yields train==serve parity.
+Rendered under the tools-aware Qwen3 chat template (byte-identical to what opencode serves),
+this yields train==serve parity.
 
 Output columns (schema is explicit → Arrow-safe):
 - ``messages`` — list of ``{role, content, tool_calls: [{type, function: {name, arguments}}]}``.
-  ``arguments`` is a JSON string (axolotl ``json.loads`` → dict → template ``| tojson``).
-- ``tools`` — JSON string of the OpenAI tool list (axolotl ``_get_tools`` ``json.loads`` handles str).
+  ``arguments`` is a JSON string for Arrow-uniformity; the SFT framework parses it to a dict
+  before the chat template renders it (same path the server takes).
+- ``tools`` — JSON string of the OpenAI tool list.
 - ``task``, ``num_turns``, ``num_tool_calls``.
 
 The correct tokenizer for decoding the LITERAL columns is the exact served (teacher) model — here
@@ -145,8 +146,8 @@ def parse_tool_calls(asst_text: str, type_map: dict) -> list[dict]:
     """Parse ``<tool_call>`` blocks (teacher XML, JSON fallback) into structured tool_calls.
 
     Returns ``[{type: function, function: {name, arguments: <json-string>}}]``. ``arguments`` is a
-    JSON string so the row schema is Arrow-uniform; axolotl ``json.loads`` it back to a dict before
-    the chat template renders it with ``| tojson`` (same path the server takes).
+    JSON string for Arrow-uniformity; the SFT framework parses it back to a dict before the chat
+    template renders it (same path the server takes).
     """
     calls = []
     for block in _TOOL_CALL_RE.findall(asst_text):
@@ -304,7 +305,7 @@ def _render_check(rec, student_model, token):
     from transformers import AutoTokenizer
     stok = AutoTokenizer.from_pretrained(student_model, token=token, trust_remote_code=True)
     tools = json.loads(rec["tools"])
-    # axolotl json.loads string tool_call arguments -> dict before templating; mirror that here.
+    # String tool_call arguments must be parsed to dict before templating; mirror that here.
     msgs = json.loads(json.dumps(rec["messages"]))
     for m in msgs:
         for tc in m.get("tool_calls") or []:

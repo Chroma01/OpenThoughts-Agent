@@ -866,7 +866,7 @@ jupiter = HPC(
         # patch lives in vllm/env_override.py and is gated on this var.
         "VLLM_FORCE_IPV4": "1",
         # Skip the `vllm --help` flag-discovery probe in
-        # scripts/vllm/start_vllm_ray_controller.py. The probe parses
+        # hpc/vllm/start_vllm_ray_controller.py. The probe parses
         # `vllm --help` output to check whether each launcher flag is
         # supported; when the probe transiently fails to capture the
         # full help text (intermittent: cold-cache, slow imports,

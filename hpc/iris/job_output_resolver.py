@@ -79,18 +79,18 @@ def _resolve_from_iris(job_ref: str, cluster_config: str) -> str:
     match = _OUTPUT_ARG_RE.search(entrypoint)
     if match is None:
         # CoreWeave RL jobs write trials/checkpoints to an s3:// prefix (CW LOTA /
-        # R2), NOT a gs:// output dir — this resolver (and analyze_job_history's
+        # R2), NOT a gs:// output dir — this resolver (and analyze_iris_harbor_job's
         # trace-progress section) only understands the gs:// TPU convention, so
         # give a directional error instead of a bare "no gs:// arg".
         s3_hit = re.search(r"(s3://[^\s\"']+)", entrypoint)
         if s3_hit is not None:
             raise LookupError(
                 f"Job {job_ref!r} is a CoreWeave/S3 job — its trials/output live under "
-                f"{s3_hit.group(1)!r} (s3://), not a gs:// prefix. analyze_job_history's "
+                f"{s3_hit.group(1)!r} (s3://), not a gs:// prefix. analyze_iris_harbor_job's "
                 "output-dir / trace-progress resolution only supports gs:// (TPU) jobs. "
                 "For CoreWeave RL trial-banking + rollout inspection use "
-                "`scripts/iris/peek_rl_rollouts.sh <job>` (the authoritative banking signal); "
-                "analyze_job_history's finelog/throughput sections still work on their own."
+                "`scripts/iris/analyze_coreweave_rl_job_live.sh <job>` (the authoritative banking signal); "
+                "analyze_iris_harbor_job's finelog/throughput sections still work on their own."
             )
         raise LookupError(
             f"Job {job_ref!r} baked command carries no --jobs-dir/--gcs-output-dir/"

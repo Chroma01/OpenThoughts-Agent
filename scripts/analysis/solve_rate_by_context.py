@@ -21,8 +21,8 @@ from typing import Optional
 
 import numpy as np
 
-from scripts.analysis.utils import extract_reward, extract_error_type
-from scripts.analysis.context_length_compare import (
+from scripts.analysis.utils import TOKEN_REPRESENTATIONS, extract_reward, extract_error_type
+from scripts.analysis.trace_metrics import (
     load_and_filter,
     tokenize_dataset,
 )
@@ -257,6 +257,15 @@ def main(argv: Optional[list[str]] = None) -> None:
         help="Dataset split (default: train)",
     )
     parser.add_argument(
+        "--representation",
+        choices=TOKEN_REPRESENTATIONS,
+        default="conversation_text",
+        help=(
+            "Token input to bin by: concatenated conversation_text (the prior "
+            "default), serialized JSON, or tokenizer chat_template."
+        ),
+    )
+    parser.add_argument(
         "--filter",
         dest="filter_spec",
         default=None,
@@ -294,7 +303,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     for repo_id in args.datasets:
         ds, _ = load_and_filter(repo_id, args.split, args.filter_spec)
         print(f"  Tokenizing {len(ds):,} rows...")
-        counts = tokenize_dataset(ds, tokenizer)
+        counts = tokenize_dataset(ds, tokenizer, representation=args.representation)
         bin_stats = compute_bin_stats(ds, counts, thresholds)
 
         short = repo_id.split("/")[-1]

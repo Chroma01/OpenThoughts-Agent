@@ -1237,7 +1237,7 @@ class LocalHarborRunner:
                 pipeline_parallel_size=args.pipeline_parallel_size,
                 data_parallel_size=args.data_parallel_size,
                 endpoint_path=self._endpoint_json,
-                controller_script=self.repo_root / "scripts" / "vllm" / "start_vllm_iris_controller.py",
+                controller_script=self.repo_root / "hpc" / "vllm" / "start_vllm_iris_controller.py",
                 log_path=controller_log,
                 served_model_name=getattr(args, "_served_model_id", None),
                 # TPU serve: strip --swap-space (GPU-only; tpu-inference api_server
@@ -1275,7 +1275,7 @@ class LocalHarborRunner:
             )
             self.processes.append(vllm_proc)
         elif needs_local_vllm:
-            controller_script = self.repo_root / "scripts" / "vllm" / "start_vllm_ray_controller.py"
+            controller_script = self.repo_root / "hpc" / "vllm" / "start_vllm_ray_controller.py"
 
             # Convert memory from GB to bytes if provided
             ray_memory = None

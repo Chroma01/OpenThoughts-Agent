@@ -24,10 +24,10 @@ description: >-
 > - **CoreWeave (iris/k8s, NO ssh)** — no SLURM `.out`, no log path to `stat`. **Liveness = STATE-POLL the
 >   iris lifecycle** (never a log-string grep): `export KUBECONFIG=~/.kube/coreweave-iris-gpu`, then the
 >   otagent-env iris binary `/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris`:
->   `scripts/iris/watch_job_state.py /benjaminfeuer/<job> --once --json` and/or
+>   `scripts/iris/iris_ops.py /benjaminfeuer/<job> --once --json` and/or
 >   `iris --cluster=cw-us-east-02a job summary --json` (authoritative). **"running-but-0-pods / record
 >   disappeared" = TERMINAL** (silent-wedge signature). Pull metrics via
->   `iris … job logs --since-ms <submitted_at_ms> --no-tail` + `scripts/iris/analyze_job_history.py`.
+>   `iris … job logs --since-ms <submitted_at_ms> --no-tail` + `scripts/iris/analyze_iris_harbor_job.py`.
 >   All `iris`/`kubectl` calls SYNCHRONOUS.
 >
 > **Log-path trap (Leonardo agentic eval) — verify the StdOut path EXISTS before concluding "dead."**
@@ -80,7 +80,7 @@ setting (new config/geometry/model/image, "debug"/"smoke-test", first launch aft
 dispatch a subagent armed with **`rl-job-health-deep-dive`** → it syncs trace_jobs + logs, live-polls the
 GPUs against the serving-throughput LUT, reads the literal rollouts, returns a **KILL/NO-KILL recommendation**.
 
-**Inspecting literal CoreWeave RL rollouts:** `scripts/iris/peek_rl_rollouts.sh <pod-name-substr>
+**Inspecting literal CoreWeave RL rollouts:** `scripts/iris/analyze_coreweave_rl_job_live.sh <pod-name-substr>
 [ls|cat|grep|cp]` exec's into the rank-0 pod and reads Harbor's per-trial `trace_jobs`. With the default local
 `trials_dir` (`/app/experiments/<run>/trace_jobs`) these are pod-local + **EPHEMERAL** (lost on pod GC/replace;
 no shared FS/PVC) — re-check during active generation. Durable path: `launch_rl_iris.py --trials-dir auto`

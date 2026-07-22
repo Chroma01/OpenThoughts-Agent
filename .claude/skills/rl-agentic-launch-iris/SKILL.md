@@ -270,23 +270,23 @@ Porting a Jupiter (Apptainer SIF) config to Iris (Docker) — the load-bearing r
 > content string (`EPDIAG_FWD1` / `DEADLOCK` / `TERMINAL`). A clean kill/eviction/preemption or an early
 > crash that never prints one of those strings leaves the watcher believing "still running" while the job +
 > pods have already left the cluster. **Log-content greps are ONLY for sel_rows / EPDIAG / throughput science
-> (via `analyze_job_history.py`) — never for liveness or terminal detection.**
+> (via `analyze_iris_harbor_job.py`) — never for liveness or terminal detection.**
 
 - **Watch a run (the primitive — use this, do not grep logs for liveness):**
   ```bash
   PY=/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python   # otagent env: ships iris + a WORKING kubernetes
   # one-shot authoritative state (state + error + per-task + pod cross-check):
-  $PY scripts/iris/watch_job_state.py /benjaminfeuer/<job> --once --json
+  $PY scripts/iris/iris_ops.py /benjaminfeuer/<job> --once --json
   # watch until the run leaves RUNNING, emit a line on every transition, exit terminal:
-  $PY scripts/iris/watch_job_state.py /benjaminfeuer/<job> --interval 60
+  $PY scripts/iris/iris_ops.py /benjaminfeuer/<job> --interval 60
   #   exit 0 succeeded · 1 failed/killed/worker_failed/unschedulable · 2 absent (disappeared/0-pods) · 3 error
   ```
   It polls `iris job summary --json` (falls back to the SQL `query`) and treats **"no controller record AND 0
   pods" as a TERMINAL `absent` verdict** — the case the old content-watch missed. Importable:
-  `from scripts.iris.watch_job_state import get_job_state, watch`.
+  `from scripts.iris.iris_ops import get_job_state, watch`.
 
 > **⚠ FRESH-LAUNCH 15-MIN + 30-MIN CHECK-INS MUST PARSE THE ROLLOUT LOGS — lifecycle state is necessary but
-> NOT sufficient.** `watch_job_state` reports `running, pods=8, failure_count=0` for a job that is **silently
+> NOT sufficient.** `iris_ops` reports `running, pods=8, failure_count=0` for a job that is **silently
 > dead**: a *throughput-starvation wedge* (engines decode but an oversubscribed queue never drains → the
 > step-0 batch never assembles), *node-local data starvation* (a rank-0-only task-dataset stage → 7 ranks see
 > empty task dirs → every rollout `reward 0`), or vLLM simply never serving. State-polling alone reports all
@@ -299,7 +299,7 @@ Porting a Jupiter (Apptainer SIF) config to Iris (Docker) — the load-bearing r
 > # `pull` still grabs the logs, where the live bring-up signal is). Override IRIS_BIN: the script defaults to
 > # the marin .venv iris, which CANNOT drive cw (broken kubernetes import).
 > IRIS_BIN=/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris \
->   bash scripts/iris/peek_rl_rollouts.sh <pod-name-substring> pull     # → ~/Documents/experiments/traces/<job>_<stamp>/logs/iris_finelog.log
+>   bash scripts/iris/analyze_coreweave_rl_job_live.sh <pod-name-substring> pull     # → ~/Documents/experiments/traces/<job>_<stamp>/logs/iris_finelog.log
 > ```
 > Then grep the finelog for the milestone ladder — each rung **rules out a specific silent-death mode**:
 > 1. **`[rl-iris] MarinSkyRL now at <sha>`** (+ `HEAD is now at <sha>`) — confirms `--skyrl-ref` took (the fix is live). Absent ⇒ forgot the flag / it failed → stale baked code.
@@ -336,7 +336,7 @@ Porting a Jupiter (Apptainer SIF) config to Iris (Docker) — the load-bearing r
   30B/131k arm can take ~1h to the first rollout and ~2.5–3h to the gs1 forward.
 - **Mandatory progress columns** (per `monitor-job-tables`): entropy / log_ratio / grad_norm + reward — not
   just step. For full-history **science** (sel_rows / EPDIAG / throughput stats) use the windowed pagination
-  (`scripts/iris/analyze_job_history.py`), **NOT** `iris job logs --tail` (under-samples 10–100×).
+  (`scripts/iris/analyze_iris_harbor_job.py`), **NOT** `iris job logs --tail` (under-samples 10–100×).
 - **On completion → `rl-agentic-job-cleanup`** (best-ckpt selection, HF upload, the **manual** Supabase DB
   registration, trace export). `enable_db_registration` stays false at launch.
 - **Teardown:** `iris job kill /benjaminfeuer/<job>` (with permission). Rescue banked traces from the s3://

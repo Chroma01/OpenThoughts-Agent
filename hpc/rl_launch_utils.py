@@ -1566,7 +1566,7 @@ class RLJobRunner:
         job_dir = Path(self.config.experiments_dir) / self.config.job_name
         dest = job_dir / "ray_logs"
         repo_root = Path(__file__).resolve().parents[1]
-        collector = repo_root / "scripts" / "ray" / "collect_worker_ray_logs.sh"
+        collector = repo_root / "hpc" / "ray" / "collect_worker_ray_logs.sh"
 
         # Same steps as the sbatch trap, in the same order.
         script = (

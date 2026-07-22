@@ -237,7 +237,7 @@ def mirror(repo_id: str, gcs_prefixes: list[str], *, verbose: bool = True,
               f"manifests at <dest>/{MANIFEST_FILENAME}", flush=True)
 
 
-def main() -> int:
+def _legacy_main() -> int:
     p = argparse.ArgumentParser(
         description="Stream one or more HuggingFace model repos into a GCS prefix.",
     )
@@ -268,6 +268,13 @@ def main() -> int:
         mirror(repo, args.gcs_prefix, verbose=not args.quiet,
                iris_job_id=args.iris_job_id)
     return 0
+
+
+def main() -> int:
+    """Compatibility entrypoint; use ``mirror_models hf-to-gcs`` for new calls."""
+    from scripts.iris.mirror_models import main as unified_main
+
+    return unified_main(["hf-to-gcs", *sys.argv[1:]])
 
 
 if __name__ == "__main__":

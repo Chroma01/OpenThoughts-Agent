@@ -253,8 +253,8 @@ Then update the campaign tracker's **Runtime** block with the new `:tpu-<gitsha>
 ```bash
 PY=/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python   # otagent env: iris + a WORKING kubernetes client
 export KUBECONFIG=~/.kube/coreweave-iris-gpu                 # HARD prereq for every cw call
-$PY scripts/iris/watch_job_state.py /benjaminfeuer/tpu-kaniko-<gitsha> --once --json    # authoritative state now
-$PY scripts/iris/watch_job_state.py /benjaminfeuer/tpu-kaniko-<gitsha> --interval 60     # watch until terminal
+$PY scripts/iris/iris_ops.py /benjaminfeuer/tpu-kaniko-<gitsha> --once --json    # authoritative state now
+$PY scripts/iris/iris_ops.py /benjaminfeuer/tpu-kaniko-<gitsha> --interval 60     # watch until terminal
 $IRIS --cluster=cw-us-east-02a job summary /benjaminfeuer/tpu-kaniko-<gitsha> --json     # state+error+exit+finished_at
 # full log by time-window (NOT --tail, which under-samples): --since-ms <submit_ms> --no-tail
 ```
@@ -305,4 +305,4 @@ Do **NOT** rebuild the image to deploy:
   §2 (crane-export + ghcr creds + `SINGLE_SNAPSHOT=0`), §6 (build-asserts-as-validation).
 - **Cluster access / kubeconfig / iris-binary:** `.claude/ops/iris/ops.md`.
 - **TPU datagen lifecycle / preemption / resume:** `.claude/ops/iris/ops.md`.
-- **Code:** `docker/Dockerfile.tpu`, `docker/build_tpu_kaniko.sh`, `scripts/iris/watch_job_state.py`.
+- **Code:** `docker/Dockerfile.tpu`, `docker/build_tpu_kaniko.sh`, `scripts/iris/iris_ops.py`.

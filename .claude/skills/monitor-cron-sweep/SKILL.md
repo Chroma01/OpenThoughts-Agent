@@ -65,11 +65,11 @@ not here.
   `/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris` (the marin `.venv` iris has a broken `kubernetes`
   import). All `iris`/`kubectl` calls SYNCHRONOUS (never background).
 - Per active job, poll the authoritative lifecycle:
-  `PY=/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python; $PY scripts/iris/watch_job_state.py /benjaminfeuer/<job> --once --json`
+  `PY=/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python; $PY scripts/iris/iris_ops.py /benjaminfeuer/<job> --once --json`
   and/or `iris --cluster=cw-us-east-02a job summary --json` (authoritative). `iris … query` over the jobs
   table (state 1=PENDING 2=BUILDING 3=RUNNING) lists live jobs. **Treat "running-but-0-pods / record
   disappeared" as TERMINAL** — the silent-wedge signature (a clean kill/eviction/preempt emits no terminal
-  log line + reaps pods). Log-content greps (`scripts/iris/analyze_job_history.py`, `sel_rows`/`EPDIAG`)
+  log line + reaps pods). Log-content greps (`scripts/iris/analyze_iris_harbor_job.py`, `sel_rows`/`EPDIAG`)
   are for SCIENCE/throughput ONLY, never liveness. Full log: `iris … job logs --since-ms <submitted_at_ms>
   --no-tail` (finelog keeps the whole log; only `--tail` caps lines).
 - RL bring-up signals (fresh launches): gang/leafgroup Kueue admission (pods SchedulingGated until

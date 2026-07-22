@@ -39,6 +39,9 @@ from typing import Dict, List, Optional
 import httpx
 from datasets import Dataset, load_dataset
 
+from data.conversation_utils import extract_system_prompt as build_system_prompt
+from data.conversation_utils import extract_user_prompt as extract_prompt
+
 logging.basicConfig(
     level=logging.INFO,
     format="[async-datagen] %(asctime)s %(levelname)s %(message)s",
@@ -54,31 +57,6 @@ def _handle_signal(signum, frame):
     global _shutdown_requested
     log.warning(f"Received signal {signum} — finishing in-flight requests then saving")
     _shutdown_requested = True
-
-
-# ---------------------------------------------------------------------------
-# Prompt extraction (same as curator_datagen.py)
-# ---------------------------------------------------------------------------
-
-def extract_prompt(conversations: List[Dict[str, str]]) -> str:
-    for msg in conversations:
-        role = msg.get("from") or msg.get("role", "")
-        content = msg.get("value") or msg.get("content", "")
-        if role in ("human", "user"):
-            return content
-    if conversations:
-        msg = conversations[-1]
-        return msg.get("value") or msg.get("content", "")
-    return ""
-
-
-def build_system_prompt(conversations: List[Dict[str, str]]) -> Optional[str]:
-    for msg in conversations:
-        role = msg.get("from") or msg.get("role", "")
-        content = msg.get("value") or msg.get("content", "")
-        if role == "system":
-            return content
-    return None
 
 
 # ---------------------------------------------------------------------------

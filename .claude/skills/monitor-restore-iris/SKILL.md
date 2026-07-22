@@ -46,7 +46,7 @@ Every-3-hours status check on ALL Iris jobs for user benjaminfeuer (datagen + ev
    For EACH cluster also query state IN (4,5,6) LIMIT 8 to catch jobs that went terminal since the last tick. If the cw query errors (cluster down / creds), report that and continue with marin.
 
 2. For each ACTIVE marin (TPU) datagen/eval job, run the harbor analyzer (does NOT apply to CoreWeave GPU-RL — handle per class D). Use the analyze-job-history-iris skill:
-   /Users/benjaminfeuer/miniconda3/envs/otagent/bin/python /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_job_history.py <job_id> --output /tmp/$(basename <job_id>)_history.md --refresh
+   /Users/benjaminfeuer/miniconda3/envs/otagent/bin/python /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_iris_harbor_job.py <job_id> --output /tmp/$(basename <job_id>)_history.md --resync
    Report from the .json sidecar: runtime_h, iris_preemption_count, cycles total/served, samples (serving_summary.gen_tps.n), gen tok/s mean/peak, Running mean/peak, non_empty/total trials = rate, t_first_serve, top harbor_exception_stats. ALSO report mean reward + completed/total tasks from the harbor progress line (NOT in the sidecar): /Users/benjaminfeuer/Documents/marin/.venv/bin/iris --cluster=marin job logs <job_id> --max-lines 8000 | grep -aoE '[0-9]+/[0-9]+ Mean: [-0-9.]+' | tail -1
 
 3. Print `## Iris jobs status — <ISO UTC>`: one line per job (name + state + CLOSED/PARTIAL/OPEN/DEAD), a compact metrics block, and a survival check (past cold compile? throughput sane? traces/results landing on HF?). Classify each job by job_id prefix and apply the right treatment:

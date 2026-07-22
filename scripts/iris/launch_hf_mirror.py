@@ -83,7 +83,7 @@ class HfMirrorIrisLauncher(IrisLauncher):
         # it streams the actual HF shards to args.gcs_prefix. Pass it
         # through so the registry record + daemon fetch still work; the
         # daemon will just find an empty (or nearly-empty) directory.
-        cmd: list[str] = ["python", "scripts/iris/mirror_hf_to_gcs.py"]
+        cmd: list[str] = ["python", "-m", "scripts.iris.mirror_models", "hf-to-gcs"]
         for prefix in args.gcs_prefix:
             cmd.extend(["--gcs-prefix", prefix])
         for repo in args.repo:
@@ -92,12 +92,9 @@ class HfMirrorIrisLauncher(IrisLauncher):
 
 
 def main() -> None:
-    launcher = HfMirrorIrisLauncher(PROJECT_ROOT)
-    parser = launcher.create_argument_parser(
-        description="Mirror HF model repos to GCS via an iris worker.",
-    )
-    args = parser.parse_args()
-    sys.exit(launcher.run(args))
+    from scripts.iris.launch_mirror import main as unified_main
+
+    sys.exit(unified_main(["hf-to-gcs", *sys.argv[1:]]))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Union
+from typing import Any, Dict, Iterable, Iterator, List, Literal, Optional, Sequence, Union, cast
 
 try:
     import tiktoken
@@ -291,7 +291,42 @@ def iter_jsonl(path: Path) -> Iterator[Dict]:
 # Conversation text extraction
 # ---------------------------------------------------------------------------
 
-def _extract_from_message_content(content) -> str:
+TokenRepresentation = Literal["serialized", "conversation_text", "chat_template"]
+"""The source representation used before a tokenizer counts a conversation."""
+
+TOKEN_REPRESENTATIONS: tuple[TokenRepresentation, ...] = (
+    "serialized",
+    "conversation_text",
+    "chat_template",
+)
+
+
+def validate_token_representation(representation: str) -> TokenRepresentation:
+    """Validate and return an explicitly requested token-count representation."""
+    if representation not in TOKEN_REPRESENTATIONS:
+        choices = ", ".join(TOKEN_REPRESENTATIONS)
+        raise ValueError(
+            f"Unknown token representation {representation!r}; choose one of: {choices}."
+        )
+    return cast(TokenRepresentation, representation)
+
+
+def serialize_conversation_value(raw_value: Any) -> str:
+    """Serialize a raw field exactly as the legacy datagen token counter did.
+
+    This is deliberately distinct from :func:`extract_conversation_text`: JSON
+    punctuation, field names, roles, and metadata within the raw value all count.
+    """
+    if raw_value is None:
+        return ""
+    if isinstance(raw_value, str):
+        return raw_value
+    try:
+        return json.dumps(raw_value, ensure_ascii=False, separators=(",", ":"))
+    except TypeError:
+        return str(raw_value)
+
+def _extract_from_message_content(content: Any) -> str:
     parts: list[str] = []
     if isinstance(content, str):
         parts.append(content)
@@ -305,7 +340,7 @@ def _extract_from_message_content(content) -> str:
     return "\n".join(p for p in parts if p)
 
 
-def extract_conversation_text(record) -> str:
+def extract_conversation_text(record: Any) -> str:
     """Extract the full concatenated text from a conversation record.
 
     Handles ``messages``, ``conversations``, and various fallback fields.
@@ -332,6 +367,103 @@ def extract_conversation_text(record) -> str:
             if isinstance(value, str) and value.strip():
                 return value
     return json.dumps(record, ensure_ascii=False)
+
+
+def extract_chat_template_messages(record: Any) -> list[dict[str, Any]]:
+    """Normalize a record's message list for ``tokenizer.apply_chat_template``.
+
+    Only message-shaped records are accepted.  Unlike plain conversation text,
+    this representation must preserve roles and therefore never falls back to a
+    JSON rendering of arbitrary row metadata.
+    """
+    if isinstance(record, dict):
+        messages = record.get("messages") or record.get("conversations")
+    else:
+        messages = record
+    if not isinstance(messages, list) or not messages:
+        raise ValueError(
+            "chat_template requires a non-empty `messages` or `conversations` list"
+        )
+
+    role_aliases = {"human": "user", "gpt": "assistant"}
+    normalized: list[dict[str, Any]] = []
+    for index, message in enumerate(messages):
+        if not isinstance(message, dict):
+            raise ValueError(f"chat_template message {index} is not a mapping")
+        raw_role = message.get("role") or message.get("from")
+        if not isinstance(raw_role, str) or not raw_role:
+            raise ValueError(f"chat_template message {index} has no role or from field")
+        if "content" in message:
+            content = message["content"]
+        elif "value" in message:
+            content = message["value"]
+        elif "text" in message:
+            content = message["text"]
+        else:
+            raise ValueError(
+                f"chat_template message {index} has no content, value, or text field"
+            )
+        normalized.append({"role": role_aliases.get(raw_role, raw_role), "content": content})
+    return normalized
+
+
+def render_token_representation(
+    record: Any,
+    representation: TokenRepresentation,
+    *,
+    tokenizer: Any | None = None,
+) -> str:
+    """Render one record into one explicit, non-interchangeable token input.
+
+    ``serialized`` preserves the legacy raw-JSON measurement, preferring a row's
+    ``conversations`` field. ``conversation_text`` concatenates message text.
+    ``chat_template`` asks the supplied tokenizer to format normalized messages.
+    """
+    representation = validate_token_representation(representation)
+    if representation == "serialized":
+        raw_value = record
+        if isinstance(record, dict):
+            for field in ("conversations", "messages"):
+                if field in record:
+                    raw_value = record[field]
+                    break
+        return serialize_conversation_value(raw_value)
+    if representation == "conversation_text":
+        return extract_conversation_text(record)
+    if tokenizer is None:
+        raise ValueError("chat_template representation requires a tokenizer")
+    return tokenizer.apply_chat_template(
+        extract_chat_template_messages(record),
+        tokenize=False,
+        add_generation_prompt=False,
+    )
+
+
+def count_conversation_tokens(
+    record: Any,
+    tokenizer: Any,
+    representation: TokenRepresentation,
+) -> int:
+    """Count one record with an explicit token representation.
+
+    Chat-template tokenization is intentionally delegated directly to the
+    tokenizer so template-added tokens use the tokenizer's native semantics.
+    All other representations are encoded without added special tokens.
+    """
+    representation = validate_token_representation(representation)
+    if representation == "chat_template":
+        token_ids = tokenizer.apply_chat_template(
+            extract_chat_template_messages(record),
+            tokenize=True,
+            add_generation_prompt=False,
+        )
+        return len(token_ids)
+    return len(
+        tokenizer.encode(
+            render_token_representation(record, representation),
+            add_special_tokens=False,
+        )
+    )
 
 
 def count_turns(record) -> int:

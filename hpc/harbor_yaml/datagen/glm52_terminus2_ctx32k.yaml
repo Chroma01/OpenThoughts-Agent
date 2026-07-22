@@ -1,7 +1,8 @@
 # terminus-2 agentic datagen harbor config for GLM-5.2 on cw-rno2a (paired with
 # hpc/datagen_yaml/glm_52_awq_vllm_serve_h100x8.yaml). Copied from ctx32k_verified.yaml with:
-#   - n_concurrent_trials 64 -> 32 to MATCH the GLM-5.2 serve's max_num_seqs (32); oversubscribing a
-#     32-seq engine just causes queue contention (harbor_concurrency_match_engine discipline).
+#   - n_concurrent_trials 64 -> 8 while vLLM admits at most four active sequences. This deliberately
+#     keeps a small request queue without increasing the model's decode batch. The prior 8-sequence
+#     vLLM setting OOMed FlashMLA sparse decode after the KV cache filled.
 #   - model_info kept at 32768/8192 (== serve max_model_len 32768).
 # terminus-2 is in-process (litellm; hits the local vLLM api_base directly) -> NO Daytona<->serve
 # ingress needed. The launcher rewrites agents[].model_name + api_base + metrics_endpoint to the live
@@ -15,7 +16,7 @@ debug: false
 release_trial_payloads_in_memory: true
 orchestrator:
   type: local
-  n_concurrent_trials: 32
+  n_concurrent_trials: 8
   quiet: false
   plain_output: true
   adaptive_concurrency:

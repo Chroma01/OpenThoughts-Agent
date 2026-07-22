@@ -60,7 +60,7 @@ class GcsToS3Launcher(IrisLauncher):
 
     def build_task_command(self, args: argparse.Namespace,
                            remote_output_dir: str) -> list[str]:
-        cmd = ["python", "scripts/iris/mirror_gcs_to_s3.py",
+        cmd = ["python", "-m", "scripts.iris.mirror_models", "gcs-to-s3",
                "--gcs-prefix", args.gcs_prefix,
                "--s3-bucket", args.s3_bucket,
                "--s3-prefix", args.s3_prefix]
@@ -72,12 +72,9 @@ class GcsToS3Launcher(IrisLauncher):
 
 
 def main() -> None:
-    launcher = GcsToS3Launcher(PROJECT_ROOT)
-    parser = launcher.create_argument_parser(
-        description="Re-mirror HF models from GCS staging into an S3 bucket.",
-    )
-    args = parser.parse_args()
-    sys.exit(launcher.run(args))
+    from scripts.iris.launch_mirror import main as unified_main
+
+    sys.exit(unified_main(["gcs-to-s3", *sys.argv[1:]]))
 
 
 if __name__ == "__main__":

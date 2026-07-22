@@ -8,8 +8,8 @@ description: >-
   tracker into auditable per-dataset metrics. Computes metrics by STREAMING each uploaded HF trace dataset
   (disk-bounded) and reusing the canonical OT-Agent analysis tools (scripts/analysis/utils.py:
   extract_conversation_text / count_turns / extract_reward) + the Qwen3-8B tokenizer; HF-ground-truths Status
-  by probing each repo. Reference impl: scripts/analysis/build_campaign_summary_csv.py. Related skills:
-  analyze-dataset-token-length (token method), analyze-job-history-iris (harbor Mean / trials from logs).
+  by probing each repo. Related skills: analyze-dataset-token-length (token method),
+  analyze-job-history-iris (harbor Mean / trials from logs).
 ---
 
 # analyze-datagen-campaign-summary
@@ -52,7 +52,7 @@ Each row of `penfever/<slug>-<model>-traces` is one trial/trace:
 
 Token-length details (methods, tokenizer, the metadata-confound trap) → the **`analyze-dataset-token-length`**
 skill. If you'd rather source Mean Reward + trials from the **job logs** instead of the HF dataset (e.g. the
-repo was never uploaded), the **`analyze-job-history-iris`** skill's `analyze_job_history.py` sidecar carries
+repo was never uploaded), the **`analyze-job-history-iris`** skill's `analyze_iris_harbor_job.py` sidecar carries
 the harbor `Mean:` + `non_empty_trials` per job — but the uploaded dataset is the more reliable ground truth
 for a COMPLETED row.
 
@@ -85,20 +85,6 @@ the supervisor** — see the disk-health rule in `supervisor-init`). So:
    `n_trials` matches the tracker's stated row counts on a few datasets, and that a KNOWN-degenerate dataset
    reconciles (e.g. `qwen3.5-122b-tt` codenet-python-v2 mean reward ≈ 0.017 ↔ the tracker's "~2% pass-rate").
    Mean tokens should sit under the campaign's context window (32k here) for the vast majority.
-
-## Run (reference implementation)
-`scripts/analysis/build_campaign_summary_csv.py` carries the full `qwen3.5-122b-tt` list + logic. Adapt the
-`DATASETS`/`PENDING` lists + `OUT_CSV` for another campaign, then:
-```bash
-source "${DC_AGENT_SECRET_ENV:?}"                                   # HF_TOKEN for the reads
-df -h /                                                             # confirm headroom first
-nohup /Users/benjaminfeuer/miniconda3/envs/otagent/bin/python \
-  /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/analysis/build_campaign_summary_csv.py \
-  > build_csv.log 2>&1 &                                            # background; ~30–90 min for a ~40-repo campaign
-```
-Watch `build_csv.log` (one line per dataset as it finishes) and the JSONL checkpoint; re-running resumes from
-the checkpoint. Output CSV lands next to the campaign tracker (e.g.
-`~/Documents/experiments/complete/<campaign>/completed_datasets_summary.csv`).
 
 ## Definitions to state alongside the table (so it's auditable)
 - **Datagen Model** = the trajectory-generation model (constant per campaign; e.g. `Qwen3.5-122B-A10B-FP8`),

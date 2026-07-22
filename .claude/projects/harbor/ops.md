@@ -150,7 +150,7 @@ Run the skill's 15-min infra check on each leg once RUNNING; the in-sbatch verif
 
 **Teardown-403 signature (not a steady-state signal).** When an RL endpoint is torn down (job stopped/relaunched), in-flight trials' scoped tokens 403 on their next call — `opencode.txt` shows a single `{"type":"error", … "Forbidden: endpoint-scoped token cannot access this endpoint", statusCode 403}` (url `https://iris.oa.dev/proxy/t/<JWT sub=endpoint:…>/…/v1/chat/completions`) → opencode exits `NonZeroAgentExitCodeError`. Distinguish from a real steady-state failure by the error type + the timestamps clustering at the kill moment.
 
-**Tool:** `scripts/iris/peek_rl_rollouts.sh <pod-substr> turns` prints per-trial `step_finish`/`tool_use`/`reasoning`/`text`/`error` counts + a banked-turns verdict (remote-s3 or node-local trials_dir). **⚠ Leafgroup/megatron pod-name gotcha:** the k8s pod name truncates the job's readable version suffix (`iris-<user>-…-pymethods2test-<hash>-0`, no `-v13`), so the pod-derived default `trials_dir` misses it — pass `PEEK_TRIALS_S3=s3://marin-us-east-02a/iris/<full-job-name>/trace_jobs` explicitly for these jobs.
+**Tool:** `scripts/iris/analyze_coreweave_rl_job_live.sh <pod-substr> turns` prints per-trial `step_finish`/`tool_use`/`reasoning`/`text`/`error` counts + a banked-turns verdict (remote-s3 or node-local trials_dir). **⚠ Leafgroup/megatron pod-name gotcha:** the k8s pod name truncates the job's readable version suffix (`iris-<user>-…-pymethods2test-<hash>-0`, no `-v13`), so the pod-derived default `trials_dir` misses it — pass `PEEK_TRIALS_S3=s3://marin-us-east-02a/iris/<full-job-name>/trace_jobs` explicitly for these jobs.
 
 **Mac-side read of a terminal job's trace_jobs** (no live pod to exec): use the iris `cwobject.com` recipe (`.claude/ops/iris/ops.md §Scheduling`) — `iris-task-env` creds + `endpoint_url=https://cwobject.com` + `addressing_style=virtual`.
 
@@ -222,6 +222,43 @@ Derived: **Tool-exec** = `agent_execution − LLM-gen`. **Teardown/gap** = `fini
 
 ---
 
+## SFT-ready traces with tool calling — `harbor traces export --sft-format`
+
+The default trace export (the `conversations` column) is **lossy for tool-calling SFT** — a model trained on it never learns to condition on `role: tool` or structured `tool_calls`, so at serve time it won't emit structured tool calls and falls back to reflexive bash. Since PR #18 (`d2a92215`, on `main`), pass **`--sft-format`** to emit **serve-shaped rows straight from the trajectory** — no second-pass token decode.
+
+### What the default `conversations` shape loses (why it hurts tool-calling SFT)
+
+The legacy `conversations` field flattens the trajectory into a generic chat view:
+- `role: system` → remapped to `role: user`.
+- tool observations → `role: user` (not `role: tool`).
+- structured `step.tool_calls` → flattened to inline `<tool_call>{json}</tool_call>` **text** inside the assistant message.
+- a `<tools>…</tools>` block is embedded in the first system message.
+
+SFT over that field teaches a text-blob tool protocol, not the real chat-template tool interface.
+
+### `--sft-format`: serve-shaped `messages` from trajectory data
+
+`export_traces(sft_format=True)` (CLI `--sft-format`) reshapes the SAME trajectory `steps[]` (ATIF `source`/`message`/`tool_calls`) into the shape the tools-aware chat template expects:
+- **`role: system` preserved** (not mapped to user); **no `<tools>` block** embedded — tool defs belong in the template at SFT time, not baked into the data.
+- **structured `tool_calls`** on assistant turns — OpenAI `{type: "function", function: {name, arguments}}`, with `arguments` as a **JSON string** (schema-uniform; the SFT framework parses it back to a dict before the template renders it).
+- **`role: tool`** for tool observations.
+- column key **`messages`** (not `conversations`); with `--sharegpt`, the derived column is `messages_sharegpt`.
+
+Assistant text is the parsed trajectory message — a STRUCTURAL reshape, so it works on **any** trajectory and needs **no literal-token capture**. The default path (`--no-sft-format`) stays **byte-identical** to prior behavior.
+
+```bash
+# tool-aware SFT rows straight from a trials dir → HF
+harbor traces export --path <trials-dir> --sft-format --push --repo <org>/<slug>-sft
+# --sharegpt adds the messages_sharegpt column; --subagents includes summarizer traces
+```
+
+### `--sft-format` vs the literal-token path (§ below) — which to use
+
+- **`--sft-format`** — the DEFAULT for tool-calling SFT. Structural, no capture needed, assistant text = parsed trajectory message. Use when you want the model to learn the `role: tool` + structured-`tool_calls` interface.
+- **Literal-token → SFT** (`literal_traces_to_sft.py`, next section) — assistant turns decoded **verbatim from the tokens the engine actually served**. Requires a `--record_literal` job + the exact serving tokenizer. Use ONLY when you need byte-exact served text (train/serve TIS fidelity), not merely the structured shape. This is the older workaround `--sft-format` supersedes for the common case.
+
+---
+
 ## Literal-token trace datasets (opencode datagen)
 
 Canonical reference for the `--record_literal` opencode trace datasets and their downstream SFT use. Applies to the opencode-131k campaign (`penfever/<task>-qwen3.5-122b-131k-opencode-traces`).
@@ -254,6 +291,8 @@ The worker's end-of-job HF upload cannot be trusted for preemptible jobs. Every 
 **Rescue:** rsync the outer `gs://marin-models-{us,eu}/ot-agent/<job>/` (so `logs/*_literal.jsonl` rides along), clear the target repo's partial `data/`, re-run the uploader with `--served_model`. Verify with `count_populated_literal_rows`.
 
 ### Literal traces → SFT
+
+> For tool-calling SFT you usually want **`harbor traces export --sft-format`** (§ SFT-ready traces with tool calling) — structural, no literal capture needed. Use this literal path ONLY when you need assistant text decoded byte-exact from the served tokens (train/serve TIS fidelity).
 
 `scripts/harbor/literal_traces_to_sft.py` converts a literal trace dataset into SFT data whose assistant turns are decoded verbatim from the literal completion tokens. Auto-resolves the tokenizer from `tokenizer_provenance.json`. Rows without literals, or whose assistant-turn count ≠ literal step count, are dropped. **LAION upload gotcha:** the `laion` org's PRIVATE storage quota is full — push SFT datasets PUBLIC.
 

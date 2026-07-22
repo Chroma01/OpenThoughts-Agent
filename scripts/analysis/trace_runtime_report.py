@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -21,6 +20,9 @@ import matplotlib.pyplot as plt
 
 
 TimeUnit = str
+STAGES = ("environment_setup", "agent_setup", "agent_execution", "verifier")
+STAGE_OUTPUT_ORDER = ("overall",) + STAGES
+DEFAULT_RUNTIME_QUANTILES = (0.0, 0.25, 0.5, 0.75, 1.0)
 
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
@@ -172,6 +174,22 @@ def parse_args() -> argparse.Namespace:
         default="minutes",
         help="Unit to display in the visualization (seconds, minutes, or hours).",
     )
+    parser.add_argument(
+        "--runtime-quantiles",
+        type=float,
+        nargs="*",
+        default=DEFAULT_RUNTIME_QUANTILES,
+        help="Quantiles to include in the stage-runtime analysis (default: 0, .25, .5, .75, 1).",
+    )
+    parser.add_argument(
+        "--output-top-agent-exception-paths",
+        type=Path,
+        default=None,
+        help=(
+            "Write task result paths with exception.txt in the slowest agent_execution quantile. "
+            "Defaults to <root>/agent_execution_top_quantile_exceptions.txt."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -192,6 +210,66 @@ def iso_diff_seconds(start: Optional[str], finish: Optional[str]) -> Optional[fl
     if diff <= 0:
         return None
     return diff
+
+
+def stage_durations_seconds(payload: Dict[str, object]) -> Dict[str, float]:
+    """Return valid overall and per-stage durations from one Harbor result payload."""
+    durations: Dict[str, float] = {}
+    overall = iso_diff_seconds(payload.get("started_at"), payload.get("finished_at"))
+    if overall is not None:
+        durations["overall"] = overall
+    for stage in STAGES:
+        window = payload.get(stage)
+        if not isinstance(window, dict):
+            continue
+        duration = iso_diff_seconds(window.get("started_at"), window.get("finished_at"))
+        if duration is not None:
+            durations[stage] = duration
+    return durations
+
+
+def normalise_quantile_edges(points: List[float]) -> List[float]:
+    """Return sorted quantile edges with inclusive 0 and 1 endpoints."""
+    if any(not 0.0 <= point <= 1.0 for point in points):
+        raise ValueError("--runtime-quantiles values must be between 0 and 1")
+    edges = sorted(set(points))
+    if not edges:
+        return [0.0, 1.0]
+    if edges[0] != 0.0:
+        edges.insert(0, 0.0)
+    if edges[-1] != 1.0:
+        edges.append(1.0)
+    return edges
+
+
+def exception_frequency_by_quantile(
+    samples: List[Tuple[float, bool]], quantiles: List[float]
+) -> List[Dict[str, object]]:
+    """Bucket exception incidence by ordered agent-execution quantiles."""
+    if not samples:
+        return []
+    edges = normalise_quantile_edges(quantiles)
+    bins: List[Dict[str, object]] = [
+        {"lower_quantile": edges[index], "upper_quantile": edges[index + 1], "count": 0, "exceptions": 0}
+        for index in range(len(edges) - 1)
+    ]
+    for rank, (_, has_exception) in enumerate(sorted(samples), start=1):
+        fraction = rank / len(samples)
+        bin_index = next(
+            (
+                index
+                for index, bucket in enumerate(bins)
+                if fraction <= float(bucket["upper_quantile"])
+            ),
+            len(bins) - 1,
+        )
+        bins[bin_index]["count"] = int(bins[bin_index]["count"]) + 1
+        if has_exception:
+            bins[bin_index]["exceptions"] = int(bins[bin_index]["exceptions"]) + 1
+    for bucket in bins:
+        count = int(bucket["count"])
+        bucket["exception_rate"] = int(bucket["exceptions"]) / count if count else 0.0
+    return bins
 
 
 def average_top_fraction(values: List[float], fraction: float) -> Optional[float]:
@@ -278,6 +356,7 @@ class JobRuntime:
     response_char_total: int = 0
     response_count_total: int = 0
     positive_rewards_by_task: Dict[str, int] = field(default_factory=dict)
+    stage_samples: List["StageSample"] = field(default_factory=list)
 
     @property
     def task_count(self) -> int:
@@ -318,6 +397,13 @@ class TaskRun:
     response_count: int = 0
     average_prompt_length: Optional[float] = None
     average_response_length: Optional[float] = None
+
+
+@dataclass
+class StageSample:
+    result_path: Path
+    durations_seconds: Dict[str, float]
+    exception_present: bool
 
 
 def _rank_values(values: List[float]) -> List[float]:
@@ -485,9 +571,6 @@ def load_job(
             job_runtime_seconds = iso_diff_seconds(
                 job_payload.get("started_at"), job_payload.get("finished_at")
             )
-            task_name_value = job_payload.get("task_name")
-            if isinstance(task_name_value, str) and task_name_value:
-                job_task_name = task_name_value.strip()
             stats = job_payload.get("stats")
             if isinstance(stats, dict):
                 positive_reward_trials = stats.get("positive_reward_trials")
@@ -512,11 +595,24 @@ def load_job(
     job_response_char_total = 0
     job_response_count_total = 0
     job_positive_reward_counts: Dict[str, int] = dict(pos_reward_counts)
-    def process_task_directory(task_dir: Path, task_payload: Dict[str, object]) -> None:
+    stage_samples: List[StageSample] = []
+
+    def process_task_directory(
+        task_dir: Path, task_payload: Dict[str, object], *, include_stage_sample: bool = True
+    ) -> None:
         nonlocal job_prompt_char_total
         nonlocal job_prompt_count_total
         nonlocal job_response_char_total
         nonlocal job_response_count_total
+        durations_seconds = stage_durations_seconds(task_payload)
+        if durations_seconds and include_stage_sample:
+            stage_samples.append(
+                StageSample(
+                    result_path=task_dir / "result.json",
+                    durations_seconds=durations_seconds,
+                    exception_present=any(task_dir.glob("**/exception.txt")),
+                )
+            )
         agent_execution = task_payload.get("agent_execution") or {}
         runtime_seconds = iso_diff_seconds(
             agent_execution.get("started_at"), agent_execution.get("finished_at")
@@ -533,14 +629,13 @@ def load_job(
             prompt_count = 0
             response_char_total = 0
             response_count = 0
-            child_task_complete = False
             agent_dir = task_dir / "agent"
             if agent_dir.is_dir():
                 for episode_dir in agent_dir.iterdir():
                     if not episode_dir.is_dir():
                         continue
                     try:
-                        episode_num = int(episode_dir.name.split("-")[-1])
+                        int(episode_dir.name.split("-")[-1])
                     except ValueError:
                         continue
                     episode_count += 1
@@ -570,8 +665,6 @@ def load_job(
                                             "response": parsed_response,
                                         }
                                     )
-                                    if parsed_response.get("task_complete") is True:
-                                        child_task_complete = True
                                     if keystroke_terms is not None:
                                         commands = parsed_response.get("commands")
                                         if isinstance(commands, list):
@@ -688,7 +781,11 @@ def load_job(
         process_task_directory(child, task_payload)
 
     if not task_runs and job_payload_data:
-        process_task_directory(job_dir, job_payload_data)
+        process_task_directory(
+            job_dir,
+            job_payload_data,
+            include_stage_sample=not stage_samples,
+        )
 
     timeout_total_count = 0
     timeout_runtime_samples: List[float] = []
@@ -719,6 +816,7 @@ def load_job(
         response_char_total=job_response_char_total,
         response_count_total=job_response_count_total,
         positive_rewards_by_task=job_positive_reward_counts,
+        stage_samples=stage_samples,
     )
 
 
@@ -1196,6 +1294,60 @@ def write_correlation_table(
             )
 
 
+def stage_runtime_analysis(
+    experiments: List[ExperimentRuntime], quantiles: List[float]
+) -> tuple[Dict[str, object], List[Path]]:
+    """Summarize Harbor stage durations and exceptions across every task result."""
+    samples = [
+        sample
+        for experiment in experiments
+        for job in experiment.jobs
+        for sample in job.stage_samples
+    ]
+    stage_summary: Dict[str, object] = {}
+    quantile_points = sorted(set(quantiles)) or list(DEFAULT_RUNTIME_QUANTILES)
+    for stage in STAGE_OUTPUT_ORDER:
+        values = [sample.durations_seconds[stage] for sample in samples if stage in sample.durations_seconds]
+        if not values:
+            stage_summary[stage] = {"count": 0, "mean_seconds": None, "quantiles": []}
+            continue
+        stage_summary[stage] = {
+            "count": len(values),
+            "mean_seconds": sum(values) / len(values),
+            "quantiles": [
+                {"quantile": point, "seconds": percentile_value(values, point)}
+                for point in quantile_points
+            ],
+        }
+
+    agent_samples = [
+        (sample.durations_seconds["agent_execution"], sample.exception_present, sample)
+        for sample in samples
+        if "agent_execution" in sample.durations_seconds
+    ]
+    agent_exception_bins = exception_frequency_by_quantile(
+        [(duration, has_exception) for duration, has_exception, _ in agent_samples], quantile_points
+    )
+    top_exception_paths: List[Path] = []
+    if agent_samples:
+        top_lower_edge = normalise_quantile_edges(quantile_points)[-2]
+        for rank, (_, has_exception, sample) in enumerate(sorted(agent_samples), start=1):
+            if has_exception and rank / len(agent_samples) > top_lower_edge:
+                top_exception_paths.append(sample.result_path)
+
+    exception_count = sum(sample.exception_present for sample in samples)
+    return (
+        {
+            "result_count": len(samples),
+            "exception_count": exception_count,
+            "exception_rate": exception_count / len(samples) if samples else 0.0,
+            "stages": stage_summary,
+            "agent_execution_exception_frequency_by_quantile": agent_exception_bins,
+        },
+        top_exception_paths,
+    )
+
+
 def build_summary(
     experiments: List[ExperimentRuntime],
     generated_at: str,
@@ -1211,6 +1363,7 @@ def build_summary(
     per_experiment_prompt_correlations: List[Dict[str, object]],
     per_experiment_response_correlations: List[Dict[str, object]],
     task_solvability: List[Dict[str, object]],
+    stage_analysis: Dict[str, object],
 ) -> Dict[str, object]:
     timeout_total_count = 0
     timeout_runtime_sum = 0.0
@@ -1261,6 +1414,7 @@ def build_summary(
         "average_response_characters_overall": overall_average_response_chars,
         "per_task_prompt_response_average": prompt_stats.get("per_task", []),
         "task_solvability": task_solvability,
+        "stage_runtime_analysis": stage_analysis,
     }
 
 
@@ -1810,6 +1964,9 @@ def main() -> None:
     per_experiment_response_correlations = compute_per_experiment_feature_correlations(
         experiments, feature="response"
     )
+    stage_analysis, top_agent_exception_paths = stage_runtime_analysis(
+        experiments, args.runtime_quantiles
+    )
     summary = build_summary(
         experiments,
         generated_at,
@@ -1825,7 +1982,11 @@ def main() -> None:
         per_experiment_prompt_correlations,
         per_experiment_response_correlations,
         task_solvability,
+        stage_analysis,
     )
+    summary["top_agent_execution_exception_paths"] = [
+        str(path) for path in top_agent_exception_paths
+    ]
     summary["response_command_record_count"] = len(response_records)
     all_terms = keystroke_terms["all"]
     filtered_terms = keystroke_terms["claude_gpt"]
@@ -1855,6 +2016,16 @@ def main() -> None:
     output_json.parent.mkdir(parents=True, exist_ok=True)
     with output_json.open("w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
+
+    output_top_agent_exceptions = (
+        args.output_top_agent_exception_paths
+        if args.output_top_agent_exception_paths is not None
+        else root / "agent_execution_top_quantile_exceptions.txt"
+    )
+    output_top_agent_exceptions.parent.mkdir(parents=True, exist_ok=True)
+    with output_top_agent_exceptions.open("w", encoding="utf-8") as handle:
+        for path in top_agent_exception_paths:
+            handle.write(f"{path}\n")
 
     output_response_commands = (
         args.output_response_commands

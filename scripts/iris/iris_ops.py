@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Authoritative iris job-state watcher.
+"""Shared Iris lifecycle polling and command-line state watcher.
 
 Poll the *authoritative job lifecycle state* of an iris job on an interval, emit
 a line on every state transition, and exit with a clear terminal verdict the
@@ -29,10 +29,10 @@ iris JobState enum (lib/iris/src/iris/rpc/job.proto):
 Usage
 -----
     # one-shot: print the current authoritative state and exit
-    python scripts/iris/watch_job_state.py /benjaminfeuer/<job> --once
+    python scripts/iris/iris_ops.py /benjaminfeuer/<job> --once
 
     # watch on a 60s interval until the job leaves RUNNING (then exit)
-    python scripts/iris/watch_job_state.py /benjaminfeuer/<job> --interval 60
+    python scripts/iris/iris_ops.py /benjaminfeuer/<job> --interval 60
 
 Exit codes: 0 succeeded · 1 failed/killed/worker_failed/unschedulable · 2 the
 job is absent from the controller AND has 0 pods (disappeared) · 3 watch error.
@@ -51,6 +51,20 @@ import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+# The operational helpers deliberately validate identifiers with the current
+# Iris implementation from Marin main, not a copy vendored into this repo.
+MARIN_MAIN_ROOT = Path(os.environ.get("MARIN_MAIN_ROOT", "/Users/benjaminfeuer/Documents/marin"))
+MARIN_IRIS_SOURCE = MARIN_MAIN_ROOT / "lib" / "iris" / "src"
+if not MARIN_IRIS_SOURCE.exists():
+    raise RuntimeError(f"Marin Iris source is unavailable at {MARIN_IRIS_SOURCE}.")
+if str(MARIN_IRIS_SOURCE) not in sys.path:
+    sys.path.insert(0, str(MARIN_IRIS_SOURCE))
+
+from iris.cluster.types import JobName  # noqa: E402
 
 # --- iris invocation ------------------------------------------------------
 # The CoreWeave GPU (k8s) backend needs a `kubernetes` install that the bare
@@ -60,6 +74,9 @@ IRIS_BIN = os.environ.get(
     "IRIS_BIN", "/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris"
 )
 DEFAULT_CLUSTER = "cw-us-east-02a"  # the GPU RL cluster; use "marin" for TPU jobs
+DEFAULT_BUNDLE_ROOT = Path(
+    "/Users/benjaminfeuer/Documents/experiments/active/iris-job-bundles"
+)
 
 # JobState int -> friendly name (lib/iris/src/iris/rpc/job.proto).
 STATE_NAMES = {
@@ -78,10 +95,117 @@ NAME_TO_INT = {v: k for k, v in STATE_NAMES.items()}
 RUNNING_STATES = {"pending", "building", "running", "unspecified"}
 TERMINAL_STATES = {"succeeded", "failed", "killed", "worker_failed", "unschedulable"}
 
-# Retry/backoff for the iris CLI call (matches analyze_job_history.py's posture:
+# Retry/backoff for the Iris CLI call: a transient tunnel/RPC blip should not
 # a transient tunnel/RPC blip should not be read as a terminal transition).
 IRIS_ATTEMPTS = 3
 IRIS_BACKOFFS = (2, 5)
+DNS_ATTEMPTS = 4
+DNS_INITIAL_BACKOFF = 2
+TRANSIENT_DNS_MARKERS = (
+    "dns error",
+    "no records found for query",
+    "temporary failure in name resolution",
+    "failed to lookup address information",
+    "name or service not known",
+    "nodename nor servname provided",
+)
+
+
+@dataclass(frozen=True)
+class JobBundle:
+    """Stable local evidence directory for one Iris job on one cluster.
+
+    The full Iris id is preserved as path components rather than flattened, so
+    every watcher and analyzer addresses the same evidence unambiguously:
+    ``<root>/jobs/<cluster>/<user>/<job>/``.
+    """
+
+    root: Path
+    cluster: str
+    job_id: str
+
+    @property
+    def directory(self) -> Path:
+        return self.root.joinpath("jobs", self.cluster, *job_id_parts(self.job_id))
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.directory / "manifest.json"
+
+
+def job_id_parts(job_id: str) -> tuple[str, ...]:
+    """Validate an Iris id and return its safe local path components."""
+    name = JobName.from_string(job_id)
+    if not name.is_root:
+        raise ValueError(f"Expected root Iris job id '/<user>/<job>', got {job_id!r}.")
+    return (name.user, name.name)
+
+
+def job_bundle(bundle_root: Path, cluster: str, job_id: str) -> JobBundle:
+    """Return the canonical local bundle for ``cluster`` and ``job_id``."""
+    if not cluster or "/" in cluster:
+        raise ValueError(f"Invalid Iris cluster name {cluster!r}.")
+    return JobBundle(bundle_root, cluster, job_id)
+
+
+def load_bundle_manifest(bundle: JobBundle) -> dict[str, Any]:
+    """Load an existing bundle manifest, returning an empty value if absent."""
+    if not bundle.manifest_path.exists():
+        return {}
+    try:
+        value = json.loads(bundle.manifest_path.read_text())
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Invalid bundle manifest at {bundle.manifest_path}: {error}") from error
+    if not isinstance(value, dict):
+        raise ValueError(f"Bundle manifest at {bundle.manifest_path} must contain a JSON object.")
+    return value
+
+
+def write_bundle_manifest(bundle: JobBundle, updates: dict[str, Any]) -> None:
+    """Merge ``updates`` into the durable manifest for a local evidence bundle."""
+    bundle.directory.mkdir(parents=True, exist_ok=True)
+    manifest = load_bundle_manifest(bundle)
+    manifest.update(updates)
+    manifest.update(
+        {
+            "bundle_format": 1,
+            "cluster": bundle.cluster,
+            "job_id": bundle.job_id,
+            "bundle_directory": str(bundle.directory),
+        }
+    )
+    bundle.manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n")
+
+
+def is_transient_dns_failure(result: subprocess.CompletedProcess[str]) -> bool:
+    """Return whether an Iris command failed only because name resolution failed."""
+    if result.returncode == 0:
+        return False
+    message = f"{result.stderr}\n{result.stdout}".lower()
+    return any(marker in message for marker in TRANSIENT_DNS_MARKERS)
+
+
+def run_iris_command(
+    arguments: list[str],
+    *,
+    cluster: str,
+    iris_bin: str = IRIS_BIN,
+    environment: dict[str, str] | None = None,
+    timeout: int = 180,
+) -> subprocess.CompletedProcess[str]:
+    """Run an Iris CLI command with bounded retries for transient DNS failures."""
+    for attempt in range(DNS_ATTEMPTS):
+        result = subprocess.run(
+            [iris_bin, f"--cluster={cluster}", *arguments],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=environment,
+        )
+        if not is_transient_dns_failure(result) or attempt == DNS_ATTEMPTS - 1:
+            return result
+        time.sleep(DNS_INITIAL_BACKOFF * 2**attempt)
+    raise AssertionError("unreachable")
 
 
 @dataclass

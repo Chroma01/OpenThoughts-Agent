@@ -246,8 +246,8 @@ class VLLMConfig:
     health_path: str = "v1/models"
 
     # Controller script path
-    controller_script: str = "scripts/vllm/start_vllm_ray_controller.py"
-    wait_for_endpoint_script: str = "scripts/vllm/wait_for_endpoint.py"
+    controller_script: str = "hpc/vllm/start_vllm_ray_controller.py"
+    wait_for_endpoint_script: str = "hpc/vllm/wait_for_endpoint.py"
 
     # Raw vllm_server config from YAML - passed through to vLLM
     server_config: dict = field(default_factory=dict)
@@ -944,7 +944,7 @@ def run_endpoint_health_check(
 
     cmd = [
         sys.executable,
-        str(repo_root / "scripts" / "vllm" / "wait_for_endpoint.py"),
+        str(repo_root / "hpc" / "vllm" / "wait_for_endpoint.py"),
         "--endpoint-json",
         str(endpoint_json),
         "--max-attempts",

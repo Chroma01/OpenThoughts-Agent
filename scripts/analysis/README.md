@@ -77,12 +77,18 @@ Add `--annotate-failure-modes` to run `update_hf_failure_modes` on both eval rep
 |---|---|
 | `utils.py` | Common helpers: `load_traces()` unified loader (HF/JSONL/dir), `Trace` dataclass with eager field caching, `task_id_of()`, `group_by_task()`, plus the original text/reward/error/date/token primitives |
 
+## Live Iris Monitoring
+
+| Script | Scope | Usage |
+|---|---|---|
+| `../iris/watch_iris_harbor.py` | Canonical read-only sweep of active CoreWeave and TPU Harbor datagen/eval jobs; syncs to the shared Iris evidence-bundle root | `python scripts/iris/watch_iris_harbor.py` |
+| `../iris/watch_coreweave_rl.py` | Canonical read-only sweep of active CoreWeave RL jobs; syncs Finelog, pod/Ray logs, and rollout artifacts to that same bundle root | `python scripts/iris/watch_coreweave_rl.py` |
+
 ## Dataset & Context Analysis
 
 | Script | Description | Usage |
 |---|---|---|
-| `context_length_compare.py` | Compare context length statistics (mean, median, percentiles) across HF datasets | `python -m scripts.analysis.context_length_compare repo1 repo2 --filter 'col==val'` |
-| `context_length_dist.py` | Plot context length distributions for a hardcoded list of SFT datasets | `python scripts/analysis/context_length_dist.py` |
+| `context_length_compare.py` | Compare context length statistics and optionally write a log-scale distribution overlay across HF datasets | `python -m scripts.analysis.context_length_compare repo1 repo2 --plot context_lengths.png` |
 | `solve_rate_by_context.py` | Solve/timeout/error rates binned by context length, with 3-panel plot | `python -m scripts.analysis.solve_rate_by_context repo1 repo2 --bins 0,16384,32768 --plot out.png` |
 | `episode_distribution.py` | Plot episode count and tokens-per-turn distributions from HF trace datasets | `python -m scripts.analysis.episode_distribution repo1 repo2 --output out.png` |
 | `filter_latest_episodes.py` | Keep only the latest episode per task in a trace dataset | `python scripts/analysis/filter_latest_episodes.py repo_id --output-jsonl out.jsonl` |
@@ -99,8 +105,7 @@ Add `--annotate-failure-modes` to run `update_hf_failure_modes` on both eval rep
 
 | Script | Description | Usage |
 |---|---|---|
-| `eval_runtime_stats.py` | Compute runtime quantiles from eval trace result.json files | `python scripts/analysis/eval_runtime_stats.py results_dir/` |
-| `trace_runtime_report.py` | Aggregate eval runtime stats with correlations and PNG visualizations | `python scripts/analysis/trace_runtime_report.py --root results_dir/` |
+| `trace_runtime_report.py` | Aggregate eval stage-runtime quantiles, agent-execution exception incidence, correlations, and PNG visualizations | `python scripts/analysis/trace_runtime_report.py --root results_dir/` |
 | `failure_mode_analysis.py` | Use GPT-5 to classify failure modes in trace datasets | `python scripts/analysis/failure_mode_analysis.py repo_id --output report.md` |
 | `update_hf_failure_modes.py` | Annotate HF dataset rows with GPT-5 failure-mode summaries | `python scripts/analysis/update_hf_failure_modes.py repo_id --push` |
 
@@ -111,15 +116,11 @@ Add `--annotate-failure-modes` to run `update_hf_failure_modes` on both eval rep
 | `probe_model_thinking.py` | Probe a model with real environment prompts, test thinking behavior | `python -m scripts.analysis.probe_model_thinking --model model_id` |
 | `submit_probe.sh` | SLURM wrapper for `probe_model_thinking.py` | `./scripts/analysis/submit_probe.sh --model model_id --partition gpu-h100` |
 | `verify_sft_thinking.py` | Test how ReasoningTemplate handles thinking blocks in SFT data | `python scripts/analysis/verify_sft_thinking.py` |
-| `analyze_malformed_traces.py` | Classify malformation types in RL checkpoint traces | `python scripts/analysis/analyze_malformed_traces.py` |
-| `sample_early_traces.py` | Sample malformed traces binned by timestamp to show failure evolution | `python scripts/analysis/sample_early_traces.py` |
 
 ## Batch Workflows
 
 | Script | Description | Usage |
 |---|---|---|
-| `batch_filter_and_summarize.py` | Run filter + summarize across subdirectories | `python scripts/analysis/batch_filter_and_summarize.py --root dir/ --out_dir out/` |
-| `batch_filter_and_summarize.sh` | Shell wrapper for the same batch workflow | `./scripts/analysis/batch_filter_and_summarize.sh root_dir/ out_dir/` |
 
 ## Dependencies
 

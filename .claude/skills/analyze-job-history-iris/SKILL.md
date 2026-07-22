@@ -1,6 +1,6 @@
 ---
 name: analyze-job-history-iris
-description: Run the Iris harbor job-history analyzer (scripts/iris/analyze_job_history.py) on a datagen/eval job and read its JSON sidecar for trustworthy throughput / preemption / productive-trial stats. Use whenever a status check needs REAL metrics (gen tok/s, cycles, non_empty rate, harbor exceptions) instead of an eyeballed log tail. It now queries the finelog log store directly (live ∪ GCS, deduped) — FAST (seconds, not minutes) and it ASSERTS completeness across all preempted attempts/generations, failing loud rather than returning fragments.
+description: Run the Iris harbor job-history analyzer (scripts/iris/analyze_iris_harbor_job.py) on a datagen/eval job and read its JSON sidecar for trustworthy throughput / preemption / productive-trial stats. Use whenever a status check needs REAL metrics (gen tok/s, cycles, non_empty rate, harbor exceptions) instead of an eyeballed log tail. It now queries the finelog log store directly (live ∪ GCS, deduped) — FAST (seconds, not minutes) and it ASSERTS completeness across all preempted attempts/generations, failing loud rather than returning fragments.
 ---
 
 # analyze-job-history-iris
@@ -10,7 +10,7 @@ description: Run the Iris harbor job-history analyzer (scripts/iris/analyze_job_
 > CoreWeave GPU particulars in `ops.md`, the TPU `marin` particulars in `ops.md`).
 > They carry the binding access/preamble/gotchas and the helper-script inventory the steps below rely on.
 
-`scripts/iris/analyze_job_history.py` pulls an Iris job's **complete** log from the **finelog** store
+`scripts/iris/analyze_iris_harbor_job.py` pulls an Iris job's **complete** log from the **finelog** store
 (parquet, queried by SQL) — the live deployment **∪** the GCS archive, deduped on the monotonic `seq` — then
 computes: §1 preemption count + time-to-preempt, §2 per-cycle trace progress (from harbor GCS output), §3
 serving throughput. It writes a markdown report to `--output` and a **JSON sidecar** to `<output>.json`.
@@ -46,11 +46,11 @@ datagen job. So:
 
 ```bash
 /Users/benjaminfeuer/Documents/marin/.venv/bin/python \
-  /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_job_history.py \
-  <job_id> --output /tmp/$(basename <job_id>)_history.md --refresh
+  /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_iris_harbor_job.py \
+  <job_id> --output /tmp/$(basename <job_id>)_history.md --resync
 ```
 
-- `--refresh` re-fetches; **omit it** to re-parse the cached merged log
+- `--resync` re-fetches; **omit it** to re-parse the cached merged log
   (`/tmp/iris_history_<job>.filtered.log` + `<...>.coverage.json`) instantly.
 - `--max-coverage-gap-seconds N` (default 600) — the max allowed empty run inside an attempt window before
   it's a coverage failure. `--allow-incomplete` — opt out of the strict raise (records `logs_complete=false`
@@ -130,8 +130,8 @@ It's fast now, so inline is usually fine. When sweeping SEVERAL jobs you can sti
 parallelism — but the prompt no longer needs the foreground-and-wait warnings. Use this template per job (or
 list several):
 
-> Run `analyze_job_history.py` on `<job_id>` (cluster `marin`) **under the marin venv**:
-> `/Users/benjaminfeuer/Documents/marin/.venv/bin/python /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_job_history.py <job_id> --output /tmp/<basename>_history.md --refresh`.
+> Run `analyze_iris_harbor_job.py` on `<job_id>` (cluster `marin`) **under the marin venv**:
+> `/Users/benjaminfeuer/Documents/marin/.venv/bin/python /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_iris_harbor_job.py <job_id> --output /tmp/<basename>_history.md --resync`.
 > It queries finelog (live ∪ GCS) and takes seconds-to-~3min; it asserts completeness and FAILS LOUD on a gap
 > (if it complains LIVE is unavailable, the IAP token expired — note it, don't paper over it). Then parse the
 > sidecar `/tmp/<basename>_history.md.json` with python — confirm `logs_complete: true` — and report:
@@ -142,7 +142,7 @@ list several):
 > and report **mean reward** + **completed/total tasks** (NOT in the sidecar). Return a compact key:value
 > report + a one-line health read. Do not paste raw markdown/logs.
 
-A completed `<output>.json` with `logs_complete: true` means that job is done — re-parse it directly (no `--refresh`).
+A completed `<output>.json` with `logs_complete: true` means that job is done — re-parse it directly (no `--resync`).
 
 ## How completeness works (for when it fails)
 

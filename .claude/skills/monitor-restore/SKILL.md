@@ -37,7 +37,7 @@ Re-creates the recurring **3-hour cluster sweep** — **CoreWeave(iris) + TACC(V
 - A cron/loop only fires while the REPL is idle (not mid-task); if it reliably misses, fall back to the user pasting the prompt.
 - **Path correction baked into the prompt:** local SkyRL checkout is `/Users/benjaminfeuer/Documents/MarinSkyRL` (the user's usual prompt says `…/SkyRL`). All other paths verbatim.
 - **Jupiter SKIPPED** until ~2026-07-12 (MDC maintenance). On return, re-add as a 4th cluster (ops doc `.claude/ops/jupiter/ops.md`; launch/cleanup = `*-jupiter` variants) in both this block and the live loop.
-- **CoreWeave per-run Monitors** (`scripts/iris/watch_job_state.py`) are a complementary finer-grained layer for actively-debugging runs — not a substitute for the 3h sweep, or vice-versa.
+- **CoreWeave per-run Monitors** (`scripts/iris/iris_ops.py`) are a complementary finer-grained layer for actively-debugging runs — not a substitute for the 3h sweep, or vice-versa.
 
 ---
 
@@ -58,7 +58,7 @@ PER-CLUSTER GATHER (validate each before trusting; procedure = `monitor-cron-swe
 - EMPIREAI(beta) — `squeue -u bf996` + `sacct -u bf996 -S now-3hours -X` via `ssh -o BatchMode=yes EmpireAI_Beta "bash -lc '…'"` (filter the `module: command not found` / `Loading gcc` noise). If BatchMode ssh FAILS (socket reaped), NOTE "EmpireAI socket down — needs operator reconnect" and SKIP (can't 2FA headless) — do NOT block. For any live Axolotl SFT job: poll `~/logs/<name>_<jobid>.out` for the latest step + read the latest `checkpoint-<N>/trainer_state.json` (`log_history[]` step/loss/grad_norm; `global_step`/`max_steps`); fetch that small JSON to the relevant experiment dir per the ops-doc recipe, NEVER checkpoints. READ the active EmpireAI experiment tracker under `experiments/active/` and drive off IT.
 - COREWEAVE(iris) — STATE-POLL the authoritative iris lifecycle, NOT a log-string watch (a clean kill/eviction/preempt emits no terminal log line + reaps the pods):
     KUBECONFIG=~/.kube/coreweave-iris-gpu; PY=/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python
-    $PY scripts/iris/watch_job_state.py /benjaminfeuer/<job> --once --json   # per active job (auth state now)
+    $PY scripts/iris/iris_ops.py /benjaminfeuer/<job> --once --json   # per active job (auth state now)
     /Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris --cluster=cw-us-east-02a job summary --json   # authoritative
   Treat "running-but-0-pods / record disappeared" as TERMINAL (silent-wedge signature). `iris … query` over the jobs table lists live jobs (state 1/2/3). Full log (init→crash) via `iris … job logs --since-ms <submitted_at_ms> --no-tail` (finelog keeps the WHOLE log; only `--tail` caps lines).
 - TACC(Vista) — `squeue -u penfever` + `sacct -u penfever -S now-3hours -X` via `ssh TACCVista`.
@@ -74,7 +74,7 @@ EMPIREAI (SFT workstream — monitor to completion):
 
 COREWEAVE RL (agentic SkyRL/MoE via `rl-agentic-launch-iris`):
 - Report BRING-UP for fresh launches: gang/leafgroup admission (Kueue, pods SchedulingGated until atomically admitted is normal), `apply_ep` / mesh-load, weights resolving. `shm_broadcast: …60s` + a transient ghcr EOF → ImagePullBackOff self-heal are BENIGN bring-up noise.
-- EP=8 science greps (the 131k arm) — `sel_rows` / `EPDIAG` via `scripts/iris/analyze_job_history.py` (log-content greps are SCIENCE/throughput ONLY, never liveness — liveness = the state-poll above).
+- EP=8 science greps (the 131k arm) — `sel_rows` / `EPDIAG` via `scripts/iris/analyze_iris_harbor_job.py` (log-content greps are SCIENCE/throughput ONLY, never liveness — liveness = the state-poll above).
 - On COMPLETED → route by flavor WITHOUT asking: AGENTIC (Harbor/Daytona/terminal_bench) → `rl-agentic-job-cleanup` (FULL checklist incl. trace upload + metrics); STANDARD/non-agentic GRPO → `rl-standard-job-cleanup`.
 - Per-run Monitors (bring-up/wedge watch) are a complementary finer-grained layer; this 3h cron is the baseline — don't let one substitute for the other.
 

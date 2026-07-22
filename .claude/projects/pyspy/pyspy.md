@@ -115,4 +115,4 @@ uninstalled; hash pod names). A per-90 s py-spy loop over the 4 pods (`EngineCor
 tracked task, captured the healthy baseline (engine idle in its `shm_broadcast` busy-loop) and was positioned
 to catch the blip stack. The captured cmdline surfaced the prime suspect: `override_timeout_sec=1800` (=30 min)
 — a first-trial-wave mass-timeout thundering herd. (Cluster access mechanics: `.claude/ops/iris/ops.md` +
-`scripts/iris/peek_rl_rollouts.sh`.)
+`scripts/iris/analyze_coreweave_rl_job_live.sh`.)

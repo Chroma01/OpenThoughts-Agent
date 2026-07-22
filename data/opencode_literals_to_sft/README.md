@@ -39,9 +39,9 @@ One row per convertible trace, with an explicit (Arrow-safe) schema:
 | `tools` | JSON string | the 10 opencode function schemas (bash/edit/glob/grep/read/skill/task/todowrite/webfetch/write); renders the `<tools>` system block at train time |
 | `task`, `num_turns`, `num_tool_calls` | scalars | bookkeeping |
 
-`tool_calls.function.arguments` is a **JSON string** (keeps the row schema Arrow-uniform);
-axolotl `json.loads` it back to a dict before the chat template renders it with `| tojson` —
-the exact path the server takes.
+`tool_calls.function.arguments` is a **JSON string** (keeps the row schema Arrow-uniform); the
+SFT framework parses it back to a dict before the chat template renders it — the exact path the
+server takes.
 
 ### Correctness guards (rows are dropped, never emitted misaligned)
 
@@ -86,8 +86,8 @@ The old entrypoint `python -m scripts.harbor.literal_traces_to_opencode_sft …`
 
 ## Full end-to-end preprocessing chain
 
-This module is **step 2** of three. It only produces train==serve *messages+tools rows*; the
-tokenize+mask+pack (`axolotl preprocess`) is step 3, and the retention/masking parity gate
+This module is **step 2** of three. It produces train==serve *messages+tools rows*; the
+tokenize+mask+pack (SFT framework preprocess) is step 3, and a retention/masking parity gate
 verifies the join.
 
 ### (1) Source — the literal opencode trace dataset
@@ -103,53 +103,25 @@ A Harbor datagen trace dataset carrying `prompt_token_ids` / `completion_token_i
 → the serve-parity SFT dataset `laion/nemotron-code-oracle-opencode-sft-serveparity`. Pin the
 pushed revision. **Verify with `--validate 3` first** (all parity probes `True`).
 
-### (3) `axolotl preprocess` — tokenize + mask + pack
+### (3) SFT-framework preprocess — tokenize + mask + pack
 
-The axolotl SFT config (`sft/axolotl_configs/densemixer_run{1_opencode,2_sparse_opencode}.yaml`)
-consumes the step-2 dataset with, load-bearing:
+The SFT config consumes the step-2 dataset. Framework-agnostic keys any tool-aware trainer needs:
 
 ```yaml
-type: chat_template
 field_messages: messages          # the rebuilt messages
 field_tools: tools                # renders the <tools> system block (train==serve)
 chat_template: tokenizer_default  # base Qwen3-30B-A3B-Thinking tools-aware template (4049 chars)
-split_thinking: false             # keep <think> inline (Qwen3-Thinking parity)
 sequence_len: 16384
 sample_packing: true
-dataset_prepared_path: <SHARED>   # both A/B arms share it -> identical tokens + order
 ```
 
-Run once, single-node, generous walltime (heavy — 5441 rows × ~8k-tok system prompt):
-
-```bash
-axolotl preprocess densemixer_run1_opencode.yaml --debug
-```
-
-This tokenizes, masks (`roles_to_train` defaults to `["assistant"]`), packs, and writes the
-prepared arrow **plus the `.axolotl_prepared_complete` sentinel** to the shared
-`dataset_prepared_path`. The sentinel lets the multi-node training job load the prepared set
-lock-free (avoids ENOLCK/ESTALE on networked FS) — requires axolotl with the lock-free sentinel
-commit (marin-fork `feuer/lockfree-prepared-sentinel`, PR
-[marin-community/axolotl#3](https://github.com/marin-community/axolotl/pull/3)).
-
-⚠ Never put a tight walltime/QOS on this preprocess — the `--debug` masking/config dump is
-buffered (flushes only at completion), so a smoke cap risks a timeout that both wastes the run
-and loses the verdict.
-
-### Retention / masking parity gate (verify before trusting a run)
-
-From the `--debug` dump, confirm:
-
-- **masking:** `system` / `tools` / `user` / `tool` turns = `(-100, ·)` MASKED; assistant
-  content = `(id, id)` TRAINED;
-- **retention:** rows dropped only for exceeding `sequence_len` (the ~8k-tok serve-parity system
-  prompt is masked overhead — a low trainable fraction is expected, correctness > efficiency;
-  lever: bump `sequence_len` to 32768 to recover dropped long traces);
-- **0 zero-trainable rows**;
-- the sentinel `.axolotl_prepared_complete` written to the shared prepared path.
+Masking: `system` / `tools` / `user` / `tool` turns masked; assistant content trained. Confirm
+0 zero-trainable rows and that rows are dropped only for exceeding `sequence_len` (the ~8k-tok
+serve-parity system prompt is masked overhead — a low trainable fraction is expected,
+correctness > efficiency; lever: bump `sequence_len` to 32768 to recover dropped long traces).
 
 For the pinned dataset this gate passed at **4655/5441 retained (85.6%)**, 0 zero-trainable,
-masking correct (preprocess job 31995).
+masking correct.
 
 ---
 

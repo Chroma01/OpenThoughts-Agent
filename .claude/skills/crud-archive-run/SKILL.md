@@ -53,7 +53,7 @@ them. Verify the tarball is non-empty + lists the expected trees (`tar tzf … |
 - **CoreWeave agentic RL (SkyRL/MarinSkyRL)** — traces at the durable R2 path
   `s3://marin-us-east-02a/iris/<job>/trace_jobs` (`--trials-dir auto`; pull with `aws s3 --endpoint-url <R2>`)
   OR pod-local `/app/experiments/<run>/trace_jobs` (EPHEMERAL → grab before pod GC via
-  `scripts/iris/peek_rl_rollouts.sh <pod> cp`). Full log = `iris … job logs --since-ms <submit> --no-tail`
+  `scripts/iris/analyze_coreweave_rl_job_live.sh <pod> cp`). Full log = `iris … job logs --since-ms <submit> --no-tail`
   (finelog keeps init→crash). ray logs + `vllm.log` are pod-local (exec/peek). wandb online (record URL).
   Details: `.claude/ops/iris/ops.md`, `.claude/projects/marinskyrl/`.
 - **SFT (LLaMA-Factory / axolotl, SLURM)** — `.out` per-step logs at `experiments/<job>/logs/*.out`,

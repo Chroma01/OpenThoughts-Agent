@@ -119,8 +119,8 @@ Confirm placement (same as datagen):
 Same job-agnostic analyzer as datagen:
 ```bash
 /Users/benjaminfeuer/miniconda3/envs/otagent/bin/python \
-  /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_job_history.py \
-  /benjaminfeuer/<job> --output /tmp/<job>_history.md --refresh
+  /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_iris_harbor_job.py \
+  /benjaminfeuer/<job> --output /tmp/<job>_history.md --resync
 ```
 For eval, the signals of interest are **completion + productive trial rate** (`non_empty_trials`/`total_trial_dirs`) and the harness exception stats, more than gen tok/s. Scores land in the synced outputs, not the analyzer sidecar:
 - default mode → `--local-sync-dir` on the launch host;

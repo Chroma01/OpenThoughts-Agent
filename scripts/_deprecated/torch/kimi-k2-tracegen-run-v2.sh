@@ -315,7 +315,7 @@ echo ">>> Waiting for Ray cluster..."
 TOTAL_GPUS=$((GPUS_PER_NODE * NUM_NODES))
 sleep 15  # Give Ray time to initialize
 
-python3 scripts/ray/wait_for_cluster.py \
+python3 hpc/ray/wait_for_cluster.py \
     --address "$ip_head" \
     --expected-gpus "$TOTAL_GPUS" \
     --expected-nodes "$NUM_NODES" \
@@ -338,7 +338,7 @@ echo "  TP size: $TP_SIZE"
 echo "  Log: $CONTROLLER_LOG"
 
 srun --export="$SRUN_EXPORT_ENV" --nodes=1 --ntasks=1 --mem="$SRUN_MEM_PER_STEP" --overlap -w "$head_node" \
-    python3 scripts/vllm/start_vllm_ray_controller.py \
+    python3 hpc/vllm/start_vllm_ray_controller.py \
         --ray-address "$ip_head" \
         --host "$head_node_ip" \
         --port "$API_PORT" \
@@ -373,7 +373,7 @@ if [[ ! -f "$VLLM_ENDPOINT_JSON_PATH" ]]; then
 fi
 
 echo ">>> Endpoint JSON created, waiting for health check..."
-python3 scripts/vllm/wait_for_endpoint.py \
+python3 hpc/vllm/wait_for_endpoint.py \
     --endpoint-json "$VLLM_ENDPOINT_JSON_PATH" \
     --max-attempts 60 \
     --retry-delay 20 \

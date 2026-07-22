@@ -170,7 +170,7 @@ def mirror_repo(
               f"s3://{s3_bucket}/{manifest_key}", flush=True)
 
 
-def main() -> int:
+def _legacy_main() -> int:
     p = argparse.ArgumentParser(
         description="Stream files from a GCS prefix into an S3-compatible bucket.",
     )
@@ -205,6 +205,13 @@ def main() -> int:
             verbose=not args.quiet,
         )
     return 0
+
+
+def main() -> int:
+    """Compatibility entrypoint; use ``mirror_models gcs-to-s3`` for new calls."""
+    from scripts.iris.mirror_models import main as unified_main
+
+    return unified_main(["gcs-to-s3", *sys.argv[1:]])
 
 
 if __name__ == "__main__":
