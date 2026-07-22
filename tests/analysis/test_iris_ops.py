@@ -133,8 +133,13 @@ def _ray_delta_archive(entries: list[tuple[str, int, bytes]]) -> bytes:
 
 
 def test_save_ray_logs_incrementally_appends_and_replaces_rotated_logs(monkeypatch, tmp_path):
+    class CapturingInput(BytesIO):
+        def close(self) -> None:
+            self.closed_by_sync = True
+
     class TarProcess:
         def __init__(self, archive: bytes):
+            self.stdin = CapturingInput()
             self.stdout = BytesIO(archive)
             self.stderr = BytesIO()
 
@@ -142,6 +147,7 @@ def test_save_ray_logs_incrementally_appends_and_replaces_rotated_logs(monkeypat
             return 0
 
     commands: list[list[str]] = []
+    inputs: list[CapturingInput] = []
     archives = iter(
         [
             _ray_delta_archive([("worker-1.out", 0, b"abc")]),
@@ -152,7 +158,9 @@ def test_save_ray_logs_incrementally_appends_and_replaces_rotated_logs(monkeypat
 
     def fake_popen(command, **_kwargs):
         commands.append(command)
-        return TarProcess(next(archives))
+        process = TarProcess(next(archives))
+        inputs.append(process.stdin)
+        return process
 
     monkeypatch.setattr(coreweave_ops.subprocess, "Popen", fake_popen)
     initial = [{"path": "worker-1.out", "size": 3, "inode": 41}]
@@ -167,7 +175,9 @@ def test_save_ray_logs_incrementally_appends_and_replaces_rotated_logs(monkeypat
         ["kubectl"], "pod", "task", grown, 100, tmp_path, incremental=True, python_executable="python"
     )
     assert (tmp_path / "worker-1.out").read_bytes() == b"abcdef"
-    assert '"offset": 3' in commands[1][-1]
+    assert b'"offset": 3' in inputs[1].getvalue()
+    assert getattr(inputs[1], "closed_by_sync", False)
+    assert "-i" in commands[1]
 
     # An unchanged file does not open another kubectl exec stream.
     coreweave_ops.save_ray_logs(
@@ -180,7 +190,7 @@ def test_save_ray_logs_incrementally_appends_and_replaces_rotated_logs(monkeypat
         ["kubectl"], "pod", "task", rotated, 100, tmp_path, incremental=True, python_executable="python"
     )
     assert (tmp_path / "worker-1.out").read_bytes() == b"xy"
-    assert '"offset": 0' in commands[2][-1]
+    assert b'"offset": 0' in inputs[2].getvalue()
 
 
 def test_coreweave_command_retries_transient_kubectl_html(monkeypatch):

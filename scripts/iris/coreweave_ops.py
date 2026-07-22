@@ -455,7 +455,6 @@ def plan_ray_log_delta(
 
 def _delta_archive_script(transfers: list[dict[str, Any]]) -> str:
     """Build a streaming tar program carrying only the requested log suffixes."""
-    requested = json.dumps(transfers)
     return """
 import io
 import json
@@ -464,7 +463,10 @@ import tarfile
 from pathlib import Path
 
 root = Path('/tmp/ray/session_latest/logs')
-requests = __REQUESTS__
+# The transfer plan arrives over stdin, not as a ``python -c`` argument.  A
+# first sync can contain hundreds of files; putting that JSON in the kubectl
+# exec command overflows the controller proxy's request-header limit.
+requests = json.load(sys.stdin)
 with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as archive:
     for request in requests:
         relative = request['path']
@@ -486,7 +488,7 @@ with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as archive:
         with source.open('rb') as handle:
             handle.seek(offset)
             archive.addfile(info, handle)
-""".replace("__REQUESTS__", requested)
+"""
 
 
 def _extract_ray_log_delta(archive: tarfile.TarFile, destination: Path) -> None:
@@ -548,11 +550,17 @@ def save_ray_logs(
             if incremental
             else ["tar", "-C", RAY_LOG_DIR, "-cf", "-", *(item["path"] for item in transfers)]
         )
+        exec_args = ["exec", *( ["-i"] if incremental else []), pod, "-c", container, "--", *remote_command]
         process = subprocess.Popen(
-            [*base, "-n", NAMESPACE, "exec", pod, "-c", container, "--", *remote_command],
+            [*base, "-n", NAMESPACE, *exec_args],
+            stdin=subprocess.PIPE if incremental else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        if incremental:
+            assert process.stdin is not None
+            process.stdin.write(json.dumps(transfers).encode())
+            process.stdin.close()
         assert process.stdout is not None
         archive_error = None
         try:
