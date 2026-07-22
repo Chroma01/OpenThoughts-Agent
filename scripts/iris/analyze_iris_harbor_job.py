@@ -1384,10 +1384,11 @@ def analyze(
     bundle_directory: Path | None = None,
 ) -> JobAnalysis:
     job_name = job_id.rsplit("/", 1)[-1]
-    # Resolve the job's recorded output prefix ONCE (registry-first, iris-fallback
-    # via --cluster). Legacy multi-region jobs resolve to gs://marin-models-{us,eu}
-    # and new single-region jobs to gs://marin-<region>; the GCS readers below use
-    # this exact bucket instead of a hardcoded scan root.
+    # Resolve the Harbor datagen/eval job's recorded output prefix ONCE
+    # (registry-first, iris-fallback via --cluster). Legacy multi-region jobs
+    # resolve to gs://marin-models-{us,eu} and new single-region jobs to
+    # gs://marin-<region>; the GCS readers below use this exact bucket instead of
+    # a hardcoded scan root.
     job_output_dir = resolve_job_output_dir(job_id, cluster_config=CLUSTER)
     print(f"[{job_name}] output dir: {job_output_dir}", file=sys.stderr)
     meta = get_job_metadata(job_id)
@@ -1544,6 +1545,7 @@ def local_bundle_report(bundle_directory: Path, manifest: dict) -> str:
         "This report used the local evidence bundle only.",
         "",
         f"- Cluster: `{manifest.get('cluster', 'unknown')}`",
+        f"- Job kind: `{manifest.get('job_kind', 'unknown')}`",
         f"- Bundle: `{bundle_directory}`",
         f"- Dataset: `{manifest.get('dataset', 'unknown')}`",
         f"- Completed trials: {stats.get('n_completed_trials', 'unknown')}/{result.get('n_total_trials', 'unknown')}",
@@ -1646,9 +1648,9 @@ def main() -> int:
             bundle_directory=bundle.directory,
         )
     except LookupError as e:
-        # Expected when the job's output dir can't be resolved (e.g. a CoreWeave RL
-        # job with an s3:// trials_dir — this tool is gs://-oriented). Print the
-        # directional message cleanly instead of dumping a traceback.
+        # Expected for a non-Harbor job (for example CoreWeave RL with an s3://
+        # trials_dir) or a legacy Harbor eval with no recorded output identity.
+        # Keep the taxonomy clear instead of dumping a traceback.
         print(f"[analyze_iris_harbor_job] {e}", file=sys.stderr)
         return 1
 

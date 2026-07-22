@@ -8,7 +8,7 @@ in the densemixer A/B SFT experiment).
 Home of the load-bearing preprocessing code for
 `experiments/active/axolotl-sft-opencode-densemoe/` (see that experiment's `REPRO.md` for the
 full end-to-end reproduction formula). Re-homed from
-`scripts/harbor/literal_traces_to_opencode_sft.py` (a thin re-export shim remains at the old path).
+Use `python -m data.opencode_literals_to_sft` for this conversion.
 
 ---
 
@@ -79,8 +79,8 @@ default keeps verbatim reasoning for Qwen3-Thinking parity), `--tokenizer` (teac
 
 Streaming + bounded (no full-dataset RAM load).
 
-The old entrypoint `python -m scripts.harbor.literal_traces_to_opencode_sft …` still works
-(thin re-export shim).
+The removed legacy entrypoint `python -m scripts.harbor.literal_traces_to_opencode_sft …`
+is no longer supported; use the module command above.
 
 ---
 
@@ -127,7 +127,7 @@ masking correct.
 
 ## Provenance
 
-- Original: `scripts/harbor/literal_traces_to_opencode_sft.py` (now a re-export shim).
+- Original implementation: `scripts/harbor/literal_traces_to_opencode_sft.py`.
 - Adapted from the general `scripts/harbor/literal_traces_to_sft.py`, which maps tool results to
   `role: human` and keeps inline tool-call text — the **wrong** serve shape; this opencode
   variant is the serve-parity rebuild.

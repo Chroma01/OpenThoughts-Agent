@@ -5,12 +5,12 @@ The monitor is deliberately read-only.  Each Iris job gets one stable local
 directory, keyed by its full Iris job id, so repeated sweeps and Iris task
 retries refresh the same artifacts instead of making timestamped copies.  It
 captures the complete finelog plus complete pod/Ray/vLLM logs, then mirrors
-the 500 most recently modified Harbor ``trace_jobs`` by default. The recent
-trace selection is based on object-store ``LastModified`` metadata, never trace
-names. Use ``--trace-sync-limit 0`` for a deliberately full trace sync. The
-sync still skips non-log objects larger than the configured size bound; that
-rule avoids repeatedly downloading giant rollout payloads while preserving any
-diagnostic log regardless of size.
+the 500 most recently modified Harbor ``trace_jobs`` across the active RL fleet
+by default. The recent trace selection is based on object-store ``LastModified``
+metadata, never trace names. Use ``--trace-sync-limit 0`` for a deliberately
+full trace sync. The sync still skips non-log objects larger than the configured
+size bound; that rule avoids repeatedly downloading giant rollout payloads while
+preserving any diagnostic log regardless of size.
 
 By default the scope is the current lab user's active RL jobs on both
 CoreWeave GPU clusters.  Use ``--all-users`` only when cross-user monitoring is
@@ -26,7 +26,8 @@ import os
 import re
 import subprocess
 import sys
-from dataclasses import asdict, dataclass
+import time
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -40,9 +41,11 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.iris.coreweave_ops import (  # noqa: E402
     CLUSTERS as COREWEAVE_CLUSTERS,
     NAMESPACE,
+    iter_objects,
     kubectl_base,
     object_store_client,
     ray_log_inventory,
+    resolve_runtime_python,
     safe_relative_path,
     save_ray_logs,
     split_s3_uri,
@@ -101,10 +104,15 @@ class RlJob:
     submitted_at_ms: int
     entrypoint: str
     dataset: str = "—"
+    finished_at_ms: int | None = None
 
     @property
     def short_name(self) -> str:
         return self.job_id.rstrip("/").rsplit("/", 1)[-1]
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.state in {"succeeded", "failed"}
 
 
 @dataclass(frozen=True)
@@ -128,6 +136,34 @@ class TraceJobObjects:
     completed: bool
 
 
+@dataclass(frozen=True)
+class TraceInventory:
+    """Remote trace objects for one RL job, collected before fleet selection."""
+
+    job: RlJob
+    bucket: str
+    root_prefix: str
+    client: Any
+    traces: tuple[TraceJobObjects, ...]
+    available: int
+    completed: int
+
+
+@dataclass
+class ProgressReporter:
+    """Emit phase-level timing to stderr without contaminating the status table."""
+
+    enabled: bool = True
+    started_at: float = field(default_factory=time.monotonic)
+
+    def phase(self, message: str) -> None:
+        if not self.enabled:
+            return
+        elapsed_seconds = int(time.monotonic() - self.started_at)
+        elapsed = f"{elapsed_seconds // 60:02d}:{elapsed_seconds % 60:02d}"
+        print(f"[rl-watch +{elapsed}] {message}", file=sys.stderr, flush=True)
+
+
 CLUSTERS = tuple(
     Cluster(name, config.kubeconfig, config.context)
     for name, config in COREWEAVE_CLUSTERS.items()
@@ -142,6 +178,12 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_BUNDLE_ROOT,
         help="Root for canonical local Iris evidence bundles and RL reports.",
     )
+    parser.add_argument(
+        "--terminal-hours",
+        type=float,
+        default=24.0,
+        help="Also report succeeded/failed RL jobs finished within this many hours (default: 24).",
+    )
     parser.add_argument("--user", default=DEFAULT_USER, help=f"Iris user to monitor (default: {DEFAULT_USER}).")
     parser.add_argument("--all-users", action="store_true", help="Discover active RL jobs for every user.")
     parser.add_argument(
@@ -155,11 +197,16 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_TRACE_SYNC_LIMIT,
         help=(
-            "Sync only this many most recently modified trace directories per RL job "
+            "Sync only this many most recently modified trace directories across all discovered RL jobs "
             "(default: 500; 0 syncs every remote trace)."
         ),
     )
     parser.add_argument("--no-sync", action="store_true", help="Report lifecycle state without collecting artifacts.")
+    parser.add_argument(
+        "--quiet-progress",
+        action="store_true",
+        help="Suppress stderr phase/timing updates while artifacts are collected.",
+    )
     return parser.parse_args()
 
 
@@ -220,12 +267,29 @@ def dataset_from_entrypoint(entrypoint: str) -> str:
     return ", ".join(dict.fromkeys(datasets)) or "—"
 
 
-def discover_rl_jobs(cluster: Cluster, user: str | None) -> tuple[list[RlJob], list[str]]:
+def csv_rows(output: str) -> list[dict[str, str]]:
+    """Parse Iris CSV after its informational controller/tunnel preamble."""
+    lines = output.splitlines()
+    header_index = next((index for index, line in enumerate(lines) if line.startswith("job_id,")), None)
+    if header_index is None:
+        raise ValueError("Iris query returned no CSV job_id header")
+    return list(csv.DictReader(lines[header_index:]))
+
+
+def discover_rl_jobs(
+    cluster: Cluster,
+    user: str | None,
+    *,
+    terminal_since_ms: int,
+) -> tuple[list[RlJob], list[str]]:
     where_user = "" if user is None else f" AND j.job_id LIKE '/{user}/%'"
     sql = (
-        "SELECT j.job_id, j.state, j.submitted_at_ms, jc.entrypoint_json "
+        "SELECT j.job_id, j.state, j.submitted_at_ms, j.finished_at_ms, jc.entrypoint_json "
         "FROM jobs j JOIN job_config jc ON j.job_id=jc.job_id "
-        f"WHERE j.state IN ({','.join(str(state) for state in sorted(ACTIVE_STATES))}){where_user} "
+        "WHERE ("
+        f"j.state IN ({','.join(str(state) for state in sorted(ACTIVE_STATES))}) "
+        f"OR (j.state IN (4,5) AND j.finished_at_ms >= {terminal_since_ms})"
+        f"){where_user} "
         "ORDER BY j.submitted_at_ms DESC"
     )
     result = run_iris(cluster, ["query", sql, "-f", "csv"])
@@ -234,7 +298,11 @@ def discover_rl_jobs(cluster: Cluster, user: str | None) -> tuple[list[RlJob], l
         return [], [f"{cluster.name}: discovery failed: {message[-240:]}"]
 
     jobs: list[RlJob] = []
-    for row in csv.DictReader(result.stdout.splitlines()):
+    try:
+        rows = csv_rows(result.stdout)
+    except ValueError as error:
+        return [], [f"{cluster.name}: discovery failed: {error}"]
+    for row in rows:
         entrypoint = entrypoint_text(row.get("entrypoint_json", ""))
         if not any(marker in entrypoint for marker in RL_ENTRYPOINT_MARKERS):
             continue
@@ -251,6 +319,7 @@ def discover_rl_jobs(cluster: Cluster, user: str | None) -> tuple[list[RlJob], l
                 submitted_at_ms=submitted_at_ms,
                 entrypoint=entrypoint,
                 dataset=dataset_from_entrypoint(entrypoint),
+                finished_at_ms=int(row["finished_at_ms"]) if row.get("finished_at_ms") else None,
             )
         )
     return jobs, []
@@ -316,7 +385,8 @@ def fetch_complete_pod_log(base: list[str], pod: str, destination: Path) -> None
 
 
 def fetch_complete_ray_logs(base: list[str], pod: str, destination: Path) -> int:
-    inventory = ray_log_inventory(base, pod, "task", patterns=None)
+    runtime_python = resolve_runtime_python(base, pod, "task")
+    inventory = ray_log_inventory(base, pod, "task", patterns=None, python_executable=runtime_python)
     if not inventory:
         return 0
     try:
@@ -324,7 +394,7 @@ def fetch_complete_ray_logs(base: list[str], pod: str, destination: Path) -> int
     except RuntimeError:
         # Ray rotates/removes worker logs while a live pod is writing. Rebuild
         # the inventory once so a stale path cannot abort the whole fleet scan.
-        inventory = ray_log_inventory(base, pod, "task", patterns=None)
+        inventory = ray_log_inventory(base, pod, "task", patterns=None, python_executable=runtime_python)
         if not inventory:
             return 0
         saved, skipped = save_ray_logs(base, pod, "task", inventory, sys.maxsize, destination)
@@ -333,7 +403,12 @@ def fetch_complete_ray_logs(base: list[str], pod: str, destination: Path) -> int
     return len(saved)
 
 
-def sync_pod_and_ray_logs(job: RlJob, destination: Path) -> tuple[str, str, list[str]]:
+def sync_pod_and_ray_logs(
+    job: RlJob,
+    destination: Path,
+    *,
+    progress: ProgressReporter | None = None,
+) -> tuple[str, str, list[str]]:
     """Capture all current pod stdout plus all Ray/vLLM logs without a size cap."""
     errors: list[str] = []
     try:
@@ -355,12 +430,20 @@ def sync_pod_and_ray_logs(job: RlJob, destination: Path) -> tuple[str, str, list
     pod_dir.mkdir(exist_ok=True)
     ray_dir.mkdir(exist_ok=True)
     ray_files = 0
-    for pod in running_pods:
+    for index, pod in enumerate(running_pods, start=1):
         try:
+            if progress:
+                progress.phase(
+                    f"pod stdout {index}/{len(running_pods)} {job.short_name}/{pod}"
+                )
             fetch_complete_pod_log(base, pod, pod_dir / f"{pod}.log")
         except (RuntimeError, subprocess.SubprocessError) as error:
             errors.append(f"{pod} stdout: {error}")
         try:
+            if progress:
+                progress.phase(
+                    f"Ray/vLLM logs {index}/{len(running_pods)} {job.short_name}/{pod}"
+                )
             pod_ray_dir = ray_dir / pod
             pod_ray_dir.mkdir(exist_ok=True)
             ray_files += fetch_complete_ray_logs(base, pod, pod_ray_dir)
@@ -426,15 +509,21 @@ def recent_trace_jobs(
 
 
 def trace_selection_manifest(
-    selected: list[TraceJobObjects], available: int, trace_sync_limit: int
+    selected: list[TraceJobObjects],
+    inventory: TraceInventory,
+    trace_sync_limit: int,
+    fleet_available: int,
+    fleet_selected: int,
 ) -> dict[str, Any]:
-    """Describe the bounded selection without recording every omitted trace."""
+    """Describe this job's share of a bounded, fleet-wide trace selection."""
     return {
-        "selection": "latest_object_store_last_modified",
+        "selection": "latest_object_store_last_modified_across_active_rl_jobs",
         "trace_sync_limit": trace_sync_limit,
-        "available_traces": available,
+        "available_traces": inventory.available,
         "selected_traces": len(selected),
-        "omitted_traces": available - len(selected),
+        "omitted_traces": inventory.available - len(selected),
+        "fleet_available_traces": fleet_available,
+        "fleet_selected_traces": fleet_selected,
         "selected": [
             {"name": trace.name, "last_modified": trace.last_modified.isoformat(), "completed": trace.completed}
             for trace in selected
@@ -442,9 +531,8 @@ def trace_selection_manifest(
     }
 
 
-def sync_trace_jobs(
-    job: RlJob, destination: Path, max_non_log_bytes: int, trace_sync_limit: int
-) -> tuple[str, int, int, str | None]:
+def collect_trace_inventory(job: RlJob) -> TraceInventory:
+    """List all remote objects for one job before selecting a fleet-wide subset."""
     uri = trials_uri(job)
     bucket, prefix = split_s3_uri(uri)
     base = kubectl_base(
@@ -452,38 +540,113 @@ def sync_trace_jobs(
     )
     client = object_store_client(base, COREWEAVE_CLUSTERS[job.cluster.name])
     root_prefix = f"{prefix.rstrip('/')}/"
+    objects = iter_objects(client, bucket, root_prefix)
+    traces, available, completed = recent_trace_jobs(objects, root_prefix, trace_sync_limit=0)
+    return TraceInventory(job, bucket, root_prefix, client, tuple(traces), available, completed)
+
+
+def select_recent_fleet_traces(
+    inventories: list[TraceInventory], trace_sync_limit: int
+) -> dict[tuple[str, str], list[TraceJobObjects]]:
+    """Select the newest trace directories globally, using S3 modification metadata."""
+    candidates = [(inventory, trace) for inventory in inventories for trace in inventory.traces]
+    candidates.sort(
+        key=lambda candidate: (
+            candidate[1].last_modified,
+            candidate[0].job.cluster.name,
+            candidate[0].job.job_id,
+            candidate[1].name,
+        ),
+        reverse=True,
+    )
+    if trace_sync_limit:
+        candidates = candidates[:trace_sync_limit]
+    selected: dict[tuple[str, str], list[TraceJobObjects]] = {}
+    for inventory, trace in candidates:
+        key = (inventory.job.cluster.name, inventory.job.job_id)
+        selected.setdefault(key, []).append(trace)
+    return selected
+
+
+def sync_trace_inventory(
+    inventory: TraceInventory,
+    destination: Path,
+    selected: list[TraceJobObjects],
+    max_non_log_bytes: int,
+    trace_sync_limit: int,
+    fleet_available: int,
+    fleet_selected: int,
+    progress: ProgressReporter | None = None,
+) -> tuple[str, int, int, str | None]:
+    """Mirror the globally selected traces for one job without deleting prior evidence."""
     destination.mkdir(exist_ok=True)
-    copied = skipped = available = completed = selected_count = 0
+    write_json(
+        destination / "sync_selection.json",
+        trace_selection_manifest(selected, inventory, trace_sync_limit, fleet_available, fleet_selected),
+    )
+    copied = skipped = 0
     skipped_objects: list[dict[str, Any]] = []
+    candidate_objects = sum(len(trace.objects) for trace in selected)
+    candidate_bytes = sum(int(item["Size"]) for trace in selected for item in trace.objects)
+    if progress:
+        progress.phase(
+            f"trace transfer {inventory.job.cluster.name}/{inventory.job.short_name}: "
+            f"{len(selected):,} traces, {candidate_objects:,} objects, "
+            f"{candidate_bytes / 1_048_576:.1f} MiB candidate payload"
+        )
+    inspected = 0
     try:
-        paginator = client.get_paginator("list_objects_v2")
-        objects: list[dict[str, Any]] = []
-        for page in paginator.paginate(Bucket=bucket, Prefix=root_prefix):
-            objects.extend(page.get("Contents", []))
-        selected, available, completed = recent_trace_jobs(objects, root_prefix, trace_sync_limit)
-        selected_count = len(selected)
-        write_json(destination / "sync_selection.json", trace_selection_manifest(selected, available, trace_sync_limit))
         for trace in selected:
             for item in trace.objects:
-                relative = item["Key"].removeprefix(root_prefix)
+                inspected += 1
+                relative = item["Key"].removeprefix(inventory.root_prefix)
                 size = int(item["Size"])
                 if max_non_log_bytes and size > max_non_log_bytes and not is_log_object(relative):
                     skipped += 1
                     skipped_objects.append({"key": relative, "size": size, "reason": "non_log_size_limit"})
+                    if progress and (inspected == candidate_objects or inspected % 25 == 0):
+                        progress.phase(
+                            f"trace transfer {inventory.job.short_name}: "
+                            f"{inspected:,}/{candidate_objects:,} objects inspected; "
+                            f"{copied:,} downloaded, {skipped:,} size-skipped"
+                        )
                     continue
-                local_path = destination / safe_relative_path(item["Key"], root_prefix)
+                local_path = destination / safe_relative_path(item["Key"], inventory.root_prefix)
                 if local_path.exists() and local_path.stat().st_size == size:
+                    if progress and (inspected == candidate_objects or inspected % 25 == 0):
+                        progress.phase(
+                            f"trace transfer {inventory.job.short_name}: "
+                            f"{inspected:,}/{candidate_objects:,} objects inspected; "
+                            f"{copied:,} downloaded, {skipped:,} size-skipped"
+                        )
                     continue
                 local_path.parent.mkdir(parents=True, exist_ok=True)
-                client.download_file(bucket, item["Key"], str(local_path))
+                inventory.client.download_file(inventory.bucket, item["Key"], str(local_path))
                 copied += 1
-    except Exception as error:  # object stores may race a currently-uploading trial
+                if progress and (inspected == candidate_objects or inspected % 25 == 0):
+                    progress.phase(
+                        f"trace transfer {inventory.job.short_name}: "
+                        f"{inspected:,}/{candidate_objects:,} objects inspected; "
+                        f"{copied:,} downloaded, {skipped:,} size-skipped"
+                    )
+    except Exception as error:  # object stores may race a currently-uploading trace
         write_json(destination / "skipped_objects.json", skipped_objects)
-        scope = f"newest {selected_count:,}/{available:,} traces; " if available else ""
-        return f"partial: {scope}{copied:,} copied, {skipped:,} skipped", available, completed, str(error)[-240:]
+        return (
+            f"partial: fleet {len(selected):,}/{inventory.available:,} selected "
+            f"({fleet_selected:,}/{fleet_available:,} total); {copied:,} copied, {skipped:,} skipped",
+            inventory.available,
+            inventory.completed,
+            str(error)[-240:],
+        )
     write_json(destination / "skipped_objects.json", skipped_objects)
-    scope = f"all {available:,}" if trace_sync_limit == 0 else f"newest {len(selected):,}/{available:,}"
-    return f"{scope} traces; {copied:,} copied, {skipped:,} skipped", available, completed, None
+    scope = "all" if trace_sync_limit == 0 else "newest"
+    return (
+        f"fleet {scope} {len(selected):,}/{inventory.available:,} selected "
+        f"({fleet_selected:,}/{fleet_available:,} total); {copied:,} copied, {skipped:,} skipped",
+        inventory.available,
+        inventory.completed,
+        None,
+    )
 
 
 def parse_metrics(finelog: Path) -> tuple[int | None, int | None, dict[str, Any], str | None]:
@@ -594,37 +757,110 @@ def report_row(job: RlJob, artifacts: ArtifactResult, directory: Path) -> list[s
 
 
 def sync_job(
-    job: RlJob, bundle_root: Path, max_non_log_bytes: int, trace_sync_limit: int, *, no_sync: bool
+    job: RlJob,
+    bundle_root: Path,
+    *,
+    no_sync: bool,
+    terminal_only: bool = False,
+    progress: ProgressReporter | None = None,
 ) -> tuple[ArtifactResult, Path]:
+    """Sync non-trace evidence for one job before the fleet trace selection."""
     bundle = job_bundle(bundle_root, job.cluster.name, job.job_id)
     directory = bundle.directory
     directory.mkdir(parents=True, exist_ok=True)
-    manifest = {
-        "job": asdict(job),
-        "job_directory": str(directory),
-        "trials_uri": trials_uri(job),
-        "synced_at": datetime.now(UTC).isoformat(),
-        "max_non_log_bytes": max_non_log_bytes,
-        "trace_sync_limit": trace_sync_limit,
-    }
     if no_sync:
-        artifacts = ArtifactResult("not requested", "not requested", "not requested", "not requested", None, None, ())
-    else:
-        errors: list[str] = []
-        finelog, error = fetch_finelog(job, directory)
-        if error:
-            errors.append(error)
-        pod_logs, ray_logs, pod_errors = sync_pod_and_ray_logs(job, directory)
-        errors.extend(pod_errors)
-        traces, started, completed, trace_error = sync_trace_jobs(
-            job, directory / "trace_jobs", max_non_log_bytes, trace_sync_limit
+        return ArtifactResult("not requested", "not requested", "not requested", "not requested", None, None, ()), directory
+    errors: list[str] = []
+    if progress:
+        progress.phase(f"finelog sync {job.cluster.name}/{job.short_name}")
+    finelog, error = fetch_finelog(job, directory)
+    if error:
+        errors.append(error)
+    if terminal_only:
+        return ArtifactResult(
+            finelog,
+            "not requested (terminal)",
+            "not requested (terminal)",
+            "not requested (terminal)",
+            None,
+            None,
+            tuple(errors),
+        ), directory
+    if progress:
+        progress.phase(f"pod + Ray/vLLM log sync {job.cluster.name}/{job.short_name}")
+    pod_logs, ray_logs, pod_errors = sync_pod_and_ray_logs(job, directory, progress=progress)
+    errors.extend(pod_errors)
+    return ArtifactResult(finelog, pod_logs, ray_logs, "pending fleet selection", None, None, tuple(errors)), directory
+
+
+def sync_fleet_trace_jobs(
+    job_directories: list[tuple[RlJob, Path]],
+    max_non_log_bytes: int,
+    trace_sync_limit: int,
+    progress: ProgressReporter | None = None,
+) -> dict[tuple[str, str], tuple[str, int | None, int | None, str | None]]:
+    """Select at most one global trace budget, then sync each job's selected share."""
+    statuses: dict[tuple[str, str], tuple[str, int | None, int | None, str | None]] = {}
+    inventories: list[TraceInventory] = []
+    for index, (job, _) in enumerate(job_directories, start=1):
+        key = (job.cluster.name, job.job_id)
+        try:
+            if progress:
+                progress.phase(
+                    f"trace inventory {index}/{len(job_directories)} "
+                    f"{job.cluster.name}/{job.short_name}"
+                )
+            inventories.append(collect_trace_inventory(job))
+        except Exception as error:
+            # Object-store failures must degrade one row, not abort the fleet-wide report.
+            statuses[key] = ("unavailable", None, None, str(error)[-240:])
+
+    selected = select_recent_fleet_traces(inventories, trace_sync_limit)
+    fleet_available = sum(inventory.available for inventory in inventories)
+    fleet_selected = sum(len(traces) for traces in selected.values())
+    if progress:
+        progress.phase(
+            f"trace selection: {fleet_selected:,}/{fleet_available:,} newest trace jobs across "
+            f"{len(inventories):,} RL jobs"
         )
-        if trace_error:
-            errors.append(f"trace sync: {trace_error}")
-        artifacts = ArtifactResult(finelog, pod_logs, ray_logs, traces, started, completed, tuple(errors))
-    manifest["artifacts"] = asdict(artifacts)
-    write_bundle_manifest(bundle, {"kind": "rl", **manifest})
-    return artifacts, directory
+    directories = {(job.cluster.name, job.job_id): directory for job, directory in job_directories}
+    for inventory in inventories:
+        key = (inventory.job.cluster.name, inventory.job.job_id)
+        statuses[key] = sync_trace_inventory(
+            inventory,
+            directories[key] / "trace_jobs",
+            selected.get(key, []),
+            max_non_log_bytes,
+            trace_sync_limit,
+            fleet_available,
+            fleet_selected,
+            progress,
+        )
+    return statuses
+
+
+def write_job_manifest(
+    job: RlJob,
+    bundle_root: Path,
+    directory: Path,
+    artifacts: ArtifactResult,
+    max_non_log_bytes: int,
+    trace_sync_limit: int,
+) -> None:
+    bundle = job_bundle(bundle_root, job.cluster.name, job.job_id)
+    write_bundle_manifest(
+        bundle,
+        {
+            "kind": "rl",
+            "job": asdict(job),
+            "job_directory": str(directory),
+            "trials_uri": trials_uri(job),
+            "synced_at": datetime.now(UTC).isoformat(),
+            "max_non_log_bytes": max_non_log_bytes,
+            "trace_sync_limit": trace_sync_limit,
+            "artifacts": asdict(artifacts),
+        },
+    )
 
 
 def main() -> int:
@@ -633,41 +869,100 @@ def main() -> int:
         raise ValueError("--max-non-log-bytes must be non-negative")
     if args.trace_sync_limit < 0:
         raise ValueError("--trace-sync-limit must be non-negative")
+    if args.terminal_hours <= 0:
+        raise ValueError("--terminal-hours must be positive")
     if not args.all_users and not re.fullmatch(r"[A-Za-z0-9_-]+", args.user):
         raise ValueError("--user may contain only letters, numbers, _ and -")
     args.bundle_root.mkdir(parents=True, exist_ok=True)
     report_directory = args.bundle_root / "reports" / "rl"
     report_directory.mkdir(parents=True, exist_ok=True)
+    progress = ProgressReporter(enabled=not args.quiet_progress)
 
     jobs: list[RlJob] = []
     errors: list[str] = []
     scope_user = None if args.all_users else args.user
+    terminal_since_ms = int(datetime.now(UTC).timestamp() * 1000 - args.terminal_hours * 3_600_000)
     for cluster in CLUSTERS:
-        found, discovery_errors = discover_rl_jobs(cluster, scope_user)
+        progress.phase(f"discovering active and recent terminal RL jobs on {cluster.name}")
+        found, discovery_errors = discover_rl_jobs(
+            cluster,
+            scope_user,
+            terminal_since_ms=terminal_since_ms,
+        )
+        active_count = sum(not job.is_terminal for job in found)
+        terminal_count = len(found) - active_count
+        progress.phase(
+            f"discovery {cluster.name}: {active_count:,} active, {terminal_count:,} "
+            f"succeeded/failed in last {args.terminal_hours:g}h"
+        )
         jobs.extend(found)
         errors.extend(discovery_errors)
 
-    rows: list[list[str]] = []
-    job_report: dict[str, Any] = {}
-    for job in sorted(jobs, key=lambda item: (item.cluster.name, item.submitted_at_ms, item.job_id)):
+    synced_jobs: list[tuple[RlJob, ArtifactResult, Path]] = []
+    ordered_jobs = sorted(jobs, key=lambda item: (item.cluster.name, item.submitted_at_ms, item.job_id))
+    for index, job in enumerate(ordered_jobs, start=1):
         try:
+            progress.phase(f"job evidence {index}/{len(ordered_jobs)} {job.cluster.name}/{job.short_name}")
             artifacts, directory = sync_job(
                 job,
                 args.bundle_root,
-                args.max_non_log_bytes,
-                args.trace_sync_limit,
                 no_sync=args.no_sync,
+                terminal_only=job.is_terminal,
+                progress=progress,
             )
         except (OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as error:
             directory = job_directory(args.bundle_root, job)
             artifacts = ArtifactResult("unavailable", "unavailable", "unavailable", "unavailable", None, None, (str(error),))
+        synced_jobs.append((job, artifacts, directory))
+
+    active_job_directories = [
+        (job, directory) for job, _, directory in synced_jobs if not job.is_terminal
+    ]
+    if not args.no_sync and active_job_directories:
+        progress.phase("starting fleet-wide trace inventory and transfer")
+        trace_statuses = sync_fleet_trace_jobs(
+            active_job_directories,
+            args.max_non_log_bytes,
+            args.trace_sync_limit,
+            progress,
+        )
+        synchronized: list[tuple[RlJob, ArtifactResult, Path]] = []
+        for job, artifacts, directory in synced_jobs:
+            if job.is_terminal:
+                synchronized.append((job, artifacts, directory))
+                continue
+            traces, started, completed, trace_error = trace_statuses[(job.cluster.name, job.job_id)]
+            errors_for_job = artifacts.errors + ((f"trace sync: {trace_error}",) if trace_error else ())
+            synchronized.append(
+                (
+                    job,
+                    replace(
+                        artifacts,
+                        traces=traces,
+                        trace_started=started,
+                        trace_completed=completed,
+                        errors=errors_for_job,
+                    ),
+                    directory,
+                )
+            )
+        synced_jobs = synchronized
+    elif not args.no_sync:
+        progress.phase("no active RL jobs; trace inventory and transfer skipped")
+
+    rows: list[list[str]] = []
+    job_report: dict[str, Any] = {}
+    for job, artifacts, directory in synced_jobs:
+        write_job_manifest(
+            job, args.bundle_root, directory, artifacts, args.max_non_log_bytes, args.trace_sync_limit
+        )
         rows.append(report_row(job, artifacts, directory))
         job_report[job.job_id] = {"cluster": job.cluster.name, "directory": str(directory), "artifacts": asdict(artifacts)}
 
     table = (
         box_table(["Job", "Dataset", "Step", "Reward", "Policy Loss", "Grad Norm", "Traces", "Trend"], rows)
         if rows
-        else "No active CoreWeave Iris RL jobs discovered."
+        else f"No active or succeeded/failed CoreWeave Iris RL jobs in the last {args.terminal_hours:g} hours."
     )
     checked_at = datetime.now(UTC)
     report = f"# Iris CoreWeave RL status — {checked_at.isoformat()}\n\n{table}\n"
@@ -678,6 +973,7 @@ def main() -> int:
     report_path.write_text(report)
     (report_directory / "latest.md").write_text(report)
     write_json(report_directory / "latest.json", {"checked_at": checked_at.isoformat(), "jobs": job_report, "report": str(report_path)})
+    progress.phase("report written; printing status table")
     print(report, end="")
     return 0
 

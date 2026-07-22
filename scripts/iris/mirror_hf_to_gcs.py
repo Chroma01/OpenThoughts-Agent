@@ -247,7 +247,7 @@ def _legacy_main() -> int:
                    help="GCS prefix; each repo lands under <prefix>/<repo>/. "
                         "Repeatable — every prefix gets a full mirror, so a "
                         "single HF download fans out to every region. Default "
-                        "callsite (launch_hf_mirror.py) passes both "
+                        "callsite (launch_mirror.py hf-to-gcs) passes both "
                         "gs://marin-models-us/ot-agent/models and "
                         "gs://marin-models-eu/ot-agent/models so iris workers "
                         "in any region read locally.")

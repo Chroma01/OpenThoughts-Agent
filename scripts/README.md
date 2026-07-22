@@ -45,8 +45,10 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
 
 - `iris/iris_ops.py` – shared Iris lifecycle polling, stable job identity, and canonical local-bundle helpers.
 - `iris/coreweave_ops.py` – shared CoreWeave pod, Ray/vLLM, and object-store collection operations.
-- `iris/analyze_coreweave_rl_job.py` and `iris/analyze_iris_harbor_job.py` – completed-job analyzers that refresh or read the same local evidence bundles.
-- `iris/analyze_coreweave_rl_job_live.sh` and `iris/analyze_iris_harbor_job_live.sh` – focused live-job entry points.
+- `iris/watch_coreweave_rl.py` – RL-only watcher for active CoreWeave RL jobs.
+- `iris/watch_iris_harbor.py` – Harbor-only watcher for active Iris datagen and eval jobs.
+- `iris/analyze_coreweave_rl_job.py` / `iris/analyze_coreweave_rl_job_live.sh` – completed / live CoreWeave RL analysis.
+- `iris/analyze_iris_harbor_job.py` / `iris/analyze_iris_harbor_job_live.sh` – completed / live Iris Harbor datagen and eval analysis.
 
 ### Data generation helpers
 - `datagen/gsm8k_terminal_bench_traces.py` – BaseDataGenerator entrypoint for GSM8K Terminal Bench traces; reruns the standard datagen CLI with dataset-specific flags.  
@@ -67,11 +69,11 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
   ```
 
 ### Harbor dataset uploaders
-- `harbor/make_and_upload_task_dataset.py` – convert a directory of Harbor tasks into a Parquet snapshot and push it to Hugging Face.  
+- `harbor/tasks_parquet_converter.py` – convert a directory of Harbor tasks into a Parquet snapshot and push it to Hugging Face.
   ```bash
-  python scripts/harbor/make_and_upload_task_dataset.py \
-    --repo_id my-org/my-tasks \
-    --tasks_dir data/tasks_to_upload \
+  python -m scripts.harbor.tasks_parquet_converter upload-hf \
+    --repo-id my-org/my-tasks \
+    --tasks-dir data/tasks_to_upload \
     --private
   ```
 - `harbor/make_and_upload_trace_dataset.py` – take a completed Harbor job directory, export traces, and upload them as a dataset repo.  
@@ -89,7 +91,7 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
     --target_repo my-org/<task>-opencode-sft
   # dry-run: python -m scripts.harbor.literal_traces_to_sft --source_repo <repo> --validate 3
   ```
-- `data/opencode_literals_to_sft/` – the **TRAIN==SERVE** opencode variant of the above (re-homed from `scripts/harbor/literal_traces_to_opencode_sft.py`, which remains as a re-export shim). Recovers the `system` + `<tools>` + task prompt and emits structured assistant `tool_calls` + `role: tool` results (the serve shape), not lossy inline text. See `data/opencode_literals_to_sft/README.md`.
+- `data/opencode_literals_to_sft/` – the **TRAIN==SERVE** opencode variant of the above. Recovers the `system` + `<tools>` + task prompt and emits structured assistant `tool_calls` + `role: tool` results (the serve shape), not lossy inline text. See `data/opencode_literals_to_sft/README.md`.
   ```bash
   python -m data.opencode_literals_to_sft \
     --source_repo my-org/<task>-qwen3.5-122b-131k-opencode-traces \

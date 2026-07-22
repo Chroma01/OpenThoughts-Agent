@@ -30,10 +30,11 @@ Shared env/setup every iris operation needs.
   (TPU/`marin`/other); without the export, `kubectl` inspects the wrong cluster and `iris` cw
   commands fail with misleading "0 pods / not found" / auth errors. Re-export in any fresh shell
   or background call. (rno2a uses `~/.kube/coreweave-iris` — see §2.)
-  - **⚠ Order matters: `source $DC_AGENT_SECRET_ENV` (secrets.env) EXPORTS `KUBECONFIG=~/.kube/lambdaconfig`**
-    (Beta/k3d/EmpireAI context), which LACKS `marin-gpu_US-EAST-02A` → any CoreWeave poll after
-    sourcing secrets fails. **`source secrets.env` FIRST, then `export KUBECONFIG=~/.kube/coreweave-iris-gpu`**
-    (both `coreweave-iris` and `coreweave-iris-gpu` carry the East context; either works).
+  `scripts/iris/list_iris_jobs.py` is the exception: it selects the canonical kubeconfig for
+  `cw-us-east-02a` or `cw-rno2a` itself, so its no-argument local invocation is safe even when
+  an inherited `KUBECONFIG` points elsewhere.
+  - The stale Beta/k3d `KUBECONFIG` export is disabled in `~/.zshrc`. CoreWeave commands still
+    need the region-specific kubeconfig above when they do not select one explicitly.
 - **All `iris`/`kubectl` calls SYNCHRONOUS — never background them.**
 - **`--cluster=cw-us-east-02a` is a TOP-LEVEL flag** (BEFORE the subcommand:
   `iris --cluster=cw-us-east-02a job logs …`), not a per-subcommand option. Bare

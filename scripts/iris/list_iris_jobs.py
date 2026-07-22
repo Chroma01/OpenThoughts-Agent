@@ -7,15 +7,31 @@ import argparse
 import csv
 import getpass
 import io
+import os
 import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Sequence
 
 from scripts.iris.iris_ops import DEFAULT_CLUSTER, STATE_NAMES, run_iris_command
 
 USER_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 STATE_LABELS = {"killed": "terminated", "worker_failed": "worker failed"}
+COREWEAVE_KUBECONFIGS = {
+    "cw-rno2a": Path("/Users/benjaminfeuer/.kube/coreweave-iris"),
+    "cw-us-east-02a": Path("/Users/benjaminfeuer/.kube/coreweave-iris-gpu"),
+}
+
+
+def command_environment(cluster: str) -> dict[str, str] | None:
+    """Return the local kubeconfig override required for a CoreWeave cluster."""
+    kubeconfig = COREWEAVE_KUBECONFIGS.get(cluster)
+    if kubeconfig is None:
+        return None
+    environment = os.environ.copy()
+    environment["KUBECONFIG"] = str(kubeconfig)
+    return environment
 
 
 def classify_job_type(job_id: str) -> str:
@@ -67,7 +83,11 @@ def query_jobs(*, user: str, hours: float, cluster: str, now_ms: int | None = No
         f"WHERE job_id LIKE '/{user}/%' AND submitted_at_ms >= {cutoff_ms} "
         "ORDER BY submitted_at_ms ASC"
     )
-    result = run_iris_command(["query", sql, "-f", "csv"], cluster=cluster)
+    result = run_iris_command(
+        ["query", sql, "-f", "csv"],
+        cluster=cluster,
+        environment=command_environment(cluster),
+    )
     if result.returncode:
         detail = (result.stderr or result.stdout).strip()
         raise RuntimeError(f"Iris jobs query failed: {detail[-600:]}")

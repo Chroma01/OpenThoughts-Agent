@@ -87,3 +87,60 @@ def test_dataset_from_command_reads_tasks_input_path():
     command = "python run_tracegen.py --tasks_input_path DCAgent/code-contests-noblock --job_name pilot"
 
     assert monitor.dataset_from_command(command) == "DCAgent/code-contests-noblock"
+
+
+def test_harbor_job_from_row_classifies_datagen_and_keeps_durable_identity():
+    cluster = monitor.Cluster("test", monitor.Path("/fake/iris"), {})
+    row = {
+        "job_id": "/benjaminfeuer/tracegen-test",
+        "state": "3",
+        "submitted_at_ms": "1",
+        "entrypoint_json": (
+            'python run_tracegen.py --tasks_input_path DCAgent/tasks --job_name tracegen-test '
+            '--harbor_extra_arg=--jobs-dir=s3://bucket/runs'
+        ),
+    }
+
+    job = monitor.harbor_job_from_row(cluster, row)
+
+    assert job is not None
+    assert (job.kind, job.dataset, job.jobs_dir, job.harbor_job_name) == (
+        "datagen",
+        "DCAgent/tasks",
+        "s3://bucket/runs",
+        "tracegen-test",
+    )
+
+
+def test_harbor_job_from_row_classifies_eval_without_hiding_legacy_log_only_job():
+    cluster = monitor.Cluster("test", monitor.Path("/fake/iris"), {})
+    row = {
+        "job_id": "/benjaminfeuer/eval-test",
+        "state": "3",
+        "submitted_at_ms": "1",
+        "entrypoint_json": (
+            'exec python -m eval.local.run_eval --dataset_path DCAgent/dev_set '
+            '--harbor_config hpc/harbor_yaml/eval.yaml'
+        ),
+    }
+
+    job = monitor.harbor_job_from_row(cluster, row)
+
+    assert job is not None
+    assert (job.kind, job.dataset, job.jobs_dir, job.harbor_job_name) == (
+        "eval",
+        "DCAgent/dev_set",
+        None,
+        None,
+    )
+
+
+def test_finelog_activity_reports_visible_eval_trials(tmp_path):
+    log_path = tmp_path / "finelog.log"
+    log_path.write_text(
+        "alpha__Ab12: starting environment...\n"
+        "beta__Cd34: running agent\n"
+        "alpha__Ab12: starting environment...\n"
+    )
+
+    assert monitor.finelog_activity(log_path) == "finelog (2 recent trial IDs)"

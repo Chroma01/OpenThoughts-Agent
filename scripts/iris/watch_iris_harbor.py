@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Sweep every active Iris Harbor datagen or eval job across CoreWeave and TPU clusters.
+"""Sweep every active Iris Harbor datagen *and eval* job across Iris clusters.
 
-With no arguments this discovers all of the current user's ``run_tracegen.py``
-jobs from their baked Iris commands.  It reads each job's actual Harbor output
-location, counts direct trial ``result.json`` objects, and writes a durable
-box-table report.  The monitor is read-only: it never stops or relaunches a
-job.
+With no arguments this discovers the current user's Harbor launch commands:
+``run_tracegen.py`` for datagen and ``eval.local.run_eval`` for evals.  It reads
+each job's recorded Harbor output location when available, counts direct trial
+``result.json`` objects, and writes a durable box-table report.  Older eval
+launches that only used pod-local ``trace_jobs`` remain visible as ``log-only``
+rows instead of being silently omitted.  The monitor is read-only: it never
+stops or relaunches a job.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.iris.coreweave_ops import (  # noqa: E402
     CLUSTERS as COREWEAVE_CLUSTERS,
     DEFAULT_MAX_VLLM_LOG_BYTES,
+    command as run_kubectl_command,
     find_pod,
     iter_objects,
     kubectl_base,
@@ -66,7 +69,13 @@ JOBS_DIR_PATTERN = re.compile(
 )
 JOB_NAME_PATTERN = re.compile(r"--job_name(?:=|\s+)([A-Za-z0-9._-]+)")
 TASKS_INPUT_PATTERN = re.compile(r"--tasks_input_path(?:=|\s+)([^\s'\"\\]+)")
+DATASET_PATH_PATTERN = re.compile(r"--dataset_path(?:=|\s+)([^\s'\"\\]+)")
+DATASET_PATTERN = re.compile(r"--dataset(?:=|\s+)([^\s'\"\\]+)")
 MEAN_PATTERN = re.compile(r"\d+/\d+ Mean: ([-0-9.]+)")
+EVAL_LIVE_TRIAL_PATTERN = re.compile(
+    r"\b(?P<trial>[A-Za-z0-9][A-Za-z0-9._-]*__[A-Za-z0-9]+): "
+    r"(?:starting environment|running agent|running verifier)"
+)
 
 
 @dataclass(frozen=True)
@@ -77,13 +86,14 @@ class Cluster:
 
 
 @dataclass(frozen=True)
-class DatagenJob:
+class HarborJob:
     cluster: Cluster
     job_id: str
     state: str
     submitted_at_ms: int
-    jobs_dir: str
-    harbor_job_name: str
+    kind: str
+    jobs_dir: str | None
+    harbor_job_name: str | None
     dataset: str
 
 
@@ -160,12 +170,49 @@ def entrypoint_text(raw: str) -> str:
 
 
 def dataset_from_command(command: str) -> str:
-    """Return the launcher's task-dataset identity, or a visible unknown marker."""
-    match = TASKS_INPUT_PATTERN.search(command)
-    return match.group(1) if match else "?"
+    """Return a visible dataset identity for either Harbor job kind."""
+    for pattern in (TASKS_INPUT_PATTERN, DATASET_PATH_PATTERN, DATASET_PATTERN):
+        match = pattern.search(command)
+        if match:
+            return match.group(1)
+    return "?"
 
 
-def discover_datagen_jobs(cluster: Cluster) -> tuple[list[DatagenJob], list[str]]:
+def harbor_job_kind(command: str) -> str | None:
+    """Classify a baked command without guessing from its Iris job name."""
+    if "run_tracegen.py" in command:
+        return "datagen"
+    if "eval.local.run_eval" in command or "eval/local/run_eval.py" in command:
+        return "eval"
+    return None
+
+
+def harbor_job_from_row(cluster: Cluster, row: dict[str, str]) -> HarborJob | None:
+    """Parse one controller row into a supported Harbor job, if applicable.
+
+    The identity fields are deliberately optional: pre-launcher evals used the
+    Harbor YAML default ``trace_jobs`` directory and have no controller-visible
+    durable path.  They still need a lifecycle/finelog row in the watcher.
+    """
+    command = entrypoint_text(row.get("entrypoint_json", ""))
+    kind = harbor_job_kind(command)
+    if kind is None:
+        return None
+    jobs_dir_match = JOBS_DIR_PATTERN.search(command)
+    job_name_matches = JOB_NAME_PATTERN.findall(command)
+    return HarborJob(
+        cluster=cluster,
+        job_id=row["job_id"],
+        state=STATE_NAMES.get(int(row["state"]), f"state-{row['state']}"),
+        submitted_at_ms=int(row["submitted_at_ms"]),
+        kind=kind,
+        jobs_dir=jobs_dir_match.group(1).rstrip("/") if jobs_dir_match else None,
+        harbor_job_name=job_name_matches[-1] if job_name_matches else None,
+        dataset=dataset_from_command(command),
+    )
+
+
+def discover_harbor_jobs(cluster: Cluster) -> tuple[list[HarborJob], list[str]]:
     sql = (
         "SELECT j.job_id, j.state, j.submitted_at_ms, jc.entrypoint_json "
         "FROM jobs j JOIN job_config jc ON j.job_id=jc.job_id "
@@ -177,37 +224,21 @@ def discover_datagen_jobs(cluster: Cluster) -> tuple[list[DatagenJob], list[str]
         message = (result.stderr or result.stdout).strip().replace("\n", " ")
         return [], [f"{cluster.name}: controller query failed: {message[-240:]}"]
 
-    jobs: list[DatagenJob] = []
+    jobs: list[HarborJob] = []
     errors: list[str] = []
     for row in csv.DictReader(result.stdout.splitlines()):
-        command = entrypoint_text(row.get("entrypoint_json", ""))
-        if "run_tracegen.py" not in command:
-            continue
-        jobs_dir_match = JOBS_DIR_PATTERN.search(command)
-        job_name_matches = JOB_NAME_PATTERN.findall(command)
-        if jobs_dir_match is None or not job_name_matches:
-            errors.append(f"{cluster.name}:{row['job_id']}: could not extract Harbor output identity")
-            continue
-        jobs.append(
-            DatagenJob(
-                cluster=cluster,
-                job_id=row["job_id"],
-                state=STATE_NAMES.get(int(row["state"]), f"state-{row['state']}"),
-                submitted_at_ms=int(row["submitted_at_ms"]),
-                jobs_dir=jobs_dir_match.group(1).rstrip("/"),
-                harbor_job_name=job_name_matches[-1],
-                dataset=dataset_from_command(command),
-            )
-        )
+        job = harbor_job_from_row(cluster, row)
+        if job is not None:
+            jobs.append(job)
     return jobs, errors
 
 
-def finelog_path(job: DatagenJob, bundle_root: Path) -> Path:
+def finelog_path(job: HarborJob, bundle_root: Path) -> Path:
     return job_bundle(bundle_root, job.cluster.name, job.job_id).directory / "finelog.log"
 
 
 def fetch_finelog(
-    job: DatagenJob,
+    job: HarborJob,
     bundle_root: Path,
     since_ms: int,
 ) -> tuple[Path | None, str | None, int | None]:
@@ -237,8 +268,13 @@ def fetch_finelog(
     return destination, None, int(datetime.now(UTC).timestamp() * 1000)
 
 
-def fetch_ray_vllm_logs(job: DatagenJob, bundle_root: Path) -> tuple[str, str | None]:
-    """Collect bounded live Ray worker and vLLM logs for a CoreWeave datagen pod."""
+def fetch_ray_vllm_logs(job: HarborJob, bundle_root: Path) -> tuple[str, str | None]:
+    """Collect bounded live Ray worker and vLLM logs for a CoreWeave Harbor pod."""
+    # An eval may use an external endpoint and has no local Ray/vLLM workload to
+    # inspect. Its Finelog is still collected above; avoid treating an absent
+    # worker pod as an error signal.
+    if job.kind == "eval":
+        return "not applicable (eval)", None
     if job.cluster.name not in COREWEAVE_CLUSTERS:
         return "not applicable", None
     cluster_config = COREWEAVE_CLUSTERS[job.cluster.name]
@@ -248,15 +284,11 @@ def fetch_ray_vllm_logs(job: DatagenJob, bundle_root: Path) -> tuple[str, str | 
     (destination / "logs").mkdir(exist_ok=True)
     try:
         pod = find_pod(base, SimpleNamespace(job=job.job_id, pod=None))
-        task_log = subprocess.run(
+        task_log = run_kubectl_command(
             [*base, "-n", "iris", "logs", pod, "-c", "task", "--tail", "5000"],
-            capture_output=True,
-            text=True,
             timeout=120,
         )
-        (destination / "pod-task-tail.log").write_text(task_log.stdout)
-        if task_log.returncode:
-            raise RuntimeError(task_log.stderr.strip() or "kubectl task-log fetch failed")
+        (destination / "pod-task-tail.log").write_text(task_log)
         inventory = ray_log_inventory(base, pod, "task")
         saved, skipped = save_ray_logs(
             base,
@@ -279,7 +311,8 @@ def fetch_ray_vllm_logs(job: DatagenJob, bundle_root: Path) -> tuple[str, str | 
     return f"{len(saved)} saved, {len(skipped)} skipped", None
 
 
-def read_gcs_progress(job: DatagenJob, artifact_dir: Path) -> Progress:
+def read_gcs_progress(job: HarborJob, artifact_dir: Path) -> Progress:
+    assert job.jobs_dir is not None and job.harbor_job_name is not None
     root = f"{job.jobs_dir}/{job.harbor_job_name}"
     artifact_dir.mkdir(parents=True, exist_ok=True)
     aggregate = subprocess.run(
@@ -366,7 +399,8 @@ def progress_from_harbor_aggregate(aggregate: dict[str, Any], source: str) -> Pr
     )
 
 
-def read_s3_progress(job: DatagenJob, client: Any, artifact_dir: Path) -> Progress:
+def read_s3_progress(job: HarborJob, client: Any, artifact_dir: Path) -> Progress:
+    assert job.jobs_dir is not None and job.harbor_job_name is not None
     bucket, prefix = split_s3_uri(f"{job.jobs_dir}/{job.harbor_job_name}")
     artifact_dir.mkdir(parents=True, exist_ok=True)
     completed_trial_names, exception_file_count = s3_trial_artifacts(client, bucket, prefix)
@@ -400,6 +434,47 @@ def read_s3_progress(job: DatagenJob, client: Any, artifact_dir: Path) -> Progre
     )
 
 
+def read_pod_local_eval_progress(job: HarborJob, bundle_root: Path) -> Progress:
+    """Read the current Harbor aggregate from a legacy eval's live worker pod.
+
+    Older Iris eval launches left ``trace_jobs`` under ``/app`` rather than a
+    durable ``--jobs-dir``.  The running pod is still authoritative while the
+    job is live, so use its newest Harbor run directory and preserve the exact
+    aggregate in the shared evidence bundle.  This is intentionally eval-only:
+    datagen must have a durable output identity.
+    """
+    if job.kind != "eval" or job.cluster.name not in COREWEAVE_CLUSTERS:
+        raise LookupError("pod-local Harbor aggregates are only available for CoreWeave evals")
+    cluster_config = COREWEAVE_CLUSTERS[job.cluster.name]
+    base = kubectl_base(cluster_config, SimpleNamespace(kubeconfig=None, kube_context=None))
+    pod = find_pod(base, SimpleNamespace(job=job.job_id, pod=None))
+    result_text = run_kubectl_command(
+        [
+            *base,
+            "-n",
+            "iris",
+            "exec",
+            pod,
+            "-c",
+            "task",
+            "--",
+            "sh",
+            "-lc",
+            "latest=$(ls -dt /app/trace_jobs/*/ 2>/dev/null | head -n 1); "
+            "test -n \"$latest\"; cat \"${latest}result.json\"",
+        ],
+        timeout=120,
+    )
+    aggregate = json.loads(result_text)
+    artifact_dir = job_bundle(bundle_root, job.cluster.name, job.job_id).directory / "harbor"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "result.json").write_text(json.dumps(aggregate, indent=2) + "\n")
+    (artifact_dir / "completion-source.txt").write_text(
+        f"pod-local Harbor aggregate from {pod} at {datetime.now(UTC).isoformat()}\n"
+    )
+    return progress_from_harbor_aggregate(aggregate, "pod-local Harbor aggregate")
+
+
 def mean_reward(local_log: Path | None) -> str:
     if local_log is None:
         return "—"
@@ -408,6 +483,19 @@ def mean_reward(local_log: Path | None) -> str:
         recent_log = log_file.read().decode(errors="replace")
     matches = MEAN_PATTERN.findall(recent_log)
     return matches[-1] if matches else "—"
+
+
+def finelog_activity(local_log: Path | None) -> str:
+    """Describe live eval work when an older launch has only pod-local traces."""
+    if local_log is None:
+        return "finelog unavailable"
+    with local_log.open("rb") as log_file:
+        log_file.seek(max(0, local_log.stat().st_size - MEAN_PARSE_TAIL_BYTES))
+        recent_log = log_file.read().decode(errors="replace")
+    active_trials = {match.group("trial") for match in EVAL_LIVE_TRIAL_PATTERN.finditer(recent_log)}
+    if active_trials:
+        return f"finelog ({len(active_trials)} recent trial ID{'s' if len(active_trials) != 1 else ''})"
+    return "finelog (no current trial line)"
 
 
 def format_error_counts(progress: Progress) -> str:
@@ -432,7 +520,7 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def health_label(
-    job: DatagenJob,
+    job: HarborJob,
     progress: Progress,
     previous: dict[str, Any],
     checked_at: datetime,
@@ -479,7 +567,7 @@ def box_table(headers: list[str], rows: list[list[str]]) -> str:
 
 def notify(message: str) -> None:
     subprocess.run(
-        ["osascript", "-e", f'display notification "{message.replace(chr(34), chr(92) + chr(34))}" with title "Iris datagen monitor"'],
+        ["osascript", "-e", f'display notification "{message.replace(chr(34), chr(92) + chr(34))}" with title "Iris Harbor monitor"'],
         check=False,
         capture_output=True,
         text=True,
@@ -497,10 +585,10 @@ def main() -> int:
     previous = load_json(latest_path)
     checked_at = datetime.now(UTC)
 
-    jobs: list[DatagenJob] = []
+    jobs: list[HarborJob] = []
     errors: list[str] = []
     for cluster in CLUSTERS:
-        found, cluster_errors = discover_datagen_jobs(cluster)
+        found, cluster_errors = discover_harbor_jobs(cluster)
         jobs.extend(found)
         errors.extend(cluster_errors)
     if args.job:
@@ -527,7 +615,13 @@ def main() -> int:
     for job in sorted(jobs, key=lambda item: (item.cluster.name, item.job_id)):
         try:
             artifact_dir = job_bundle(args.bundle_root, job.cluster.name, job.job_id).directory / "harbor"
-            if job.jobs_dir.startswith("s3://"):
+            if job.jobs_dir is None or job.harbor_job_name is None:
+                if job.kind == "eval":
+                    progress = read_pod_local_eval_progress(job, args.bundle_root)
+                else:
+                    local_log, _log_error, _synced_at = local_logs[job.job_id]
+                    progress = Progress(None, None, finelog_activity(local_log))
+            elif job.jobs_dir.startswith("s3://"):
                 client = s3_clients.setdefault(job.cluster.name, coreweave_client(job.cluster))
                 progress = read_s3_progress(job, client, artifact_dir)
             else:
@@ -547,9 +641,10 @@ def main() -> int:
         trend = health if progress.error is None else f"{health}: {progress.error[-100:]}"
         log_status = "synced" if local_log is not None else f"error: {log_error[-70:] if log_error else 'unknown'}"
         ray_vllm_status = ray_vllm_status if ray_vllm_error is None else f"error: {ray_vllm_error[-70:]}"
-        rows.append([job.cluster.name, job.job_id.rsplit("/", 1)[-1], job.dataset, job.state, f"{completed}/{total}", remaining, progress.completion_source, mean, error_counts, log_status, ray_vllm_status, trend])
+        rows.append([job.cluster.name, job.kind, job.job_id.rsplit("/", 1)[-1], job.dataset, job.state, f"{completed}/{total}", remaining, progress.completion_source, mean, error_counts, log_status, ray_vllm_status, trend])
         current_jobs[job.job_id] = {
             "cluster": job.cluster.name,
+            "job_kind": job.kind,
             "completed": progress.completed,
             "total": progress.total,
             "mean_reward": progress.mean_reward,
@@ -568,6 +663,7 @@ def main() -> int:
             job_bundle(args.bundle_root, job.cluster.name, job.job_id),
             {
                 "kind": "harbor",
+                "job_kind": job.kind,
                 "dataset": job.dataset,
                 "harbor_job_name": job.harbor_job_name,
                 "jobs_dir": job.jobs_dir,
@@ -585,10 +681,10 @@ def main() -> int:
         )
 
     if rows:
-        table = box_table(["Cluster", "Datagen run", "Dataset", "State", "Trials", "Remaining", "Count source", "Mean", "Errors", "Finelog", "Ray/vLLM", "Trend"], rows)
+        table = box_table(["Cluster", "Kind", "Harbor run", "Dataset", "State", "Trials", "Remaining", "Count source", "Mean", "Errors", "Finelog", "Ray/vLLM", "Trend"], rows)
     else:
-        table = "No active run_tracegen.py datagen jobs discovered."
-    report = f"# Iris datagen status — {checked_at.isoformat()}\n\n{table}\n"
+        table = "No active Iris Harbor datagen or eval jobs discovered."
+    report = f"# Iris Harbor datagen / eval status — {checked_at.isoformat()}\n\n{table}\n"
     if errors:
         report += "\n## Monitor errors\n\n" + "\n".join(f"- {error}" for error in errors) + "\n"
     timestamp = checked_at.strftime("%Y%m%dT%H%M%SZ")
@@ -601,7 +697,7 @@ def main() -> int:
     if args.notify:
         changed = [job_id for job_id, data in current_jobs.items() if previous.get("jobs", {}).get(job_id, {}).get("health") != data["health"]]
         if changed:
-            notify(f"{len(changed)} datagen health change(s); report saved to {report_directory / 'latest.md'}")
+            notify(f"{len(changed)} Harbor health change(s); report saved to {report_directory / 'latest.md'}")
     print(report, end="")
     return 0
 

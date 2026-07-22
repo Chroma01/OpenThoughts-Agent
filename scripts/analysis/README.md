@@ -81,7 +81,7 @@ Add `--annotate-failure-modes` to run `update_hf_failure_modes` on both eval rep
 
 | Script | Scope | Usage |
 |---|---|---|
-| `../iris/watch_iris_harbor.py` | Canonical read-only sweep of active CoreWeave and TPU Harbor datagen/eval jobs; syncs to the shared Iris evidence-bundle root | `python scripts/iris/watch_iris_harbor.py` |
+| `../iris/watch_iris_harbor.py` | Canonical read-only sweep of active Iris Harbor datagen and eval jobs; syncs to the shared Iris evidence-bundle root | `python scripts/iris/watch_iris_harbor.py` |
 | `../iris/watch_coreweave_rl.py` | Canonical read-only sweep of active CoreWeave RL jobs; syncs Finelog, pod/Ray logs, and rollout artifacts to that same bundle root | `python scripts/iris/watch_coreweave_rl.py` |
 
 ## Dataset & Context Analysis

@@ -5,8 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.iris import list_iris_jobs, mirror_models
-from scripts.iris.launch_gcs_to_s3 import GcsToS3Launcher
-from scripts.iris.launch_hf_mirror import HfMirrorIrisLauncher
+from scripts.iris.launch_mirror import GcsToS3Launcher, HfMirrorIrisLauncher
 
 
 def test_mirror_router_dispatches_hf_to_gcs_without_changing_route_arguments(monkeypatch):
@@ -30,7 +29,7 @@ def test_mirror_router_rejects_wrong_source_scheme_before_any_transfer(monkeypat
         ])
 
 
-def test_legacy_launchers_now_issue_the_canonical_mirror_command():
+def test_mirror_launchers_issue_the_canonical_mirror_command():
     hf_args = SimpleNamespace(gcs_prefix=["gs://one", "gs://two"], repo=["org/model"])
     gcs_args = SimpleNamespace(gcs_prefix="gs://models", s3_bucket="bucket", s3_prefix="models", s3_endpoint=None, repo=["org/model"])
     assert HfMirrorIrisLauncher(".").build_task_command(hf_args, "unused") == [
@@ -55,6 +54,30 @@ job_id,state,submitted_at_ms,started_at_ms,finished_at_ms,error,exit_code
     table = list_iris_jobs.render_table(rows)
     assert [row["job_id"] for row in rows] == ["/benjaminfeuer/tracegen-a", "/benjaminfeuer/rl-run", "/benjaminfeuer/eval-b"]
     assert "datagen" in table and "RL" in table and "eval" in table and "terminated" in table
+
+
+def test_job_inventory_overrides_an_inherited_non_coreweave_kubeconfig(monkeypatch):
+    captured = {}
+    monkeypatch.setenv("KUBECONFIG", "/Users/benjaminfeuer/.kube/lambdaconfig")
+    monkeypatch.setattr(
+        list_iris_jobs,
+        "run_iris_command",
+        lambda *_args, **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                returncode=0,
+                stdout="job_id,state,submitted_at_ms,started_at_ms,finished_at_ms,error,exit_code\n",
+                stderr="",
+            )
+        ),
+    )
+
+    list_iris_jobs.query_jobs(user="benjaminfeuer", hours=24, cluster="cw-us-east-02a")
+
+    assert (
+        captured["environment"]["KUBECONFIG"]
+        == "/Users/benjaminfeuer/.kube/coreweave-iris-gpu"
+    )
 
 
 def test_job_inventory_rejects_an_invalid_user_before_query():

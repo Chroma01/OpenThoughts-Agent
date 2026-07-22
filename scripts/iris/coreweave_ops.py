@@ -54,6 +54,7 @@ DEFAULT_MAX_VLLM_LOG_BYTES = 100 * 1024 * 1024
 TRANSIENT_KUBECTL_EXEC_MARKERS = (
     "<!doctype html",
     "<html",
+    "command terminated with exit code 1",
     "connection reset",
     "error dialing backend",
     "stream error",
@@ -121,9 +122,17 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def command(args: list[str], *, input_text: str | None = None) -> str:
+def command(
+    args: list[str], *, input_text: str | None = None, timeout: int | None = None
+) -> str:
     for attempt in range(DNS_ATTEMPTS):
-        result = subprocess.run(args, input=input_text, text=True, capture_output=True)
+        result = subprocess.run(
+            args,
+            input=input_text,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+        )
         if result.returncode == 0:
             return result.stdout
         stderr = result.stderr.strip()
@@ -151,11 +160,18 @@ def find_pod(base: list[str], args: argparse.Namespace) -> str:
         return args.pod
     pods = json.loads(command([*base, "-n", NAMESPACE, "get", "pods", "-o", "json"]))["items"]
     needle = task_short_name(args.job).lower()
+    # Kubernetes truncates long Iris job names in pod names. The controller's
+    # canonical identity survives in this label, with the leading slash changed
+    # to nothing and path separators changed to dots.
+    labeled_job_id = args.job.lstrip("/").replace("/", ".")
     candidates = sorted(
         pod["metadata"]["name"]
         for pod in pods
         if pod.get("status", {}).get("phase") == "Running"
-        and needle in pod["metadata"]["name"].lower()
+        and (
+            needle in pod["metadata"]["name"].lower()
+            or pod.get("metadata", {}).get("labels", {}).get("iris.job_id") == labeled_job_id
+        )
     )
     if len(candidates) == 1:
         return candidates[0]
@@ -190,7 +206,34 @@ def resolve_runtime_python(base: list[str], pod: str, container: str) -> str:
     Keeping this resolution here makes every CoreWeave reader use the same
     pinned runtime and fail explicitly if an image violates that contract.
     """
-    result = subprocess.run(
+    try:
+        command(
+            [
+                *base,
+                "-n",
+                NAMESPACE,
+                "exec",
+                pod,
+                "-c",
+                container,
+                "--",
+                "sh",
+                "-c",
+                'test -x "$1"',
+                "sh",
+                GPU_RL_PYTHON,
+            ]
+        )
+    except RuntimeError as error:
+        raise RuntimeError(
+            f"Canonical GPU-RL Python {GPU_RL_PYTHON} is unavailable in {pod}: {error}"
+        ) from error
+    return GPU_RL_PYTHON
+
+
+def resolve_container_python(base: list[str], pod: str, container: str) -> str:
+    """Return a Python interpreter available in an arbitrary task container."""
+    path = command(
         [
             *base,
             "-n",
@@ -202,19 +245,12 @@ def resolve_runtime_python(base: list[str], pod: str, container: str) -> str:
             "--",
             "sh",
             "-c",
-            'test -x "$1"',
-            "sh",
-            GPU_RL_PYTHON,
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode:
-        detail = (result.stderr or result.stdout).strip().replace("\n", " ")
-        raise RuntimeError(
-            f"Canonical GPU-RL Python {GPU_RL_PYTHON} is unavailable in {pod}: {detail[-180:]}"
-        )
-    return GPU_RL_PYTHON
+            "command -v python3 || command -v python",
+        ]
+    ).strip()
+    if not path:
+        raise RuntimeError(f"No Python interpreter is available in {pod}/{container}.")
+    return path
 
 
 def option_value(command_line: list[str], option: str) -> str | None:
@@ -308,7 +344,12 @@ def save_task_log(base: list[str], pod: str, container: str, destination: Path) 
 
 
 def ray_log_inventory(
-    base: list[str], pod: str, container: str, *, patterns: tuple[str, ...] | None = RAY_LOG_PATTERNS
+    base: list[str],
+    pod: str,
+    container: str,
+    *,
+    patterns: tuple[str, ...] | None = RAY_LOG_PATTERNS,
+    python_executable: str | None = None,
 ) -> list[dict[str, Any]]:
     """List Ray logs, or every Ray log when ``patterns`` is ``None``."""
     # This value is embedded into a Python ``-c`` program, not JSON.  In
@@ -325,7 +366,7 @@ files = set(root.rglob('*')) if patterns is None else {path for pattern in patte
 files = {path for path in files if path.is_file()}
 print(json.dumps([{'path': str(path.relative_to(root)), 'size': path.stat().st_size} for path in sorted(files)]))
 """.replace("__PATTERNS__", serialized_patterns)
-    runtime_python = resolve_runtime_python(base, pod, container)
+    runtime_python = python_executable or resolve_container_python(base, pod, container)
     raw = command(
         [*base, "-n", NAMESPACE, "exec", pod, "-c", container, "--", runtime_python, "-c", script]
     )

@@ -10,4 +10,5 @@ fi
 JOB_ID="$1"
 shift
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-exec python "$REPO_ROOT/scripts/iris/watch_iris_harbor.py" --job "$JOB_ID" "$@"
+exec /Users/benjaminfeuer/miniconda3/envs/otagent/bin/python \
+  "$REPO_ROOT/scripts/iris/watch_iris_harbor.py" --job "$JOB_ID" "$@"
