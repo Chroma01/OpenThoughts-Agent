@@ -241,12 +241,15 @@ def main() -> int:
     )
     parser.add_argument("--model", required=True)
     parser.add_argument("--dataset-path", required=True)
-    parser.add_argument("--n-concurrent", type=int, default=6)
+    # One coordinator is intentionally task-sharded; Iris GPU eval replicas are
+    # not.  A high Harbor concurrency feeds the separately served DP=8 model
+    # without launching duplicate full-dataset evaluations.
+    parser.add_argument("--n-concurrent", type=int, default=256)
     parser.add_argument("--n-attempts", type=int, default=3)
     parser.add_argument("--upload-hf-repo", required=True)
-    parser.add_argument("--cpu", type=float, default=8)
-    parser.add_argument("--memory", default="64GB")
-    parser.add_argument("--disk", default="64GB")
+    parser.add_argument("--cpu", type=float, default=32)
+    parser.add_argument("--memory", default="128GB")
+    parser.add_argument("--disk", default="128GB")
     parser.add_argument(
         "--priority", choices=["production", "interactive", "batch"], default="batch"
     )

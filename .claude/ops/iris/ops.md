@@ -276,6 +276,9 @@ capacity AND a footgun). Node allocatable ≈ **128 CPU / ~2014 GiB mem / 8 GPU*
   MarinSkyRL fix that landed after the image build can be picked up live via `--skyrl-ref <commit>`;
   only the compiled vLLM fork requires an image rebuild (then **bump the digest**, using the
   immutable `:gpu-rl-<gitsha>` tag's digest).
+- **Iris environment flags use two arguments:** write `-e KEY VALUE` (for example,
+  `-e GITSHA "$GITSHA"`), **not** `-e KEY=VALUE`. The current Iris CLI rejects the latter before
+  submitting a job.
 - **⚠ BUILD THE IMAGE MULTI-LAYER (`SINGLE_SNAPSHOT=0`) — a single >8 GB layer is UN-PULLABLE cold
   over the CoreWeave→ghcr egress.** A kaniko `--single-snapshot` build collapses everything kaniko
   adds into ONE ~16.6 GB layer; the first **fresh** pull of that single-stream layer never

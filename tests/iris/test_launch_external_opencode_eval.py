@@ -56,16 +56,16 @@ def test_submit_uses_env_for_url_and_fails_fast_when_missing():
         iris_bin="iris",
         cluster="cw-us-east-02a",
         task_image="image@sha256:abc",
-        cpu=8,
-        memory="64GB",
-        disk="64GB",
+        cpu=32,
+        memory="128GB",
+        disk="128GB",
         priority="batch",
         job_name="eval-v2",
         harbor_config="config.yaml",
         datagen_config="external.yaml",
         model="vllm/model",
         dataset_path="DCAgent/dev_set_v2",
-        n_concurrent=6,
+        n_concurrent=256,
         n_attempts=3,
         upload_hf_repo="laion/traces",
     )
@@ -83,6 +83,7 @@ def test_submit_uses_env_for_url_and_fails_fast_when_missing():
     assert "${EXTERNAL_AGENT_API_BASE:?missing minted endpoint URL}" in shell
     assert "api_base=${EXTERNAL_AGENT_API_BASE}" in shell
     assert "https://iris.oa.dev" not in shell
+    assert "--n_concurrent 256" in shell
 
 
 def test_parent_mirror_requires_a_peer_row(monkeypatch):
