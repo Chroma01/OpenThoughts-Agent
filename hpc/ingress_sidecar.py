@@ -58,10 +58,14 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-# Only the inference surface is forwardable. `<name>` is a single path segment;
-# everything under `/v1` (models, chat/completions, completions, embeddings, ...)
-# is allowed. Any other path -> 403.
-_ALLOWED_PATH_RE = re.compile(r"^/proxy/[^/]+/v1(/.*)?$")
+# Only the inference surface is forwardable. Two shapes are allowed:
+#   * /proxy/<name>/v1(/...)          — the plain endpoint-proxy path (PRIVATE/in-cluster).
+#   * /proxy/t/<token>/<name>/v1(/...) — the LINK capability path (scoped token in the URL,
+#     the public scheme the native `iris.oa.dev/proxy/t/*` ingress uses). Forwarding it lets
+#     the pinggy sidecar front a LINK endpoint (the #7448 bypass) — the token is endpoint-
+#     scoped, carries no RPC authority, and the sidecar's own bearer still gates entry.
+# `<name>` / `<token>` are single path segments; everything under `/v1` is allowed. Else -> 403.
+_ALLOWED_PATH_RE = re.compile(r"^/proxy/(t/[^/]+/)?[^/]+/v1(/.*)?$")
 
 # Hop-by-hop headers (RFC 7230 §6.1) + Authorization/Cookie, mirroring marin's
 # EndpointProxy._HOP_BY_HOP. Stripped before forwarding upstream so the sandbox

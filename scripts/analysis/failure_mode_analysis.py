@@ -24,6 +24,8 @@ from typing import Iterable, List, Sequence
 from huggingface_hub import snapshot_download
 from openai import OpenAI
 
+from scripts.analysis.failure_mode_judge import batched, request_json_array
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,6 +80,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help="Sampling temperature for the judge model",
+    )
+    parser.add_argument(
+        "--judge-max-attempts",
+        type=int,
+        default=3,
+        help="Maximum attempts for a transient judge request failure (default: 3)",
     )
     parser.add_argument(
         "--openai-api-key",
@@ -174,11 +182,6 @@ def gather_trial_context(trial_dir: Path) -> TrialContext | None:
     )
 
 
-def batched(seq: Sequence[TrialContext], batch_size: int) -> Iterable[Sequence[TrialContext]]:
-    for idx in range(0, len(seq), batch_size):
-        yield seq[idx : idx + batch_size]
-
-
 SYSTEM_PROMPT = (
     "You are an expert judge analyzing LLM agent traces to identify failure modes. "
     "For each trial you receive the task prompt, rough agent behavior, and verifier output. "
@@ -219,46 +222,24 @@ def build_user_prompt(batch: Sequence[TrialContext]) -> str:
     return f"{instructions}\n\n{'\n\n'.join(sections)}"
 
 
-def strip_code_fence(payload: str) -> str:
-    text = payload.strip()
-    if text.startswith("```"):
-        parts = text.split("```", 2)
-        if len(parts) >= 2:
-            # parts[1] may include 'json\n'
-            content = parts[1]
-            if "\n" in content:
-                content = content.split("\n", 1)[1]
-            return content.strip()
-    return text
-
-
 def judge_batch(
-    client: OpenAI, batch: Sequence[TrialContext], model: str, temperature: float
+    client: OpenAI,
+    batch: Sequence[TrialContext],
+    model: str,
+    temperature: float,
+    max_attempts: int = 3,
 ) -> List[dict]:
-    prompt = build_user_prompt(batch)
-    response = client.chat.completions.create(
+    return request_json_array(
+        client,
         model=model,
         temperature=temperature,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
+        system_prompt=SYSTEM_PROMPT,
+        user_prompt=build_user_prompt(batch),
+        max_attempts=max_attempts,
+        on_retry=lambda attempt, exc: logger.warning(
+            "Judge request failed on attempt %d/%d: %s", attempt, max_attempts, exc
+        ),
     )
-    content = response.choices[0].message.content or "[]"
-    content = strip_code_fence(content)
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError as exc:
-        logger.error("Failed to parse judge output as JSON: %s\nPayload: %s", exc, content)
-        raise
-
-    # Ensure mapping back to trial IDs in current batch order.
-    records = []
-    for entry in data:
-        if not isinstance(entry, dict):
-            continue
-        records.append(entry)
-    return records
 
 
 def write_markdown_report(repo_id: str, output_path: Path, analyses: List[dict]) -> None:
@@ -322,7 +303,13 @@ def main() -> None:
 
     for batch in batched(contexts, args.batch_size):
         logger.info("Judging batch of %d trials...", len(batch))
-        batch_results = judge_batch(client, batch, model=args.model, temperature=args.temperature)
+        batch_results = judge_batch(
+            client,
+            batch,
+            model=args.model,
+            temperature=args.temperature,
+            max_attempts=args.judge_max_attempts,
+        )
         if len(batch_results) != len(batch):
             logger.warning(
                 "Judge returned %d entries for a batch of %d trials; check alignment.",

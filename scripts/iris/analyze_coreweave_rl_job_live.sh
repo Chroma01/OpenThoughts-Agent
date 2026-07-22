@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# peek_rl_rollouts.sh — inspect (or fully capture) the Harbor rollout artifacts (trace_jobs) of a
+# analyze_coreweave_rl_job_live.sh — inspect (or fully capture) the Harbor rollout artifacts (trace_jobs) of a
 # running MarinSkyRL agentic-RL job on cw-us-east-02a, by reaching its rank-0 pod.
 #
 # WHY: agentic RL (terminal_bench / Harbor) writes per-trial rollout artifacts (the literal agent
@@ -15,23 +15,23 @@
 # real "how many trials finished" answer (a started trial has config/prompt/debug but no result.json).
 #
 # USAGE:
-#   peek_rl_rollouts.sh <pod-name-substring>                  # SUMMARY: trial dirs started + COMPLETED (result.json) + breakdown
-#   peek_rl_rollouts.sh <substr> ls   [glob]                  # list trial dirs (+ started/completed counts)
-#   peek_rl_rollouts.sh <substr> cat  <trial-dir>             # dump a trial's json artifacts (the literal rollout)
-#   peek_rl_rollouts.sh <substr> grep <pattern>               # list trial json files whose body matches a regex
-#   peek_rl_rollouts.sh <substr> turns                        # per-trial opencode turn/tool counts from opencode.txt:
+#   analyze_coreweave_rl_job_live.sh <pod-name-substring>                  # SUMMARY: trial dirs started + COMPLETED (result.json) + breakdown
+#   analyze_coreweave_rl_job_live.sh <substr> ls   [glob]                  # list trial dirs (+ started/completed counts)
+#   analyze_coreweave_rl_job_live.sh <substr> cat  <trial-dir>             # dump a trial's json artifacts (the literal rollout)
+#   analyze_coreweave_rl_job_live.sh <substr> grep <pattern>               # list trial json files whose body matches a regex
+#   analyze_coreweave_rl_job_live.sh <substr> turns                        # per-trial opencode turn/tool counts from opencode.txt:
 #                                                             #   step_finish = TURNS BANKED, tool_use = tool calls.
 #                                                             #   THE turn-banking discriminator (NOT AgentTimeoutError,
 #                                                             #   which is a benign passthrough). step_finish>0 = the
 #                                                             #   model actually completed turns; all-zero + one "error"
 #                                                             #   = it never banked a turn (see the "not-parsed-on-kill /
 #                                                             #   upload-on-finalize" note below).
-#   peek_rl_rollouts.sh <substr> cp   <trial-dir> [dest]      # pull a single trial dir to the launch host
-#   peek_rl_rollouts.sh <substr> pull [out-base-dir]          # FULL CAPTURE -> date-stamped subdir:
+#   analyze_coreweave_rl_job_live.sh <substr> cp   <trial-dir> [dest]      # pull a single trial dir to the launch host
+#   analyze_coreweave_rl_job_live.sh <substr> pull [out-base-dir]          # FULL CAPTURE -> date-stamped subdir:
 #                                                             #   complete iris finelog + per-rank pod logs
 #                                                             #   + ALL trace_jobs (synced from R2) + MANIFEST.md
 #                                                             #   + any torch NCCL flight-recorder dumps (see frdump)
-#   peek_rl_rollouts.sh <substr> frdump [dest] [fr-base]      # torch NCCL flight-recorder dump ONLY (fast, no
+#   analyze_coreweave_rl_job_live.sh <substr> frdump [dest] [fr-base]      # torch NCCL flight-recorder dump ONLY (fast, no
 #                                                             #   S3/trace_jobs/finelog): kubectl-cp's
 #                                                             #   TORCH_NCCL_DEBUG_INFO_TEMP_FILE-prefixed files off
 #                                                             #   EVERY pod of this job (not just rank-0) into
@@ -51,7 +51,7 @@
 #
 # ENV: PEEK_KUBECONFIG (default ~/.kube/coreweave-iris-gpu), NS (default iris), CONTAINER (default task),
 #      PEEK_CLUSTER (default cw-us-east-02a), IRIS_BIN (default the otagent cw-capable iris),
-#      PEEK_OUT (default ~/Documents/experiments/traces),
+#      PEEK_OUT (default shared Iris evidence-bundle root),
 #      PEEK_TRIALS_S3 (override the remote trials_dir; default s3://marin-us-east-02a/iris/<jobname>/trace_jobs),
 #      PEEK_MAX_OBJECT_BYTES (pull: skip any single object larger than this; default 20MB=20971520,
 #                             set 0 to fetch everything incl. the 100s-of-MB result.json blobs)
@@ -69,10 +69,10 @@ CONTAINER="${CONTAINER:-task}"
 CLUSTER="${PEEK_CLUSTER:-cw-us-east-02a}"
 # Default to the OTAGENT iris (the marin .venv iris has a broken `kubernetes` import → cannot drive cw).
 IRIS_BIN="${IRIS_BIN:-/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris}"
-PEEK_OUT="${PEEK_OUT:-/Users/benjaminfeuer/Documents/experiments/traces}"
+PEEK_OUT="${PEEK_OUT:-/Users/benjaminfeuer/Documents/experiments/active/iris-job-bundles}"
 
 if [ -z "$JOB" ]; then
-  echo "usage: peek_rl_rollouts.sh <pod-name-substring> [ls|cat|grep|cp|pull] [args]" >&2
+  echo "usage: analyze_coreweave_rl_job_live.sh <pod-name-substring> [ls|cat|grep|cp|pull] [args]" >&2
   echo "running rl pods in ns/$NS:" >&2
   kubectl get pods -n "$NS" -o name 2>/dev/null | grep -iE "rl-|cpdcp|resmoke|a3b" | sed 's#^pod/#  #' >&2 || true
   exit 64
@@ -375,26 +375,25 @@ PYEOF
     echo "[peek] copied -> $DEST"
     ;;
   pull)
-    # FULL CAPTURE into a fresh date-stamped subdir: complete iris finelog + per-rank pod logs + ALL
+    # FULL CAPTURE into this job's canonical evidence bundle: complete iris finelog + per-rank pod logs + ALL
     # trace_jobs (synced from R2, or tar'd from a legacy node-local path) + a provenance MANIFEST.
     OUTBASE="${3:-$PEEK_OUT}"
-    STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-    DEST="${OUTBASE}/${JOBNAME}_${STAMP}"
-    mkdir -p "$DEST/logs" "$DEST/trace_jobs"
+    DEST="${OUTBASE}/jobs/${CLUSTER}/${USER_FROM_POD}/${JOBNAME}"
+    mkdir -p "$DEST/pod_logs" "$DEST/trace_jobs"
     echo "[pull] dest=$DEST  jobid=$JOBID  cluster=$CLUSTER"
 
     # 1) Complete iris/finelog job log (full history, no tail).
     echo "[pull] capturing iris finelog ..."
     "$IRIS_BIN" --cluster="$CLUSTER" job logs "$JOBID" --max-lines 10000000 --no-tail \
-      > "$DEST/logs/iris_finelog.log" 2> "$DEST/logs/iris_finelog.stderr" \
-      || echo "[pull] WARN: iris finelog returned nonzero (see logs/iris_finelog.stderr)" >&2
-    echo "[pull]   finelog: $(wc -l < "$DEST/logs/iris_finelog.log" | tr -d ' ') lines"
+      > "$DEST/finelog.log" 2> "$DEST/finelog.refresh.stderr" \
+      || echo "[pull] WARN: iris finelog returned nonzero (see finelog.refresh.stderr)" >&2
+    echo "[pull]   finelog: $(wc -l < "$DEST/finelog.log" | tr -d ' ') lines"
 
     # 2) Per-pod container stdout for every rank of this job (rank-0 = harbor coordinator).
     echo "[pull] capturing per-rank pod logs ..."
     for p in $(kubectl get pods -n "$NS" -o name 2>/dev/null | grep -E "iris-.*${JOB}.*-[0-9]+-[0-9a-f]+-[0-9]+$" | sed 's#pod/##' | sort); do
       rank=$(printf '%s' "$p" | sed -E 's/.*-([0-9]+)-[0-9a-f]+-[0-9]+$/\1/')
-      kubectl logs -n "$NS" "$p" -c "$CONTAINER" --tail=-1 > "$DEST/logs/pod_rank${rank}.log" 2>/dev/null &
+      kubectl logs -n "$NS" "$p" -c "$CONTAINER" --tail=-1 > "$DEST/pod_logs/pod_rank${rank}.log" 2>/dev/null &
     done
     wait
 
@@ -500,7 +499,7 @@ PYEOF
     pull_fr_dumps "$DEST"
 
     # 5) Provenance manifest.
-    cat > "$DEST/MANIFEST.md" <<EOF
+    cat > "$DEST/live-capture.md" <<EOF
 # Capture: ${JOBNAME} (${CLUSTER})
 
 - Captured (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -515,8 +514,8 @@ PYEOF
 - ${N_SKIP} large files (>$(( ${PEEK_MAX_OBJECT_BYTES:-20971520} / 1048576 ))MB) were SKIPPED — listed in .r2_skipped.tsv (path + size).
                  These are mostly the giant result.json (full rollout_details). Re-fetch all with
                  PEEK_MAX_OBJECT_BYTES=0, or a single one with boto3 against its key.
-- logs/iris_finelog.log   : complete iris/finelog job log (--no-tail)
-- logs/pod_rank*.log      : per-pod container stdout at capture time (rank-0 = harbor coordinator)
+- finelog.log             : complete iris/finelog job log (--no-tail)
+- pod_logs/pod_rank*.log  : per-pod container stdout at capture time (rank-0 = harbor coordinator)
 - fr_dumps/<pod>/         : torch NCCL flight-recorder dumps (base ${FR_BASE}*), if any were
                  present on that pod. Empty/absent = healthy run (no TORCH_NCCL_DUMP_ON_TIMEOUT
                  fired) or the FR path predates the 2026-07-10 job-scoped convention (see
@@ -525,6 +524,17 @@ PYEOF
 
 ## Reproduce
 $(basename "$0") ${JOB} pull ${OUTBASE}
+EOF
+    cat > "$DEST/manifest.json" <<EOF
+{
+  "bundle_format": 1,
+  "kind": "rl",
+  "cluster": "${CLUSTER}",
+  "job_id": "${JOBID}",
+  "bundle_directory": "${DEST}",
+  "live_capture_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "trace_results": ${N_DONE}
+}
 EOF
 
     echo "[pull] DONE — $DEST"
@@ -539,7 +549,7 @@ EOF
       FR_BASE="$4"
     fi
     STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-    DEST="${OUTBASE}/${JOBNAME}_${STAMP}_frdump"
+    DEST="${OUTBASE}/jobs/${CLUSTER}/${USER_FROM_POD}/${JOBNAME}/fr_dumps/${STAMP}"
     mkdir -p "$DEST"
     echo "[frdump] dest=$DEST  jobid=$JOBID  cluster=$CLUSTER"
     pull_fr_dumps "$DEST"

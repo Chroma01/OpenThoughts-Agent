@@ -143,7 +143,7 @@ def test_helper_model_miss_strict_fails_loud(monkeypatch):
         precache.precache_for_eval(
             "Qwen/Qwen3-8B", [], region=None, mode="strict", verbose=False
         )
-    assert "launch_hf_mirror" in str(ei.value)
+    assert "launch_mirror hf-to-gcs" in str(ei.value)
 
 
 def test_helper_mode_off_is_noop(monkeypatch):

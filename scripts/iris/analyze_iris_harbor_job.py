@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pull the COMPLETE log history for an iris job and produce summary statistics.
+"""Analyze a completed Iris Harbor datagen or eval job from synced or remote history.
 
 Log acquisition reads finelog directly. For a logical job we:
 
@@ -64,6 +64,18 @@ from rigging.credentials import iap_edge_provider
 from rigging.tunnel import open_tunnel
 
 from hpc.iris.job_output_resolver import resolve_job_output_dir
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.iris.iris_ops import (  # noqa: E402
+    DEFAULT_BUNDLE_ROOT,
+    job_bundle,
+    load_bundle_manifest,
+    write_bundle_manifest,
+)
 
 
 def resolve_iris_bin() -> str:
@@ -1369,12 +1381,14 @@ def analyze(
     warmup_seconds: float,
     max_gap_seconds: float,
     allow_incomplete: bool,
+    bundle_directory: Path | None = None,
 ) -> JobAnalysis:
     job_name = job_id.rsplit("/", 1)[-1]
-    # Resolve the job's recorded output prefix ONCE (registry-first, iris-fallback
-    # via --cluster). Legacy multi-region jobs resolve to gs://marin-models-{us,eu}
-    # and new single-region jobs to gs://marin-<region>; the GCS readers below use
-    # this exact bucket instead of a hardcoded scan root.
+    # Resolve the Harbor datagen/eval job's recorded output prefix ONCE
+    # (registry-first, iris-fallback via --cluster). Legacy multi-region jobs
+    # resolve to gs://marin-models-{us,eu} and new single-region jobs to
+    # gs://marin-<region>; the GCS readers below use this exact bucket instead of
+    # a hardcoded scan root.
     job_output_dir = resolve_job_output_dir(job_id, cluster_config=CLUSTER)
     print(f"[{job_name}] output dir: {job_output_dir}", file=sys.stderr)
     meta = get_job_metadata(job_id)
@@ -1404,6 +1418,24 @@ def analyze(
         refresh=refresh,
         max_gap_seconds=max_gap_seconds,
     )
+    if bundle_directory is not None:
+        bundle_directory.mkdir(parents=True, exist_ok=True)
+        (bundle_directory / "finelog.log").write_text("\n".join(acq.lines) + "\n")
+        (bundle_directory / "finelog.coverage.json").write_text(
+            json.dumps(
+                {
+                    "logs_complete": acq.logs_complete,
+                    "missing_windows": [asdict(window) for window in acq.missing_windows],
+                    "live_available": acq.live_available,
+                    "live_unavailable_reason": acq.live_unavailable_reason,
+                    "live_rows": acq.live_rows,
+                    "gcs_rows": acq.gcs_rows,
+                    "merged_rows": acq.merged_rows,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
     if not acq.logs_complete and not allow_incomplete:
         details = "\n".join(
             f"    {w.log_key}: {w.gap_seconds/60:.1f}min uncovered "
@@ -1452,6 +1484,10 @@ def analyze(
 
     # Harbor result.json
     harbor = fetch_harbor_result(job_name, job_output_dir)
+    if bundle_directory is not None and harbor is not None:
+        harbor_directory = bundle_directory / "harbor"
+        harbor_directory.mkdir(parents=True, exist_ok=True)
+        (harbor_directory / "result.json").write_text(json.dumps(harbor, indent=2) + "\n")
     a = JobAnalysis(
         job_id=job_id,
         job_name=job_name,
@@ -1487,11 +1523,57 @@ def analyze(
     return a
 
 
+def local_bundle_report(bundle_directory: Path, manifest: dict) -> str:
+    """Render a useful report from a previously synchronized Harbor bundle only."""
+    result_path = bundle_directory / "harbor" / "result.json"
+    result: dict = {}
+    if result_path.exists():
+        try:
+            result = json.loads(result_path.read_text())
+        except json.JSONDecodeError:
+            result = {}
+    stats = result.get("stats", {})
+    errors: dict[str, int] = {}
+    for evaluation in stats.get("evals", {}).values():
+        for name, trial_ids in evaluation.get("exception_stats", {}).items():
+            errors[name] = errors.get(name, 0) + len(trial_ids)
+    log_path = bundle_directory / "finelog.log"
+    log_lines = log_path.read_text(errors="replace").splitlines() if log_path.exists() else []
+    lines = [
+        f"# Iris Harbor job analysis — {manifest.get('job_id', 'unknown')}",
+        "",
+        "This report used the local evidence bundle only.",
+        "",
+        f"- Cluster: `{manifest.get('cluster', 'unknown')}`",
+        f"- Job kind: `{manifest.get('job_kind', 'unknown')}`",
+        f"- Bundle: `{bundle_directory}`",
+        f"- Dataset: `{manifest.get('dataset', 'unknown')}`",
+        f"- Completed trials: {stats.get('n_completed_trials', 'unknown')}/{result.get('n_total_trials', 'unknown')}",
+        f"- Errored trials: {stats.get('n_errored_trials', 'unknown')}",
+        f"- Exception counts: {json.dumps(errors, sort_keys=True) if errors else 'none recorded'}",
+        f"- Local Finelog lines: {len(log_lines):,}",
+        "",
+        "## Finelog tail",
+        "",
+        "```text",
+        "\n".join(log_lines[-30:]) or "No local Finelog was available.",
+        "```",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("job_id", help="iris job id, e.g. /benjaminfeuer/qwen122b-q12-v1-...")
-    ap.add_argument("--output", required=True, help="markdown report output path")
-    ap.add_argument("--refresh", action="store_true", help="ignore cached log")
+    ap.add_argument("--output", type=Path, help="markdown report path (defaults inside the bundle)")
+    ap.add_argument("--bundle-root", type=Path, default=DEFAULT_BUNDLE_ROOT)
+    ap.add_argument(
+        "--local-only",
+        action="store_true",
+        help="Analyze a synchronized bundle without querying Iris, Finelog, or GCS.",
+    )
+    ap.add_argument("--resync", action="store_true", help="Ignore the local Finelog cache while refreshing remote evidence.")
+    ap.set_defaults(resync=True)
     ap.add_argument("--warmup-seconds", type=float, default=180.0)
     ap.add_argument(
         "--cluster",
@@ -1543,23 +1625,33 @@ def main() -> int:
     if args.iris_bin:
         IRIS_BIN = args.iris_bin
 
-    output = Path(args.output)
+    bundle = job_bundle(args.bundle_root, args.cluster, args.job_id)
+    output = args.output or bundle.directory / "reports" / "analysis.md"
     output.parent.mkdir(parents=True, exist_ok=True)
+
+    if args.local_only:
+        if not bundle.directory.exists():
+            print(f"No local bundle exists at {bundle.directory}", file=sys.stderr)
+            return 1
+        output.write_text(local_bundle_report(bundle.directory, load_bundle_manifest(bundle)))
+        print(f"\nReport written to: {output}", file=sys.stderr)
+        return 0
 
     try:
         a = analyze(
             args.job_id,
             output,
-            args.refresh,
+            args.resync,
             args.warmup_seconds,
             max_gap_seconds=args.max_coverage_gap_seconds,
             allow_incomplete=args.allow_incomplete,
+            bundle_directory=bundle.directory,
         )
     except LookupError as e:
-        # Expected when the job's output dir can't be resolved (e.g. a CoreWeave RL
-        # job with an s3:// trials_dir — this tool is gs://-oriented). Print the
-        # directional message cleanly instead of dumping a traceback.
-        print(f"[analyze_job_history] {e}", file=sys.stderr)
+        # Expected for a non-Harbor job (for example CoreWeave RL with an s3://
+        # trials_dir) or a legacy Harbor eval with no recorded output identity.
+        # Keep the taxonomy clear instead of dumping a traceback.
+        print(f"[analyze_iris_harbor_job] {e}", file=sys.stderr)
         return 1
 
     md = render_markdown(a, warmup_seconds=args.warmup_seconds)
@@ -1567,6 +1659,14 @@ def main() -> int:
 
     json_path = output.with_suffix(output.suffix + ".json")
     json_path.write_text(json.dumps(analysis_to_json(a), indent=2))
+    write_bundle_manifest(
+        bundle,
+        {
+            "kind": "harbor",
+            "last_analysis_at": datetime.now(timezone.utc).isoformat(),
+            "last_analysis_report": str(output),
+        },
+    )
 
     print(f"\nReport written to: {output}", file=sys.stderr)
     print(f"JSON sidecar:     {json_path}", file=sys.stderr)

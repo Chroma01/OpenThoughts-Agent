@@ -102,7 +102,7 @@ class RayClusterConfig:
     ray_port: int = 6379
     srun_export_env: str = "ALL"
     ray_env_vars: str = ""  # Space-separated KEY=value pairs for Ray workers
-    wait_for_cluster_script: str = "scripts/ray/wait_for_cluster.py"
+    wait_for_cluster_script: str = "hpc/ray/wait_for_cluster.py"
     poll_interval: int = 10
     # Driver-side wait window for the full cluster to register all GPUs/nodes.
     # Raised 600 -> 1200 for 6-node GH200 RL: with RAY_raylet_start_wait_time_s

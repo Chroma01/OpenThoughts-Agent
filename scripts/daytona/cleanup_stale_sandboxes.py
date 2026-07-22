@@ -26,20 +26,21 @@ Environment:
 
 import argparse
 import os
-import sys
 import time
 from datetime import datetime, timezone
 
-from dotenv import load_dotenv
-
 from daytona import (
     Daytona,
-    DaytonaConfig,
     ListSandboxesQuery,
     SandboxListSortDirection,
     SandboxListSortField,
     SandboxState,
 )
+
+try:
+    from .daytona_client import create_client, resolve_api_key
+except ImportError:
+    from daytona_client import create_client, resolve_api_key
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -52,40 +53,14 @@ DEFAULT_THRESHOLD_MINUTES = 60
 # delete; instance deletion never touches the `harbor__*` snapshot template (cap-safe).
 # Built robustly from whatever the SDK enum exposes (member names drift across versions).
 _DEAD_STATE_NAMES = ("ERROR", "BUILD_FAILED", "BUILDFAILED")
-DEAD_STATES = [getattr(SandboxState, n) for n in _DEAD_STATE_NAMES if hasattr(SandboxState, n)]
-
-# Try to load secrets.env from a few common locations
-SECRET_ENV_PATH = os.environ.get("DC_AGENT_SECRET_ENV")
-if SECRET_ENV_PATH and os.path.isfile(SECRET_ENV_PATH):
-    load_dotenv(SECRET_ENV_PATH)
-else:
-    # Fallback: look next to this script or in ~/Documents
-    for candidate in [
-        os.path.join(os.path.dirname(__file__), "..", "..", "secrets.env"),
-        os.path.expanduser("~/Documents/secrets.env"),
-    ]:
-        if os.path.isfile(candidate):
-            load_dotenv(candidate)
-            break
-
-
-def get_api_key(env_var: str = "DAYTONA_API_KEY") -> str:
-    key = os.environ.get(env_var)
-    if not key:
-        # Fallback chain: try common key names
-        for fallback in ("DAYTONA_API_KEY", "DAYTONA_RL_API_KEY"):
-            if fallback != env_var:
-                key = os.environ.get(fallback)
-                if key:
-                    break
-    if not key:
-        sys.exit(f"ERROR: {env_var} (and fallbacks) not set in environment or secrets.env")
-    return key
-
+DEAD_STATES = [
+    getattr(SandboxState, n) for n in _DEAD_STATE_NAMES if hasattr(SandboxState, n)
+]
 
 # ---------------------------------------------------------------------------
 # API helpers
 # ---------------------------------------------------------------------------
+
 
 def _last_seen_ts(sb) -> str | None:
     """Pick the freshest activity timestamp available on a Sandbox object."""
@@ -144,6 +119,7 @@ def _delete_bucket(sandboxes: list, label: str) -> tuple[int, int]:
 # Core logic
 # ---------------------------------------------------------------------------
 
+
 def find_stale_sandboxes(sandboxes: list, threshold_minutes: int) -> list:
     """Return sandboxes whose last-activity timestamp is older than threshold_minutes ago."""
     now = datetime.now(timezone.utc)
@@ -170,9 +146,7 @@ def find_stale_sandboxes(sandboxes: list, threshold_minutes: int) -> list:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Clean up stale Daytona RL sandboxes"
-    )
+    parser = argparse.ArgumentParser(description="Clean up stale Daytona RL sandboxes")
     parser.add_argument(
         "--delete",
         action="store_true",
@@ -185,10 +159,19 @@ def main():
         help=f"Minutes of inactivity before a sandbox is considered stale (default: {DEFAULT_THRESHOLD_MINUTES})",
     )
     parser.add_argument(
+        "--api-key",
+        help="Daytona API key. Prefer the environment variable in normal use.",
+    )
+    parser.add_argument(
         "--api-key-env",
         type=str,
         default="DAYTONA_API_KEY",
         help="Environment variable name containing the API key (default: DAYTONA_API_KEY)",
+    )
+    parser.add_argument(
+        "--secrets-file",
+        default=os.environ.get("DC_AGENT_SECRET_ENV"),
+        help="Optional env file. Defaults to $DC_AGENT_SECRET_ENV.",
     )
     parser.add_argument(
         "--no-reap-dead",
@@ -197,8 +180,16 @@ def main():
     )
     args = parser.parse_args()
 
-    api_key = get_api_key(args.api_key_env)
-    client = Daytona(DaytonaConfig(api_key=api_key))
+    try:
+        api_key = resolve_api_key(
+            api_key=args.api_key,
+            api_key_env=args.api_key_env,
+            secrets_file=args.secrets_file,
+            fallback_env_vars=("DAYTONA_RL_API_KEY",),
+        )
+        client = create_client(api_key=api_key)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     # 1. STALE-STARTED bucket: running sandboxes idle past the threshold (orphaned).
     print("Fetching all started sandboxes …")
@@ -210,7 +201,9 @@ def main():
     # 2. DEAD bucket: terminal ERROR/BUILD_FAILED sandboxes.
     dead = [] if args.no_reap_dead else list_dead_sandboxes(client)
     if not args.no_reap_dead:
-        print(f"  Found {len(dead)} terminal-dead sandboxes (ERROR/BUILD_FAILED) to reap.")
+        print(
+            f"  Found {len(dead)} terminal-dead sandboxes (ERROR/BUILD_FAILED) to reap."
+        )
     print()
 
     if not stale and not dead:
@@ -223,14 +216,21 @@ def main():
         print(f"  {'ID':<40} {'Age (min)':>10}  {'Created':<26} {'Last Activity':<26}")
         print("  " + "-" * 108)
         for sb in stale:
-            print(f"  {sb.id:<40} {sb._age_minutes:>10.1f}  {sb.created_at or 'n/a':<26} {_last_seen_ts(sb) or 'n/a':<26}")
+            print(
+                f"  {sb.id:<40} {sb._age_minutes:>10.1f}  {sb.created_at or 'n/a':<26} {_last_seen_ts(sb) or 'n/a':<26}"
+            )
     if dead:
         from collections import Counter
+
         by_state = Counter(str(getattr(sb, "state", "?")) for sb in dead)
-        print(f"DEAD ({len(dead)}): " + ", ".join(f"{s}={n}" for s, n in by_state.items()))
+        print(
+            f"DEAD ({len(dead)}): " + ", ".join(f"{s}={n}" for s, n in by_state.items())
+        )
 
     if not args.delete:
-        print(f"\nDry run — pass --delete to actually remove {len(stale)} stale + {len(dead)} dead sandboxes.")
+        print(
+            f"\nDry run — pass --delete to actually remove {len(stale)} stale + {len(dead)} dead sandboxes."
+        )
         return
 
     # 4. Delete both buckets
@@ -242,7 +242,9 @@ def main():
         total_ok += ok
         total_fail += failed
 
-    print(f"\nDone. Deleted {total_ok} sandboxes ({len(stale)} stale + {len(dead)} dead).")
+    print(
+        f"\nDone. Deleted {total_ok} sandboxes ({len(stale)} stale + {len(dead)} dead)."
+    )
     if total_fail:
         print(f"  {total_fail} deletions failed.")
 

@@ -226,7 +226,7 @@ cleanup_ray_logs() {
   done
 
   # --- Worker node logs (clusters with intra-node SSH, e.g. Jupiter) ---
-  local WORKER_LOG_SCRIPT="$WORKDIR/scripts/ray/collect_worker_ray_logs.sh"
+  local WORKER_LOG_SCRIPT="$WORKDIR/hpc/ray/collect_worker_ray_logs.sh"
   if [[ -f "$WORKER_LOG_SCRIPT" ]]; then
     source "$WORKER_LOG_SCRIPT"
     collect_worker_ray_logs "{experiments_dir}/ray_logs"

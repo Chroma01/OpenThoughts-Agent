@@ -237,7 +237,7 @@ def mirror(repo_id: str, gcs_prefixes: list[str], *, verbose: bool = True,
               f"manifests at <dest>/{MANIFEST_FILENAME}", flush=True)
 
 
-def main() -> int:
+def _legacy_main() -> int:
     p = argparse.ArgumentParser(
         description="Stream one or more HuggingFace model repos into a GCS prefix.",
     )
@@ -247,7 +247,7 @@ def main() -> int:
                    help="GCS prefix; each repo lands under <prefix>/<repo>/. "
                         "Repeatable — every prefix gets a full mirror, so a "
                         "single HF download fans out to every region. Default "
-                        "callsite (launch_hf_mirror.py) passes both "
+                        "callsite (launch_mirror.py hf-to-gcs) passes both "
                         "gs://marin-models-us/ot-agent/models and "
                         "gs://marin-models-eu/ot-agent/models so iris workers "
                         "in any region read locally.")
@@ -268,6 +268,13 @@ def main() -> int:
         mirror(repo, args.gcs_prefix, verbose=not args.quiet,
                iris_job_id=args.iris_job_id)
     return 0
+
+
+def main() -> int:
+    """Compatibility entrypoint; use ``mirror_models hf-to-gcs`` for new calls."""
+    from scripts.iris.mirror_models import main as unified_main
+
+    return unified_main(["hf-to-gcs", *sys.argv[1:]])
 
 
 if __name__ == "__main__":

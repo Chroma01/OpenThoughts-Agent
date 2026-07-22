@@ -173,7 +173,7 @@ def _parse_s3_prefix(uri: str) -> tuple[str, str]:
     return bucket, prefix.rstrip("/")
 
 
-def main() -> int:
+def _legacy_main() -> int:
     p = argparse.ArgumentParser(
         description="Stream one or more HF model repos into a CW S3-compatible bucket.",
     )
@@ -193,6 +193,13 @@ def main() -> int:
         mirror(repo_id=repo, bucket=bucket, prefix=prefix,
                s3_endpoint=args.s3_endpoint, verbose=not args.quiet)
     return 0
+
+
+def main() -> int:
+    """Compatibility entrypoint; use ``mirror_models hf-to-s3`` for new calls."""
+    from scripts.iris.mirror_models import main as unified_main
+
+    return unified_main(["hf-to-s3", *sys.argv[1:]])
 
 
 if __name__ == "__main__":

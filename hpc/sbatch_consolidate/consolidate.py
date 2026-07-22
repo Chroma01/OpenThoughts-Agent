@@ -92,7 +92,7 @@ def _infer_model_type(candidates: Iterable[Path]) -> Optional[str]:
 
 
 def _zero_to_fp32_script(project_root: Path) -> Path:
-    script_path = project_root / "scripts" / "consolidate" / "zero_to_fp32.py"
+    script_path = project_root / "hpc" / "zero_to_fp32.py"
     if not script_path.exists():
         raise FileNotFoundError(f"Bundled zero_to_fp32.py not found at {script_path}")
     return script_path

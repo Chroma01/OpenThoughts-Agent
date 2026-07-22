@@ -22,7 +22,6 @@ def test_grug_external_endpoint_config_is_packaged_and_uses_openai():
     assert config["engine"]["type"] == "openai"
     assert config["backend"]["type"] == "none"
 
-
 def test_mint_requires_one_capability_url(monkeypatch):
     class Result:
         returncode = 0

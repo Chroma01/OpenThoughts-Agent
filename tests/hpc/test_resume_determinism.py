@@ -112,6 +112,15 @@ def test_build_task_command_omits_job_name_when_none():
     assert "--job_name" not in cmd
 
 
+def test_baked_venv_skips_iris_setup_scripts():
+    """A baked model image must not have its venv replaced by Iris uv sync."""
+    launcher = _launcher()
+    args = _tracegen_args("glm52-pilot-codecontests-r9")
+    args.baked_venv = True
+
+    assert launcher.setup_scripts(args) == []
+
+
 def test_derive_and_persist_yields_stable_baked_name_across_serves():
     # Mirror the run() fix: derive once, persist to args.job_name, then the SAME
     # command (re-run each preempt-retry) carries the SAME --job_name -> harbor

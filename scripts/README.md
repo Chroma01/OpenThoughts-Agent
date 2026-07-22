@@ -24,11 +24,7 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
   ```bash
   python scripts/analysis/summarize_conversations.py outputs/dev.jsonl --tokenizer-id Qwen/Qwen2.5-7B
   ```
-- `analysis/batch_filter_and_summarize.py` – iterate many Harbor job dirs, emit filtered JSONLs, then summarize each.  
-  ```bash
-  python scripts/analysis/batch_filter_and_summarize.py --root /scratch/jobs --out_dir ~/eval-jsonl --skip_existing
-  ```
-- `analysis/eval_runtime_stats.py` & `analysis/trace_runtime_report.py` – crawl `evaltraces/`, compute stage runtimes, generate JSON summaries, and optionally render plots.  
+- `analysis/trace_runtime_report.py` – crawl `evaltraces/`, compute stage runtimes, generate JSON summaries, and optionally render plots.
   ```bash
   python scripts/analysis/trace_runtime_report.py --root ~/evaltraces --output-json ~/evaltraces/summary.json
   ```
@@ -36,6 +32,23 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
   ```bash
   python scripts/analysis/episode_distribution.py my-org/datasetA my-org/datasetB --sigma 3.0 --output plots/episodes.png
   ```
+- `iris/watch_iris_harbor.py` – canonical read-only fleet status table for active Iris Harbor datagen/eval jobs across CoreWeave and TPU.
+  ```bash
+  python scripts/iris/watch_iris_harbor.py
+  ```
+- `iris/watch_coreweave_rl.py` – canonical read-only CoreWeave RL monitor, including synchronized Finelog, pod/Ray logs, and rollout artifacts.
+  ```bash
+  python scripts/iris/watch_coreweave_rl.py
+  ```
+
+### Iris operations
+
+- `iris/iris_ops.py` – shared Iris lifecycle polling, stable job identity, and canonical local-bundle helpers.
+- `iris/coreweave_ops.py` – shared CoreWeave pod, Ray/vLLM, and object-store collection operations.
+- `iris/watch_coreweave_rl.py` – RL-only watcher for active CoreWeave RL jobs.
+- `iris/watch_iris_harbor.py` – Harbor-only watcher for active Iris datagen and eval jobs.
+- `iris/analyze_coreweave_rl_job.py` / `iris/analyze_coreweave_rl_job_live.sh` – completed / live CoreWeave RL analysis.
+- `iris/analyze_iris_harbor_job.py` / `iris/analyze_iris_harbor_job_live.sh` – completed / live Iris Harbor datagen and eval analysis.
 
 ### Data generation helpers
 - `datagen/gsm8k_terminal_bench_traces.py` – BaseDataGenerator entrypoint for GSM8K Terminal Bench traces; reruns the standard datagen CLI with dataset-specific flags.  
@@ -50,17 +63,17 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
     --parquet_name tasks/train-00000-of-00001.parquet \
     --on_exist overwrite
   ```
-- `datagen/print_trace_contents.py` – quickly preview the conversations inside exported trace JSONL files.  
+- `datagen/print_trace_contents.py` – quickly preview conversations from a local Harbor trace directory.
   ```bash
-  python scripts/datagen/print_trace_contents.py trace_jobs/chunk_000/2024-11-01__12-00-00
+  python scripts/datagen/print_trace_contents.py --trace_dir trace_jobs/chunk_000/2024-11-01__12-00-00
   ```
 
 ### Harbor dataset uploaders
-- `harbor/make_and_upload_task_dataset.py` – convert a directory of Harbor tasks into a Parquet snapshot and push it to Hugging Face.  
+- `harbor/tasks_parquet_converter.py` – convert a directory of Harbor tasks into a Parquet snapshot and push it to Hugging Face.
   ```bash
-  python scripts/harbor/make_and_upload_task_dataset.py \
-    --repo_id my-org/my-tasks \
-    --tasks_dir data/tasks_to_upload \
+  python -m scripts.harbor.tasks_parquet_converter upload-hf \
+    --repo-id my-org/my-tasks \
+    --tasks-dir data/tasks_to_upload \
     --private
   ```
 - `harbor/make_and_upload_trace_dataset.py` – take a completed Harbor job directory, export traces, and upload them as a dataset repo.  
@@ -78,7 +91,7 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
     --target_repo my-org/<task>-opencode-sft
   # dry-run: python -m scripts.harbor.literal_traces_to_sft --source_repo <repo> --validate 3
   ```
-- `data/opencode_literals_to_sft/` – the **TRAIN==SERVE** opencode variant of the above (re-homed from `scripts/harbor/literal_traces_to_opencode_sft.py`, which remains as a re-export shim). Recovers the `system` + `<tools>` + task prompt and emits structured assistant `tool_calls` + `role: tool` results (the serve shape), not lossy inline text. See `data/opencode_literals_to_sft/README.md`.
+- `data/opencode_literals_to_sft/` – the **TRAIN==SERVE** opencode variant of the above. Recovers the `system` + `<tools>` + task prompt and emits structured assistant `tool_calls` + `role: tool` results (the serve shape), not lossy inline text. See `data/opencode_literals_to_sft/README.md`.
   ```bash
   python -m data.opencode_literals_to_sft \
     --source_repo my-org/<task>-qwen3.5-122b-131k-opencode-traces \
@@ -113,14 +126,14 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
   ```bash
   python scripts/docker_ray/start_ray_cluster.py --model meta-llama/Llama-3.1-8B-Instruct --min-replicas 1 --max-replicas 2 --tensor-parallel-size 1
   ```
-- `ray/wait_for_cluster.py` – block until a Ray head reports the desired nodes/GPUs (used by HPC sbatch templates).  
+- `../hpc/ray/wait_for_cluster.py` – block until a Ray head reports the desired nodes/GPUs (used by HPC sbatch templates).
   ```bash
-  python scripts/ray/wait_for_cluster.py --address ${RAY_ADDRESS} --expected-gpus 8 --expected-nodes 2 --timeout 900
+  python hpc/ray/wait_for_cluster.py --address ${RAY_ADDRESS} --expected-gpus 8 --expected-nodes 2 --timeout 900
   ```
-- `vllm/start_vllm_ray_controller.py` – bring up a vLLM OpenAI-compatible endpoint on top of Ray; pair with `vllm/wait_for_endpoint.py` to poll readiness.
+- `../hpc/vllm/start_vllm_ray_controller.py` – bring up a vLLM OpenAI-compatible endpoint on top of Ray; pair with `hpc/vllm/wait_for_endpoint.py` to poll readiness.
   - Note: Ray's default `CUDA_VISIBLE_DEVICES` rewriting can cause vLLM to crash with `CUDA error: invalid device ordinal`. The universal sbatch templates (`hpc/sbatch_*/universal_*.sbatch`) set `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1` before the Ray cluster starts.  
   ```bash
-  python scripts/vllm/start_vllm_ray_controller.py --model /checkpoint/qwen --ray-address auto --tensor-parallel-size 2
+  python hpc/vllm/start_vllm_ray_controller.py --model /checkpoint/qwen --ray-address auto --tensor-parallel-size 2
   ```
 - `terminal_bench/run_terminal_bench.py` – convenience wrapper for launching terminal-bench evaluations via `uv run`, pointing at a Ray-hosted vLLM endpoint.  
   ```bash
@@ -137,9 +150,9 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
   ```
 
 ### Model checkpoint utilities
-- `consolidate/zero_to_fp32.py` – convert DeepSpeed ZeRO stage checkpoints into a single fp32 weight file. Invoke from the checkpoint directory:  
+- `../hpc/zero_to_fp32.py` – convert DeepSpeed ZeRO stage checkpoints into a single fp32 weight file. Invoke from the repository checkout:
   ```bash
-  python scripts/consolidate/zero_to_fp32.py . output_fp32/ --safe_serialization
+  python hpc/zero_to_fp32.py . output_fp32/ --safe_serialization
   ```
 
 These examples cover the tasks we reach for most often; inspect each script (or run with `--help`) for the full set of switches, expected environment variables, and pre-requisites (HF tokens, Supabase keys, Daytona credentials, etc.).

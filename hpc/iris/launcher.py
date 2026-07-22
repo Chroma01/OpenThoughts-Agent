@@ -96,6 +96,15 @@ class IrisLauncher:
         self.repo_root = Path(repo_root).resolve()
         self.iris_api = iris_api
 
+    def setup_scripts(self, args: argparse.Namespace) -> list[str] | None:
+        """Resolve the Iris task setup contract for this launch.
+
+        Baked-venv images carry an image-specific environment that must not be
+        replaced by Iris's default ``uv sync``. An explicit empty list is Iris's
+        bring-your-own-image sentinel; ``None`` requests its normal setup.
+        """
+        return [] if getattr(args, "baked_venv", False) else None
+
     # ------------------------------------------------------------------
     # Argument parsing
     # ------------------------------------------------------------------
@@ -666,7 +675,11 @@ class IrisLauncher:
                 entrypoint=entrypoint,
                 name=job_name,
                 resources=resources,
-                environment=EnvironmentSpec(env_vars=env_vars, extras=extras),
+                environment=EnvironmentSpec(
+                    env_vars=env_vars,
+                    extras=extras,
+                    setup_scripts=self.setup_scripts(args),
+                ),
                 constraints=constraints,
                 coscheduling=coscheduling,
                 replicas=replicas,

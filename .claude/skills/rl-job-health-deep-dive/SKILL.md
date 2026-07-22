@@ -104,7 +104,7 @@ conflict).**
 
 - **Cluster access, poll mechanics, log fetch, GPU-poll, node headroom, Daytona lifecycle, the tool failure
   modes** → `.claude/ops/<cluster>/`:
-  - CoreWeave → **`ops/iris/ops.md`** — §Access (kubeconfig per cluster: East vs cw-rno2a), §Observability (the state-poll primitive `watch_job_state.py`, JobState codes, finelog fetch, and the **Poll/tooling pitfalls**: rno2a `job summary` flakiness, the `*_ms` query columns, the `analyze_job_history` `--config`/RL-output-dir limits, no server-side `job logs` grep), §Scheduling (gang/Kueue admission + node-headroom math), §Daytona (orgs, sandbox lifecycle, concurrency headroom), §Monitoring & debugging practices (incl. py-spy). Node shape → `ops/iris/ops.md`.
+  - CoreWeave → **`ops/iris/ops.md`** — §Access (kubeconfig per cluster: East vs cw-rno2a), §Observability (the state-poll primitive `iris_ops.py`, JobState codes, finelog fetch, and the **Poll/tooling pitfalls**: rno2a `job summary` flakiness, the `*_ms` query columns, the `analyze_iris_harbor_job` `--config`/RL-output-dir limits, no server-side `job logs` grep), §Scheduling (gang/Kueue admission + node-headroom math), §Daytona (orgs, sandbox lifecycle, concurrency headroom), §Monitoring & debugging practices (incl. py-spy). Node shape → `ops/iris/ops.md`.
   - Leonardo → `ops/leonardo/ops.md`; TACC → `ops/tacc/ops.md`.
   - **Log-volume discipline** (memory `iris-log-resource-discipline`): state-poll for liveness, bounded/filtered fetch for metrics — never dump a long log into the Mac. Exact bounded-fetch commands in ops §Observability.
 - **What the logs/config MEAN — the trainer/engine vocabulary, benign-vs-fault line, known failure modes, config
@@ -112,8 +112,8 @@ conflict).**
   - **`projects/marinskyrl/marinskyrl.md`** — the phase-Timer/step vocabulary, `[MoE-PATH]` grouped_mm-vs-for-loop, the colocated-engine/rank-0-logging deception, engine saturation (`n_concurrent_trials` scaling), the 80B GDN-GIL/HeartbeatMonitor death + FlashQLA, `SKYRL_W13_RELOAD_BRACKET` token-salad, `SKYRL_R3_RESIDENT`, the benign `prob_diff_mean` artifact, config-schema (Hydra struct) rules, runtime knobs. **Read the section matching what you're chasing — do not guess a log line's meaning.**
   - `projects/vllm/vllm.md` — the serve engine: MoE/DCP/R3 flags, `enforce_eager` (CUDA-graphs) throughput cliff, serving-throughput expectations, the benign engine heartbeats (`shm_broadcast … 60/600s`).
   - `projects/harbor/vllm/daytona/` — the rollout/trial layout, verifier/reward path, passthrough exceptions, sandbox failure modes.
-- **Capture + poll scripts** (don't hand-roll): `scripts/iris/peek_rl_rollouts.sh` (CoreWeave artifact pull),
-  `scripts/iris/watch_job_state.py` (state-poll), `scripts/iris/analyze_job_history.py` (finelog science — mind the RL-job/rno2a limits in the ops note). The per-rung bring-up ladder is `rl-agentic-launch-iris` §8.
+- **Capture + poll scripts** (don't hand-roll): `scripts/iris/analyze_coreweave_rl_job_live.sh` (CoreWeave artifact pull),
+  `scripts/iris/iris_ops.py` (state-poll), `scripts/iris/analyze_iris_harbor_job.py` (finelog science — mind the RL-job/rno2a limits in the ops note). The per-rung bring-up ladder is `rl-agentic-launch-iris` §8.
 
 ---
 
@@ -130,7 +130,7 @@ K max` and each prior attempt's terminal error.
 
 **Capture the artifacts = STEP 0's `sync_rl_logs.py` (finelog + ray_session_logs) — already done before you reach
 this gate.** Do NOT hand-roll a kubectl/R2 sync or a live `iris job logs` grep; work from the local files STEP 0
-pulled. (`scripts/iris/peek_rl_rollouts.sh` is still the tool for the per-trial `opencode.txt`/rollout view when you
+pulled. (`scripts/iris/analyze_coreweave_rl_job_live.sh` is still the tool for the per-trial `opencode.txt`/rollout view when you
 need rollout-quality detail beyond the logs.) *What the phase-Timers / step counter / `[MoE-PATH]` markers mean* →
 `projects/marinskyrl`. **The phase Timers are the progress truth — not a trace count, not a progress bar.** (0
 trials at +15 min on a long-episode arm is normal, not "done" and not "dead.")

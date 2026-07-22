@@ -30,10 +30,11 @@ Shared env/setup every iris operation needs.
   (TPU/`marin`/other); without the export, `kubectl` inspects the wrong cluster and `iris` cw
   commands fail with misleading "0 pods / not found" / auth errors. Re-export in any fresh shell
   or background call. (rno2a uses `~/.kube/coreweave-iris` — see §2.)
-  - **⚠ Order matters: `source $DC_AGENT_SECRET_ENV` (secrets.env) EXPORTS `KUBECONFIG=~/.kube/lambdaconfig`**
-    (Beta/k3d/EmpireAI context), which LACKS `marin-gpu_US-EAST-02A` → any CoreWeave poll after
-    sourcing secrets fails. **`source secrets.env` FIRST, then `export KUBECONFIG=~/.kube/coreweave-iris-gpu`**
-    (both `coreweave-iris` and `coreweave-iris-gpu` carry the East context; either works).
+  `scripts/iris/list_iris_jobs.py` is the exception: it selects the canonical kubeconfig for
+  `cw-us-east-02a` or `cw-rno2a` itself, so its no-argument local invocation is safe even when
+  an inherited `KUBECONFIG` points elsewhere.
+  - The stale Beta/k3d `KUBECONFIG` export is disabled in `~/.zshrc`. CoreWeave commands still
+    need the region-specific kubeconfig above when they do not select one explicitly.
 - **All `iris`/`kubectl` calls SYNCHRONOUS — never background them.**
 - **`--cluster=cw-us-east-02a` is a TOP-LEVEL flag** (BEFORE the subcommand:
   `iris --cluster=cw-us-east-02a job logs …`), not a per-subcommand option. Bare
@@ -361,11 +362,68 @@ capacity AND a footgun). Node allocatable ≈ **128 CPU / ~2014 GiB mem / 8 GPU*
   TensorStore JAX** format, NOT HF transformers — no `config.json`/`*.safetensors`/`tokenizer.json`;
   needs an explicit Levanter→HF export to become loadable by `transformers`.)
 
+### CoreWeave datagen diagnostic capture (vLLM logs + trial sample)
+
+For a **live** `launch_tracegen_iris.py` GPU datagen job, use the bounded collector instead of
+ad-hoc `kubectl cp`/S3 commands:
+
+```bash
+/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python \
+  scripts/iris/coreweave_ops.py \
+  /benjaminfeuer/<job> --cluster cw-rno2a \
+  --output-dir /Users/benjaminfeuer/Documents/experiments/active/<experiment> \
+  --sample-size 100 --seed 0
+```
+
+It resolves the active task pod, derives the trial S3 prefix from PID 1's
+`--experiments_dir` and `--job_name`, and writes a timestamped `diagnostics/` directory with a
+credential-free `manifest.json`, the task-log tail, selected Ray/vLLM logs, and a deterministic
+sample of completed trial directories. It obtains the object-store credentials from the
+in-cluster `iris-task-env` Secret and never writes them to disk. The default object limits are
+20 MiB per trial file and 100 MiB per Ray/vLLM log; skipped objects are listed in the manifest.
+Pass `--pod`, `--trials-s3`, or cluster/kubeconfig overrides only when discovery is ambiguous.
+
+**Terminal-job evidence policy:** when a datagen job is FAILED, KILLED, or confirmed absent,
+collect its logs and bounded trial evidence into that job's experiment directory **before**
+diagnosis, recovery, or relaunch. Debug from the local synchronized copy, not from a changing
+live pod or a second ad-hoc S3 listing. For a CoreWeave tracegen job whose pod still exists, run
+the collector above immediately; it preserves `pod-task-tail.log`, Ray/vLLM logs, and sampled
+`exception.txt` files under `<experiment>/diagnostics/<job>-<timestamp>/`. If the pod has already
+been garbage-collected, synchronize the durable controller/Finelog history locally instead. Get
+`<submitted_at_ms>` from the jobs table before it is pruned:
+
+```bash
+OUT=/Users/benjaminfeuer/Documents/experiments/active/<experiment>/diagnostics
+mkdir -p "$OUT"
+env -u KUBECONFIG /Users/benjaminfeuer/Documents/marin/.venv/bin/iris \
+  --cluster=cw-rno2a job logs /benjaminfeuer/<job> \
+  --since-ms <submitted_at_ms> --max-lines 50000 --no-tail \
+  | tee "$OUT/<job>-controller.log"
+```
+
+`analyze_iris_harbor_job.py` currently resolves only `gs://` output roots, so do **not** use it for a
+terminal CoreWeave S3 job. For TPU datagen, use its
+`--output <experiment>/diagnostics/<job>-history.md --resync` collector; it paginates durable
+Finelog history and reports durable trial progress. Record the local diagnostic directory in the
+incident/update before taking recovery action. A successful state-4 completion does not require
+this failure forensics capture.
+
+For rno2a controller checks, a shell that has sourced `secrets.env` may inherit the unrelated
+`~/.kube/lambdaconfig`. Use `env -u KUBECONFIG` with `iris --cluster=cw-rno2a ...` and with
+`scripts/iris/iris_ops.py`; do not treat that kubeconfig error as an Iris/DNS failure.
+
+**Datagen status tables must include trial completion explicitly.** Report `completed / total`
+and `remaining` for every arm, where `completed` is the count of direct
+`<trial>/result.json` objects and `remaining = total - completed`. A `result.json` records a
+terminal trial, not necessarily a usable trace: report verifier rewards and exception counts
+alongside it when assessing quality. Do not use raw trial-directory count as completion; it also
+includes metadata and incomplete directories.
+
 ### Observability (verify, monitor, fetch logs)
 
 **Verify access** (cheap, before submitting):
 ```bash
-# iris-side: my live jobs (JobState enum — see §5 watch_job_state.py)
+# iris-side: my live jobs (JobState enum — see §5 iris_ops.py)
 /Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris --cluster=cw-us-east-02a query \
   "SELECT job_id,state FROM jobs WHERE state IN (1,2,3) AND job_id LIKE '/benjaminfeuer/%'" -f csv
 
@@ -466,12 +524,12 @@ preemption / early crash often emits **no** terminal log line, and the pods are 
 content-watch sits idle while the job is gone. The watch primitive:
 ```bash
 PY=/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python
-$PY scripts/iris/watch_job_state.py /benjaminfeuer/<job> --once --json    # authoritative state now
-$PY scripts/iris/watch_job_state.py /benjaminfeuer/<job> --interval 60     # watch until terminal
+$PY scripts/iris/iris_ops.py /benjaminfeuer/<job> --once --json    # authoritative state now
+$PY scripts/iris/iris_ops.py /benjaminfeuer/<job> --interval 60     # watch until terminal
 #   wraps `iris job summary --json` (auth) + SQL `query` fallback + kubectl pod cross-check;
 #   "no record AND 0 pods" => terminal `absent`. Importable: get_job_state() / watch().
 ```
-Log-content greps (`scripts/iris/analyze_job_history.py`) are for sel_rows / EPDIag / throughput
+Log-content greps (`scripts/iris/analyze_iris_harbor_job.py`) are for sel_rows / EPDIag / throughput
 **science only** — never for liveness/terminal detection. (The launch HOW-TO's §8 carries the full
 monitoring rule.)
 
@@ -493,7 +551,7 @@ the same DB, so it too returns "no record" once the row is pruned.)
   submitted via the `iris.oa.dev` meta-scheduler is exactly this case: its row can vanish right
   after the peer prunes it, well inside a 7-day window.
 - **ROBUST recipe:**
-  1. **Prefer `watch_job_state.py` — it already handles absence-as-terminal.** Its order is
+  1. **Prefer `iris_ops.py` — it already handles absence-as-terminal.** Its order is
      `job summary` → `query` fallback → if BOTH have no record **AND** `kubectl` reports **0 pods**,
      it returns `state="absent"` (`is_terminal=True`, exit **2**). It never reads an empty row as
      "running." **REQUIRES a correct `KUBECONFIG`** (`~/.kube/coreweave-iris-gpu` for cw-us-east-02a;
@@ -536,13 +594,13 @@ path needs torchtitan, not in the gpu-rl image.)
 
 **⚠ Poll / tooling pitfalls (esp. cw-rno2a + pure-RL jobs) — learned 2026-07-14:**
 - **`job summary` is FLAKY on cw-rno2a** (intermittent `execute_unary` controller blips). Drive
-  rno2a liveness through `iris query` / `watch_job_state.py --once` instead; retry-or-fall-back
+  rno2a liveness through `iris query` / `iris_ops.py --once` instead; retry-or-fall-back
   rather than trusting one `job summary` failure.
-  - **⚠ The blip can masquerade as a false `absent` / "job not found" — even `watch_job_state.py --once`
+  - **⚠ The blip can masquerade as a false `absent` / "job not found" — even `iris_ops.py --once`
     is not safe as a single shot.** Observed 2026-07-20: 4 freshly-launched (and 1 long-running) rno2a RL
     jobs ALL read `state=absent src=absent pods=0 'no controller record AND 0 pods (disappeared)'` — the
     summary RPC hit `execute_unary` 3× (→ a definitive-looking `ConnectError: Job … not found`) AND that
-    same invocation's kubectl cross-check returned pods=0, so watch_job_state concluded "disappeared." It
+    same invocation's kubectl cross-check returned pods=0, so iris_ops concluded "disappeared." It
     was a lie: **`iris query` SQL showed all 5 at `state=3`, and a fresh `kubectl -n iris get pods` showed
     4 Running pods per job.** So on rno2a, a `not found`/`absent` verdict is NOT terminal proof — a launcher
     that printed `Submitted` + a controller blip is the likelier story. **Ground-truth a scary rno2a
@@ -560,7 +618,7 @@ path needs torchtitan, not in the gpu-rl image.)
 - **jobs-table columns are the `*_ms` names** (`submitted_at_ms`, `started_at_ms`,
   `finished_at_ms`, `error`, `exit_code`) — a bare `submitted_at`/`failure_count` errors `no such
   column`. If a `query` column errors, drop it and re-select `name, state` (don't abandon the query).
-- **`analyze_job_history.py` does NOT "just work" for cw-rno2a or pure-RL jobs:**
+- **`analyze_iris_harbor_job.py` does NOT "just work" for cw-rno2a or pure-RL jobs:**
   - Region resolver passes `--config <cluster-name>` to iris, which wants a PATH → it errors `Path
     'cw-rno2a' does not exist`. Workaround: pass the config YAML **path** as `--cluster` (e.g.
     `--cluster /Users/benjaminfeuer/Documents/marin/lib/iris/config/cw-rno2a.yaml`) AND put the cw
@@ -677,7 +735,7 @@ MISSES them — reap ~1–2h later (or let the monitor/harvest cron catch them a
   as healthy. Liveness for a trainer = **forward advancement** (a fresh training step / rising
   banked-gs / the run's `finished_at` horizon moving), never engine-bring-up completion.
 - **While ANY debug thread is in flight, a single 30-minute cron re-verifies EVERY active debug job's
-  authoritative state** (jobs-table `state` / `watch_job_state.py --once`), independent of each job's
+  authoritative state** (jobs-table `state` / `iris_ops.py --once`), independent of each job's
   own watcher — the cron backstops watchers that go silent on a clean kill/eviction/post-bring-up
   wedge. Per-job watchers are still armed, but the cron is the catch-all. Retire the cron when the
   debug roster drains. (Behavioral rule: memory `watcher-and-debug-monitoring`.)
@@ -850,7 +908,7 @@ wrong (v5p counts *cores not chips*; v6e single-host packs up to 8 chips). Autho
 $IRIS --cluster=marin query "SELECT job_id, state FROM jobs WHERE state IN (1,2,3) AND job_id LIKE '/benjaminfeuer/%' ORDER BY job_id DESC" -f csv
 
 # Full-history analyzer (paginates the WHOLE log via time windows; do NOT eyeball --tail)
-/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python scripts/iris/analyze_job_history.py /benjaminfeuer/<job> --refresh
+/Users/benjaminfeuer/miniconda3/envs/otagent/bin/python scripts/iris/analyze_iris_harbor_job.py /benjaminfeuer/<job> --resync
 #   sidecar JSON: total_runtime_s, iris_preemption_count, cycles[], serving_summary.{gen_tps,running}, non_empty_trials/total_trial_dirs, harbor_exception_stats
 
 # Fetch daemon (mirrors GCS outputs → ~/.ot-agent/runs/<job>/ and captures .iris-job.log)
@@ -860,7 +918,7 @@ $IRIS --cluster=marin job logs -f /benjaminfeuer/<job>    # live workload logs (
 
 > **⚠️ Never trust `iris job logs <job> --tail --max-lines N` for stats or debugging.** It truncates
 > from the tail only — verbose Ray state-dumps crowd out the lines you care about, **under-sampling
-> throughput by 10–100×**. **Use `analyze_job_history.py`** — it paginates the entire log via fixed
+> throughput by 10–100×**. **Use `analyze_iris_harbor_job.py`** — it paginates the entire log via fixed
 > `--since-ms` + `--no-tail` windows and filters in python; even `--max-lines 200000` misses body
 > lines the windowed walk recovers.
 
@@ -1116,15 +1174,22 @@ healthz, redeploys if down, re-emits `INGRESS_HOST=`). Retired via
 Inventory + when-to-reach-for-which index for **Iris** jobs (CoreWeave GPU cluster `cw-us-east-02a`
 and Google TPU `marin` cluster). Preamble (env, kubeconfig, secrets) in §0.
 
+**Canonical evidence layout.** `scripts/iris/iris_ops.py` validates job ids against Marin `main` and
+maps every job to `/Users/benjaminfeuer/Documents/experiments/active/iris-job-bundles/jobs/<cluster>/<user>/<job>/`.
+`watch_coreweave_rl.py` and `watch_iris_harbor.py` both refresh that bundle; completed analyzers
+read it locally (or resync it), and the focused live tools write into the same path. Use
+`coreweave_ops.py` for shared CoreWeave pod, Ray/vLLM, and object-store operations rather than
+copying collection code into an analyzer.
+
 ### Tier 1 — everyday operational tools (monitoring + rollout inspection)
 
-#### `watch_job_state.py` — authoritative job-state watcher *(the liveness primitive)*
+#### `iris_ops.py` — authoritative job-state watcher *(the liveness primitive)*
 Polls the **authoritative iris job lifecycle state** (`iris job summary --json` → SQL `query`
 fallback → `kubectl` pod cross-check), NOT log-string content — so it catches clean
 kills/evictions/preemptions/early crashes that emit no terminal log line.
 - **Use:** every liveness/terminal check; importable as the watch primitive (`get_job_state()`
   returns a `JobStateSnapshot`; `watch()` runs the loop, returns the terminal snapshot).
-- **CLI:** `watch_job_state.py <job_id> [--cluster cw-us-east-02a] [--interval 60] [--once]
+- **CLI:** `iris_ops.py <job_id> [--cluster cw-us-east-02a] [--interval 60] [--once]
   [--no-pods] [--max-polls N] [--json]`.
 - **Exit codes:** `0` succeeded · `1` failed/killed/worker_failed/unschedulable · `2` absent from
   controller AND 0 pods (disappeared) · `3` watch error.
@@ -1135,19 +1200,19 @@ kills/evictions/preemptions/early crashes that emit no terminal log line.
   `6` KILLED `7` WORKER_FAILED `8` UNSCHEDULABLE.
 - **Why this over a hand-rolled `SELECT state … WHERE state IN (4,5,6)` watcher:** the `jobs` table
   is PRUNED, so a completed job's `query` returns an EMPTY row and a naive terminal-state watcher
-  polls forever. `watch_job_state.py` treats **absence-after-existence + 0 pods** as terminal
+  polls forever. `iris_ops.py` treats **absence-after-existence + 0 pods** as terminal
   (`absent`, exit 2). Needs a correct `KUBECONFIG` to confirm 0 pods. Full rule + the artifact-watch
   pattern for HF-export/s3 jobs: §2 Observability "Empty job-state ≠ still-running".
 
-#### `analyze_job_history.py` — full-log pull + throughput/preemption stats *(the science tool)*
+#### `analyze_iris_harbor_job.py` — full-log pull + throughput/preemption stats *(the science tool)*
 Paginates the ENTIRE job log by fixed time windows (`--since-ms` + `--no-tail`, the only way past
 `--tail`'s line cap) and filters at the python level to retain just the signal (cycle boundaries,
 vLLM throughput emissions), caching the filtered stream to `/tmp/iris_history_<job>.filtered.log`.
 Emits a markdown report + JSON sidecar with **§1** preemption count + time-to-preempt, **§2** trace
 progress per cycle (from harbor GCS output), **§3** serving throughput (full + warmup-excluded).
 - **Use:** sel_rows / EPDIag / throughput **science only** — *never* for liveness/terminal detection
-  (that's `watch_job_state.py`). Also the way to recover a dead run's root cause from the full log.
-- **CLI:** `analyze_job_history.py <job_id> --output <report.md> [--refresh] [--warmup-seconds 180]
+  (that's `iris_ops.py`). Also the way to recover a dead run's root cause from the full log.
+- **CLI:** `analyze_iris_harbor_job.py <job_id> --output <report.md> [--resync] [--warmup-seconds 180]
   [--cluster …] [--iris-bin …] [--gsutil-sample …]`. Auto-resolves the cw-capable iris binary
   (`resolve_iris_bin()`: `$IRIS_BIN` → PATH → otagent env → marin `.venv` last).
 - **⚠ CoreWeave (`--cluster cw-us-east-02a`) needs R2 archive creds.** The archive half reads
@@ -1156,7 +1221,7 @@ progress per cycle (from harbor GCS output), **§3** serving throughput (full + 
   `iris`-ns secret. **Full procedure: §6.** (The live half on cw uses a k8s tunnel, NOT IAP — so the
   `analyze-job-history-iris` skill's `marin-login` step is marin/TPU-only.)
 
-#### `peek_rl_rollouts.sh` — inspect / capture a running RL job's Harbor rollout artifacts
+#### `analyze_coreweave_rl_job_live.sh` — inspect / capture a running CoreWeave RL job's Harbor rollout artifacts
 Reaches the **rank-0 pod** of a running agentic-RL job and reads its `trace_jobs` (per-trial
 trajectory + prompts/responses + `verifier_output` + `result.json` reward). The jobs use a **remote
 object-store `trials_dir`** (`s3://marin-us-east-02a/iris/<job>/trace_jobs`, durable) whose creds
@@ -1167,9 +1232,10 @@ location.) `result.json` is the COMPLETED-trial marker (carries the reward) → 
 - **Use:** "is the rollout buffer actually filling / what rewards are coming back / pull the full
   trace bundle for analysis".
 - **Subcommands:** `<pod-substr>` (summary: started + completed + breakdown) · `ls [glob]` · `cat
-  <trial-dir>` (dump a trial's json) · `grep <pattern>` · `cp <trial-dir> [dest]` · `pull [out-base]`
-  (FULL CAPTURE → date-stamped dir: finelog + per-rank pod logs + all `trace_jobs` synced from the CW
-  object store `s3://marin-us-east-02a` + `MANIFEST.md`).
+  <trial-dir>` (dump a trial's json) · `grep <pattern>` · `cp <trial-dir> [dest]` · `pull [bundle-root]`
+  (FULL CAPTURE → the canonical `<bundle-root>/jobs/<cluster>/<user>/<job>/` directory: finelog +
+  per-rank pod logs + all `trace_jobs` synced from the CW object store `s3://marin-us-east-02a` +
+  `manifest.json`).
 - **`<substr>` matches the POD name** (`iris-benjaminfeuer-<name>-<rank>-<hash>-0`), which can differ
   from the iris job_id display name; no match → lists candidate RL pods.
 - **Env:** `PEEK_KUBECONFIG` (default `~/.kube/coreweave-iris-gpu`), `NS`/`CONTAINER`, `PEEK_CLUSTER`,
@@ -1218,7 +1284,7 @@ skip (guards `device.memory_stats()` on multi-host slices >v6e-8 where non-local
 
 ## §6 Credentials — R2 finelog archive (CoreWeave)
 
-> **TL;DR.** `analyze_job_history.py` (and anything reading the finelog **archive** half) needs **R2
+> **TL;DR.** `analyze_iris_harbor_job.py` (and anything reading the finelog **archive** half) needs **R2
 > credentials** to list/read `s3://marin-na/finelog/cw-us-east-02a`. The Mac does **not** have them;
 > they live only in the cluster's `iris`-namespace secret **`finelog-cw-use02a-env`** (`AWS_*` keys
 > incl. `AWS_ENDPOINT_URL`). Source that secret into the env — **values never printed** — before
@@ -1287,9 +1353,9 @@ otagent-env iris binary (the marin `.venv` iris can't drive CoreWeave):
 ```bash
 IRIS_BIN=/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris \
 /Users/benjaminfeuer/Documents/marin/.venv/bin/python \
-  /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_job_history.py \
+  /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_iris_harbor_job.py \
   /benjaminfeuer/<job> --cluster cw-us-east-02a \
-  --output /tmp/<job>_history.md --refresh
+  --output /tmp/<job>_history.md --resync
 ```
 
 Isolated check that the creds are wired (lists the archive root in seconds):
@@ -1308,7 +1374,7 @@ print('LS OK:', len(fs.ls(cfg.remote_log_dir, detail=False)), 'entries')"
   — archive (R2) is the real source, R2 creds mandatory. For a **running** job you need *both*
   (live tunnel for the recent L0 tail + R2 for compacted history); a live-half failure surfaces as
   a loud coverage gap, not a silent fragment.
-- **GPU-RL jobs have no harbor trial sidecars**, so `analyze_job_history.py` §2 is empty — for
+- **GPU-RL jobs have no harbor trial sidecars**, so `analyze_iris_harbor_job.py` §2 is empty — for
   GPU-RL diagnosis use **rl-job-health-deep-dive**. The log-acquisition machinery here (live ∪
   R2-archive) is generic for terminal RL run's full finelog history: the default
   `FINELOG_CONTAINS_PATTERNS` filter is TPU/datagen-tuned, so to capture RL signals

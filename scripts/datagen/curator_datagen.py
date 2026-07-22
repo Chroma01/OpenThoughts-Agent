@@ -39,6 +39,9 @@ from typing import Dict, List, Optional
 from bespokelabs import curator
 from datasets import Dataset, concatenate_datasets, load_dataset
 
+from data.conversation_utils import extract_system_prompt as build_system_prompt
+from data.conversation_utils import extract_user_prompt as extract_prompt
+
 logging.basicConfig(
     level=logging.INFO,
     format="[curator-datagen] %(asctime)s %(levelname)s %(message)s",
@@ -55,33 +58,6 @@ def _handle_sigterm(signum, frame):
     global _shutdown_requested
     log.warning(f"Received signal {signum} — will save checkpoint and exit after current chunk")
     _shutdown_requested = True
-
-
-# ---------------------------------------------------------------------------
-# Prompt extraction
-# ---------------------------------------------------------------------------
-
-def extract_prompt(conversations: List[Dict[str, str]]) -> str:
-    """Extract the user prompt from a conversations list."""
-    for msg in conversations:
-        role = msg.get("from") or msg.get("role", "")
-        content = msg.get("value") or msg.get("content", "")
-        if role in ("human", "user"):
-            return content
-    if conversations:
-        msg = conversations[-1]
-        return msg.get("value") or msg.get("content", "")
-    return ""
-
-
-def build_system_prompt(conversations: List[Dict[str, str]]) -> Optional[str]:
-    """Extract system prompt if present."""
-    for msg in conversations:
-        role = msg.get("from") or msg.get("role", "")
-        content = msg.get("value") or msg.get("content", "")
-        if role == "system":
-            return content
-    return None
 
 
 # ---------------------------------------------------------------------------

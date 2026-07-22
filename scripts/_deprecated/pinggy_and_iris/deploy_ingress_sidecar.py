@@ -49,10 +49,16 @@ from serve_public import parse_bank  # noqa: E402
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 IRIS_BIN = os.environ.get("IRIS_BIN", "/Users/benjaminfeuer/Documents/marin/.venv/bin/iris")
-CLUSTER = "marin"
+# Cluster the sidecar runs on. It fronts THAT cluster's controller EndpointProxy, so it must
+# be the SAME cluster the served endpoint is registered on (a cross-cluster/federated proxy
+# hop is exactly what marin#7448 broke). Override for a CoreWeave-GPU endpoint (e.g. the grug
+# fork serve on cw-us-east-02a) via IRIS_INGRESS_CLUSTER.
+CLUSTER = os.environ.get("IRIS_INGRESS_CLUSTER", "marin")
 JOB_NAME = "ingress-sidecar"
 ENTRYPOINT = "scripts/inference/run_ingress_sidecar_iris.py"
-DEFAULT_REGION = "us-east5"
+# Region constraint for the sidecar job. Empty ⇒ omit --region (CoreWeave clusters are
+# single-region and reject the GCP-TPU region names). Override via IRIS_INGRESS_REGION.
+DEFAULT_REGION = os.environ.get("IRIS_INGRESS_REGION", "us-east5")
 DEFAULT_BANK = os.environ.get(
     "PINGGY_BANK", str(Path.home() / "Documents" / "notes" / "ot-agent" / "pinggy_bank.md")
 )
@@ -201,11 +207,23 @@ def pick_free_pair(bank: str, exclude: set[str]) -> tuple[str, str]:
 # Iris job discovery / lifecycle.
 # --------------------------------------------------------------------------- #
 def find_running_job() -> dict | None:
-    """The running ingress-sidecar job (by name basename), or None."""
-    data = json.loads(run_iris("job", "list", "--json", "--state", "running"))
-    for job in data:
-        if job.get("name", "").rsplit("/", 1)[-1] == JOB_NAME and "RUNNING" in job.get("state", ""):
-            return job
+    """The running ingress-sidecar job (by name basename), or None.
+
+    Uses the SQL ``query`` path (portable across iris CLI versions) — the older
+    ``job list --json`` flag is not present on every iris build. State 3 == RUNNING.
+    """
+    out = run_iris(
+        "query",
+        f"SELECT job_id, state FROM jobs WHERE job_id LIKE '%/{JOB_NAME}'",
+        "-f", "csv", check=False,
+    )
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 2:
+            continue
+        job_id, state = parts[0], parts[1].lower()
+        if job_id.rsplit("/", 1)[-1] == JOB_NAME and state in ("3", "running"):
+            return {"job_id": job_id, "name": job_id, "state": "RUNNING"}
     return None
 
 
@@ -232,7 +250,7 @@ def launch(url: str, token: str, api_key: str, region: str) -> str:
         "job", "run",
         "--cpu", "2", "--memory", "2GB", "--disk", "8GB",
         "--priority", "interactive", "--no-preemptible",
-        "--region", region,
+        *(["--region", region] if region else []),
         "--job-name", JOB_NAME,
         "-e", "IRIS_INGRESS_API_KEY", api_key,
         "-e", "PINGGY_URL", url,

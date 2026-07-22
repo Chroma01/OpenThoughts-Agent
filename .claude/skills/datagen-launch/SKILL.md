@@ -90,6 +90,7 @@ The MiniMax-M2.7 131k series is driven by a **canonical tracker** that is the so
 ## On completion
 - Upload + verify traces and free disk with **datagen-job-cleanup** (handles the TIMEOUT-stranded-traces case, the one-level `trace_jobs/` nesting, the real-vs-failed sanity check, and safe disk cleanup).
 - If a dataset's snapshot footprint blocks future launches, shrink it with **datagen-reduce-dataset-snapshots**.
+- **Traces → tool-calling SFT:** to turn the generated traces into SFT-ready rows (`role: tool` + structured `tool_calls`, not the lossy default `conversations` shape), use `harbor traces export --sft-format` → `.claude/projects/harbor/ops.md` § "SFT-ready traces with tool calling — `harbor traces export --sft-format`". For byte-exact-from-served-tokens SFT instead, the literal path is § "Literal-token trace datasets" in the same doc.
 
 ## Guardrails
 - NEVER launch with the wrong (RL-org) Daytona key — it silently zeroes the run.

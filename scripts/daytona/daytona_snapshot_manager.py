@@ -82,6 +82,11 @@ import sys
 import time
 from datetime import datetime, timezone
 
+try:
+    from .daytona_client import create_client, resolve_api_key
+except ImportError:
+    from daytona_client import create_client, resolve_api_key
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -97,47 +102,6 @@ PAGE_LIMIT = 100  # snapshots per page when paging through the org
 PROTECTED_STATES = {"building", "pending", "pulling", "removing"}
 # Error-ish states eligible only when ALSO past the stale window.
 ERROR_STATES = {"error", "build_failed"}
-
-
-# ---------------------------------------------------------------------------
-# Auth
-# ---------------------------------------------------------------------------
-def resolve_api_key(args) -> str:
-    """Resolve the API key from --api-key, env var, or secrets file (in that order)."""
-    if args.api_key:
-        return args.api_key
-
-    env_var = args.api_key_env
-    key = os.environ.get(env_var)
-    if key:
-        return key
-
-    # Fall back to the secrets file (KEY=VALUE lines).
-    secrets_path = args.secrets_file
-    if secrets_path and os.path.isfile(secrets_path):
-        try:
-            from dotenv import dotenv_values
-
-            values = dotenv_values(secrets_path)
-        except ImportError:
-            # Minimal hand-rolled parser if python-dotenv is unavailable.
-            values = {}
-            with open(secrets_path) as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    k, _, v = line.partition("=")
-                    values[k.strip()] = v.strip().strip('"').strip("'")
-        key = values.get(env_var)
-        if key:
-            return key
-
-    sys.exit(
-        f"ERROR: API key not found. Looked for --api-key, env var ${env_var}, "
-        f"and ${env_var} in {secrets_path}.\n"
-        f"       Pass --api-key, export {env_var}, or add it to the secrets file."
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -235,8 +199,12 @@ def analyze(snapshots: list, stale_days: float, name_prefix: str = "") -> list[d
                 "updated_at": updated.isoformat() if updated else None,
                 "last_used_at": last_used.isoformat() if last_used else None,
                 "idle_basis": idle_basis,
-                "age_days": round(age_seconds / 86400, 2) if age_seconds is not None else None,
-                "idle_days": round(idle_seconds / 86400, 2) if idle_seconds is not None else None,
+                "age_days": round(age_seconds / 86400, 2)
+                if age_seconds is not None
+                else None,
+                "idle_days": round(idle_seconds / 86400, 2)
+                if idle_seconds is not None
+                else None,
                 "protected": protected,
                 "stale": stale,
                 "reason": reason,
@@ -312,9 +280,13 @@ def print_audit_human(rows: list[dict], total_reported: int, stale_days: float) 
 
     print()
     headroom = HARD_CAP - total_reported
-    print(f"CAP: {total_reported} / {HARD_CAP} used  ->  headroom = {headroom} snapshot(s)")
+    print(
+        f"CAP: {total_reported} / {HARD_CAP} used  ->  headroom = {headroom} snapshot(s)"
+    )
     print(f"STALE (>{stale_days}d idle, deletable): {len(stale_rows)}")
-    print(f"PROTECTED (building/pending/pulling/removing — transitional): {len(protected_rows)}")
+    print(
+        f"PROTECTED (building/pending/pulling/removing — transitional): {len(protected_rows)}"
+    )
     if stale_rows:
         reclaimable_headroom = headroom + len(stale_rows)
         print(
@@ -328,7 +300,9 @@ def print_audit_human(rows: list[dict], total_reported: int, stale_days: float) 
             "is based on CREATED-AT AGE, not actual usage (they were built but never "
             "used). Those rows are labeled 'never' under LAST USED."
         )
-    print("Legend:  * = stale/deletable   P = protected (transitional)   (blank) = fresh/idle-but-within-window")
+    print(
+        "Legend:  * = stale/deletable   P = protected (transitional)   (blank) = fresh/idle-but-within-window"
+    )
     print("=" * 100)
 
 
@@ -356,7 +330,9 @@ def build_json(rows: list[dict], total_reported: int, stale_days: float) -> dict
 # ---------------------------------------------------------------------------
 # Deletion
 # ---------------------------------------------------------------------------
-def delete_stale(client, stale_rows: list[dict], do_delete: bool, assume_yes: bool) -> int:
+def delete_stale(
+    client, stale_rows: list[dict], do_delete: bool, assume_yes: bool
+) -> int:
     """Print would-delete / actually-delete stale snapshots. Returns exit code."""
     if not stale_rows:
         print("No stale snapshots to delete.")
@@ -364,7 +340,9 @@ def delete_stale(client, stale_rows: list[dict], do_delete: bool, assume_yes: bo
 
     print(f"\n{len(stale_rows)} snapshot(s) match the staleness criterion:")
     for r in stale_rows:
-        print(f"  - {r['name']}  (state={r['state']}, idle={r['idle_days']}d)  {r['reason']}")
+        print(
+            f"  - {r['name']}  (state={r['state']}, idle={r['idle_days']}d)  {r['reason']}"
+        )
 
     if not do_delete:
         print(
@@ -375,7 +353,11 @@ def delete_stale(client, stale_rows: list[dict], do_delete: bool, assume_yes: bo
 
     if not assume_yes:
         try:
-            resp = input(f"\nDelete these {len(stale_rows)} snapshots? [y/N] ").strip().lower()
+            resp = (
+                input(f"\nDelete these {len(stale_rows)} snapshots? [y/N] ")
+                .strip()
+                .lower()
+            )
         except EOFError:
             resp = ""
         if resp not in ("y", "yes"):
@@ -391,7 +373,9 @@ def delete_stale(client, stale_rows: list[dict], do_delete: bool, assume_yes: bo
             print(f"  [{i}/{len(stale_rows)}] deleted {r['name']}")
         except Exception as exc:  # noqa: BLE001
             failed += 1
-            print(f"  [{i}/{len(stale_rows)}] FAILED {r['name']}: {type(exc).__name__}: {exc}")
+            print(
+                f"  [{i}/{len(stale_rows)}] FAILED {r['name']}: {type(exc).__name__}: {exc}"
+            )
         time.sleep(0.05)  # gentle rate-limit cushion
 
     print(f"\nDone. Reclaimed {ok}/{len(stale_rows)} snapshot(s).")
@@ -415,7 +399,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     # Auth
-    p.add_argument("--api-key", default=None, help="Daytona org API key (overrides env/secrets).")
+    p.add_argument(
+        "--api-key", default=None, help="Daytona org API key (overrides env/secrets)."
+    )
     p.add_argument(
         "--api-key-env",
         default="DAYTONA_DATA_API_KEY",
@@ -459,35 +445,39 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the interactive confirmation prompt when deleting.",
     )
     # Output
-    p.add_argument("--json", action="store_true", help="Emit machine-readable JSON instead of a table.")
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of a table.",
+    )
     return p
 
 
 def main() -> int:
     args = build_parser().parse_args()
-    api_key = resolve_api_key(args)
 
     try:
-        from daytona import Daytona, DaytonaConfig
-    except ImportError as exc:
-        print(f"ERROR: could not import the daytona SDK: {exc}", file=sys.stderr)
-        return 2
-
-    cfg_kwargs = {"api_key": api_key}
-    if args.api_url:
-        cfg_kwargs["api_url"] = args.api_url
-
-    try:
-        client = Daytona(DaytonaConfig(**cfg_kwargs))
+        api_key = resolve_api_key(
+            api_key=args.api_key,
+            api_key_env=args.api_key_env,
+            secrets_file=args.secrets_file,
+        )
+        client = create_client(api_key=api_key, api_url=args.api_url)
     except Exception as exc:  # noqa: BLE001
-        print(f"ERROR: failed to init Daytona client: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(
+            f"ERROR: failed to initialize Daytona client: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         return 2
 
     try:
         snapshots = list_all_snapshots(client)
         total_reported = client.snapshot.list(page=1, limit=1).total
     except Exception as exc:  # noqa: BLE001
-        print(f"ERROR: failed to list snapshots: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(
+            f"ERROR: failed to list snapshots: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         return 1
 
     rows = analyze(snapshots, args.stale_days, name_prefix=args.name_prefix)
@@ -511,7 +501,9 @@ def main() -> int:
                     client.snapshot.delete(r["_obj"])
                     deleted.append(r["name"])
                 except Exception as exc:  # noqa: BLE001
-                    failed.append({"name": r["name"], "error": f"{type(exc).__name__}: {exc}"})
+                    failed.append(
+                        {"name": r["name"], "error": f"{type(exc).__name__}: {exc}"}
+                    )
                 time.sleep(0.05)
             payload["deleted"] = deleted
             payload["delete_failed"] = failed

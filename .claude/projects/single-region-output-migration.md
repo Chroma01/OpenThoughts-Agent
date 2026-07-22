@@ -179,7 +179,7 @@ recorded a multi-region URI and new jobs record a single-region URI, the
 resolver transparently returns the correct bucket for **both** — this is what
 makes the cutover flag-day-free (§4).
 
-### 3.1 `scripts/iris/analyze_job_history.py` — hardcoded, MUST change
+### 3.1 `scripts/iris/analyze_iris_harbor_job.py` — hardcoded, MUST change
 
 - `GCS_ROOT = "gs://marin-models-us/ot-agent"` (line 70) is hardcoded, and
   `list_trial_trajectories` (line 958: `root = f"{GCS_ROOT}/{job_name}/{job_name}"`)
@@ -400,7 +400,7 @@ Run one real datagen job end-to-end and verify each leg:
    resolver URI; assert the HF repo gets a non-zero row count and, for a
    `--record_literal` job, `Literal yield: X/Y` with `X>0` and
    `count_populated_literal_rows>0`.
-7. **analyze_job_history** against `<job>` produces §2 trace-progress stats
+7. **analyze_iris_harbor_job** against `<job>` produces §2 trace-progress stats
    (i.e. it read the single-region bucket via the resolver, not the hardcoded
    `marin-models-us`).
 8. **Legacy still works:** run the resolver + analyze + a dry rescue against one
@@ -449,7 +449,7 @@ Run one real datagen job end-to-end and verify each leg:
 | `hpc/iris/outputs.py` | none (`DEFAULT_GCS_OUTPUT_ROOT` already single-region `marin-eu-west4`) | none |
 | `hpc/iris/env.py` | none (xla_cache derives from `gcs_output_dir` automatically); add a regression test | XS |
 | `hpc/iris/job_output_resolver.py` (new) | registry-first, iris-fallback, explicit-override resolver + `__main__` CLI | M |
-| `scripts/iris/analyze_job_history.py` | drop hardcoded `GCS_ROOT`; resolve per-job via resolver; thread root into `list_trial_trajectories`/`fetch_harbor_result` | S |
+| `scripts/iris/analyze_iris_harbor_job.py` | drop hardcoded `GCS_ROOT`; resolve per-job via resolver; thread root into `list_trial_trajectories`/`fetch_harbor_result` | S |
 | `.claude/skills/datagen-job-cleanup/SKILL.md` | rescue: resolve URI, not "both {us,eu}" | S |
 | `.claude/skills/monitor-cron-sweep-iris/SKILL.md` | rescue mechanics + launch template guidance | S |
 | `.claude/skills/monitor-restore-iris/SKILL.md` | rescue mechanics | XS |

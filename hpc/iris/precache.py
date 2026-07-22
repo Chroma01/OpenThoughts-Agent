@@ -20,7 +20,7 @@ Design contract (safety-first, for shared launch infra)
   silent-offline-not-found-at-runtime failure we must avoid).
 * **Models are NOT mirrored inline from the launch host** by default: a model
   mirror streams tens of GB and belongs on an in-cluster iris worker
-  (``scripts/iris/launch_hf_mirror.py``), not the Mac. On a model MISS the
+  (``scripts/iris/launch_mirror.py hf-to-gcs``), not the Mac. On a model MISS the
   helper reports ``present=False`` (the caller decides: fail loud in ``strict``
   mode, or fall back to today's online behavior in ``auto`` mode). Datasets are
   small (task parquets) and ARE mirrored inline on a miss.
@@ -52,12 +52,12 @@ from typing import List, Optional
 from hpc.iris.regions import gcs_bucket_for_region
 
 # Prefixes under each region bucket. Models match mirror_hf_to_gcs's default
-# callsite (launch_hf_mirror.py -> gs://marin-models-{us,eu}/ot-agent/models).
+# callsite (launch_mirror.py hf-to-gcs -> gs://marin-models-{us,eu}/ot-agent/models).
 MODELS_PREFIX = "ot-agent/models"
 DATASETS_PREFIX = "ot-agent/datasets"
 
 # The two multi-region buckets that together cover every iris worker region
-# with zero cross-region read egress (same fan-out as launch_hf_mirror.py).
+# with zero cross-region read egress (same fan-out as launch_mirror.py hf-to-gcs).
 FANOUT_BUCKETS = ("gs://marin-models-us", "gs://marin-models-eu")
 
 # Fallback region bucket when the launcher couldn't pin a region (unmapped
@@ -377,7 +377,7 @@ def precache_for_eval(
         bucket = _bucket_for_region(region)
         remediation = (
             f"pre-mirror it, then relaunch:\n"
-            f"    python -m scripts.iris.launch_hf_mirror --repo {model}\n"
+            f"    python -m scripts.iris.launch_mirror hf-to-gcs --repo {model}\n"
             f"  (region bucket: {bucket}); datasets mirror inline on launch when "
             f"the launch host has GCS write creds."
         )

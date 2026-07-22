@@ -1,65 +1,50 @@
-# mum (marin corpus) — facts & gotchas
+# Mumwelt (Marin corpus) — facts & gotchas
 
-Offline-queryable mirror of all Marin activity (GitHub issues/PRs/comments, Discord, W&B run metadata + final
-numbers, weekly summaries), searchable by keyword + meaning, every hit citable by URL. Learned 2026-06-29
-pulling Delphi midtraining provenance.
+Offline-queryable mirror of Marin activity: GitHub issues/PRs/comments, Discord, W&B run metadata and final numbers, weekly summaries, and searchable code indexes. Results are searchable by keyword and meaning and carry citable URLs.
 
-**Two skills query this corpus; prefer `marin-research`.**
-- **`marin-research`** — the DEFAULT, the one to use: more accurate. Decomposes a question into parallel
-  sub-searches across subagents over the corpus + weekly summaries, then synthesizes a cited answer (broad /
-  ambiguous / multi-part asks, retros, "full picture of X", literature-review-style). Skill:
-  `https://github.com/Open-Athena/mumwelt/blob/main/mumwelt/skills/marin-research/SKILL.md`
-  (local `~/Documents/mumwelt/mumwelt/skills/marin-research/SKILL.md`).
-- **`marin-context`** — the FASTER, LESS-ACCURATE single-pass version (one `mum search`/`show`); fine for a quick
-  identifier/run lookup. Local `~/Documents/mumwelt/mumwelt/skills/marin-context/SKILL.md`.
-- **`marin-publish`** — publish a finished cited answer to a private gist (htmlpreview link).
+## Skills
 
-Source repo `~/Documents/mumwelt`.
+`mum skills install` installs three skills under `~/.claude/skills/`:
 
----
+- **`mumwelt`** — default for broad, ambiguous, or multi-part research. It decomposes the question across the corpus and reports a cited synthesis.
+- **`mumwelt-code`** — the lightweight first choice for a single implementation lookup. It searches embedding-backed code lanes for `main` and in-flight branches; treat only `main` as current behavior.
+- **`mumwelt-publish`** — publishes a finished cited answer as a rendered private gist.
 
-## Invocation (do NOT assume `mum` / `uv` are on PATH)
+The old `marin-research` and `marin-publish` skill directories are retired. `mumwelt` supersedes the former; `mumwelt-publish` supersedes the latter.
 
-- The `mum` binary lives in the **otagent conda env**: **`/Users/benjaminfeuer/miniconda3/envs/otagent/bin/mum`**.
-  The default (non-login) Bash-tool shell has neither `mum` nor `uv` on PATH — call the absolute path.
-- Source is `~/Documents/mumwelt` (console_script `mumwelt.cli:main`); no `.venv` there.
+## Install / update
+
+```bash
+uv tool install --reinstall git+https://github.com/Open-Athena/mumwelt.git
+mum skills install
+rm -rf ~/.claude/skills/marin-research ~/.claude/skills/marin-publish
+mum refresh
+```
+
+The uv-managed executable is normally `~/.local/bin/mum` (use that absolute path when the shell does not include it on `PATH`). Do not rely on the former `otagent`-conda installation.
+
+`mum refresh` updates both the corpus and the code indexes. The corpus currently has separate prose and code embeddings; ordinary search shows code lanes separately, while `--source code` gives code the full result budget.
 
 ## Commands
 
-- `mum status` — freshness: corpus chunk count + age, summaries weeks, **server build age + size**.
-- `mum refresh` — pull latest corpus + summaries (first pull ~150 MB).
-- `mum search "<query>" [--source github,discord,wandb,narrative] [--kind run,issue,pr,comment,message,section]
-  [--since YYYY-MM-DD] [-k N] [--json]` — fused keyword+semantic; search by concept OR identifier (run name,
-  `#1234`, login). The result **snippets carry indexed fields** (for W&B runs: config tokens like `batch_size`,
-  `num_train_steps`, `adam_lr`, `midtraining_mix`, `cooldown_ratio`, state, author).
-- `mum run <project>/<run>` or `mum run <wandb URL>` — run metadata + **final summary numbers** + config.
-- `mum show <url-or-ref>` — expand a hit (discord → channel window; github → issue+comments; **wandb → a fuller
-  one-line config dump** than the search snippet).
-- `mum summaries list | show latest | links YYYY-MM-DD`.
+- `mum status` — corpus chunk count and age, summaries coverage, and server build age/size.
+- `mum refresh` — update corpus, summaries, and code indexes.
+- `mum search "<query>" [--source github,discord,wandb,narrative,code] [--kind run,issue,pr,comment,message,section,branch-symbol] [-k N] [--json]` — fused keyword and semantic retrieval. Without `--source code`, output includes separately ranked `code · main` and `code · in-flight branches` lanes.
+- `mum search "<subject>" --source code -k 30` — deliberate implementation search. Cite `main` for current behavior; cite a branch only as in-flight work.
+- `mum run <project>/<run>` or `mum run <wandb URL>` — run metadata, final summary numbers, and config.
+- `mum show <url-or-ref>` — expand a search hit.
+- `mum summaries list | show latest | links YYYY-MM-DD` — orient on recent activity before broad research.
 
-## Freshness policy (from the skill)
-≤7 days old → use as-is. >7 days → refresh first (tell the user). STALE (>24h) **and** time-sensitive question →
-ask before refreshing, then honor the answer. If the user says "don't repull", use what's on disk.
+## Freshness policy (from the skills)
 
-## The big gotcha: `mum run` resolves configs by RUN NAME and 404s for executor-launched / crashed runs
+If the mirror is missing, refresh. If it is **over one day old**, refresh before relying on it. Within one day, use it as-is; ask before refreshing only when the question is time-sensitive. Honor an explicit request not to repull. `MARIN_MAX_AGE_DAYS` configures the threshold.
 
-- `mum run <proj>/<run>` hits the server's `/wandb/<proj>/<run>/config` endpoint **keyed by the display name**.
-  It returns config cleanly for **script-launched** runs whose W&B name == the run id (e.g. the 21 small Delphi
-  midtraining runs). It **404s (raises `JSONDecodeError: Expecting value`)** for:
-  - **marin-executor-launched runs**, whose `#6279`-style ids are step labels that appear only embedded inside
-    *derived* runs (eval / `ppl-gap-score`), not as a standalone training run name; and
-  - **crashed runs** (no finalized config export).
-- **Fallback when `mum run` 404s:** the config FIELDS are still in the **search index** — use
-  `mum search "<run-id>" --source wandb` and `mum show <run-url>` to read `batch_size`, `num_train_steps`,
-  `adam_lr`, `peak_lr`, `midtraining_mix`, `cooldown_ratio`, etc. (This recovered the large Delphi runs' recipe
-  shape.) For the *authoritative* resolved config of an executor run, go to GCS `.executor_info` instead (see
-  `marin-executor`).
-- The mirror **server can be rebuilt mid-session** (`mum status` → "server built Nh ago"); endpoint behavior can
-  shift across rebuilds (a `mum run` that worked earlier may 404 after a rebuild). W&B **per-step history is not
-  mirrored** — only final summary numbers.
+## The big gotcha: `mum run` resolves configs by run name and can 404 for executor-launched or crashed runs
 
-## Naming note (W&B run ids vs cell labels)
-A Marin run id like `delphi-1e22-p33m67-32p07b-lr0.67-54770ae7` may be a *selected-cell label*, not a literal
-W&B training-run name — the actual training run can be named differently (e.g. `true-midtrain-1e22-p33m67-…`),
-and the label only lives on derived eval/ppl runs. When `mum run <id>` 404s, `mum search` the family to find the
-real run name before concluding the data is absent.
+- `mum run <proj>/<run>` queries config by display name. It works cleanly for script-launched runs whose W&B name equals the run id. It can fail for marin-executor-launched runs, whose selected-cell label appears only in derived eval runs, and for crashed runs without a finalized config export.
+- When it fails, use `mum search "<run-id>" --source wandb` and `mum show <run-url>`: indexed snippets still expose configuration fields. For the authoritative resolved config of an executor run, use GCS `.executor_info`.
+- W&B per-step history is not mirrored; only final summary numbers are available.
+
+## Naming note (W&B run ids vs. cell labels)
+
+A Marin run id can be a selected-cell label rather than a literal W&B training-run name. Search the run family to locate the actual training run before concluding the data is absent.

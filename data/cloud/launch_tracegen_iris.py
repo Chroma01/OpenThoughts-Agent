@@ -116,7 +116,7 @@ class TracegenIrisLauncher(IrisLauncher):
         parser.add_argument(
             "--baked-venv", "--baked_venv", dest="baked_venv", action="store_true",
             help="Run the worker from the image's baked /opt/openthoughts/.venv instead of "
-                 "letting the iris bootstrap rebuild /app/.venv from uv.lock. Required for "
+                 "letting Iris run its default setup or rebuild /app/.venv from uv.lock. Required for "
                  "images whose venv carries deps NOT in the locked pin (e.g. the gpu-glm52 "
                  "image's fork vLLM for GLM-5.2, which a `uv sync --reinstall` would clobber "
                  "back to the pinned version).")
@@ -289,10 +289,10 @@ class TracegenIrisLauncher(IrisLauncher):
             cmd.append("--upload_hf_private")
 
         if getattr(args, "baked_venv", False):
-            # Emit a bash entrypoint (command[0] != "python") so the iris bootstrap does NOT
-            # wrap this with `uv sync --frozen --reinstall` — that would rebuild /app/.venv from
-            # the locked vLLM pin and clobber the baked fork vLLM (GLM-5.2). PYTHONPATH=/app keeps
-            # the synced worker code authoritative over the baked editable install.
+            # IrisLauncher.setup_scripts() also passes the explicit no-setup
+            # sentinel. This shell entrypoint selects the baked venv, while
+            # PYTHONPATH=/app keeps the synced worker code authoritative over
+            # its editable install.
             bash = (
                 "cd /app && export PYTHONPATH=/app:${PYTHONPATH:-} && "
                 "export PATH=/opt/openthoughts/.venv/bin:$PATH && exec " + shlex.join(cmd)

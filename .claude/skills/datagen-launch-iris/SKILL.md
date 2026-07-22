@@ -59,8 +59,8 @@ state 1=PENDING, 2=starting, 3=RUNNING, 4=SUCCEEDED, 5=FAILED, 6=KILLED.
 
 ```bash
 /Users/benjaminfeuer/miniconda3/envs/otagent/bin/python \
-  /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_job_history.py \
-  /benjaminfeuer/<job> --output /tmp/<job>_history.md --refresh
+  /Users/benjaminfeuer/Documents/OpenThoughts-Agent/scripts/iris/analyze_iris_harbor_job.py \
+  /benjaminfeuer/<job> --output /tmp/<job>_history.md --resync
 ```
 Read the `.json` sidecar (it paginates full history — don't eyeball `--tail`): `total_runtime_s`, `iris_preemption_count`, `cycles[]` (each with `did_serve`/`time_to_first_serve_s`), `serving_summary.gen_tps`/`.running` (n/mean/max), `non_empty_trials`/`total_trial_dirs` (productive rate), `harbor_exception_stats`. S1 baseline ≈ 400 mean / 1115 peak gen tok/s; short-task datasets (nl2bash, e2egit) run lower by nature — judge by productive trial rate, not tok/s alone.
 
@@ -69,6 +69,8 @@ Read the `.json` sidecar (it paginates full history — don't eyeball `--tail`):
 /Users/benjaminfeuer/miniconda3/envs/otagent/bin/python -c \
  "from huggingface_hub import HfApi; print(HfApi().dataset_info('penfever/<slug>-qwen3.5-122b-32k-traces').lastModified)"
 ```
+
+**Traces → tool-calling SFT.** To turn the generated traces into SFT-ready rows (`role: tool` + structured `tool_calls`, not the lossy default `conversations` shape), use `harbor traces export --sft-format` → `.claude/projects/harbor/ops.md` § "SFT-ready traces with tool calling — `harbor traces export --sft-format`". For SFT decoded byte-exact from the served tokens instead (`--record_literal` jobs, TIS fidelity), see § "Literal-token trace datasets" in the same doc.
 
 ## Manual cleanup
 

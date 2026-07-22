@@ -18,14 +18,11 @@ fields are e.g. `task`, `result`, `run_id`, `trial_name`, `model`, `agent`). "To
 of a trace" = the tokenized length of the *whole* conversation.
 
 ## The canonical OT-Agent tools (don't reinvent)
-- **`scripts/analysis/utils.py::extract_conversation_text(record)`** — the canonical
-  conversation→full-text extractor (handles `messages`/`conversations`, `content`/`value`/`text`,
-  list-of-content-parts). Use this to get the text to tokenize.
-- **`scripts/analysis/context_length_dist.py`** — token-length **distribution** across a
-  hardcoded `DATASETS` list: loads each (`load_dataset(..., split="train")`), `extract_conversation_text`
-  per row, **batch-tokenizes with the Qwen/Qwen3-8B tokenizer** (`add_special_tokens=False`),
-  prints `median / p90 / max`, and plots histograms. To analyze a specific dataset, add its HF id
-  to `DATASETS` and run it (otagent python). This is the go-to for "how long are these traces."
+- **`scripts/analysis/utils.py`** — canonical pure conversation/token helpers:
+  `extract_conversation_text(record)`, `render_token_representation(...)`, and
+  `count_conversation_tokens(...)`. Every count must explicitly select
+  `serialized`, `conversation_text`, or `chat_template`; these are different
+  measurements and must never be silently substituted for one another.
 - **`scripts/analysis/context_length_compare.py`** — cross-dataset context-length comparison.
 
 ## Tokenizer convention
@@ -34,14 +31,15 @@ Our trace datasets are Qwen3-8B-tokenized even when named for GLM/Kimi/etc. — 
 models are Qwen3-8B SFTs (see memory `reference_glm47_swesmith_is_qwen3_8b`); the *served* model
 name in a row's `model` field (e.g. `hosted_vllm/<numeric-id>`) is NOT a usable tokenizer name.
 
-## Two token-count methods — pick by the question
-- **plain** = `tokenizer(extract_conversation_text(row), add_special_tokens=False)` — what
-  `context_length_dist.py` uses; fast; slightly **under**-counts vs training (no chat-template tokens).
+## Three token-count representations — pick by the question
+- **conversation_text** = `tokenizer(extract_conversation_text(row), add_special_tokens=False)` — fast;
+  slightly **under**-counts vs training (no chat-template tokens).
   Right for distribution/relative comparisons.
-- **training-faithful** = `len(tokenizer.apply_chat_template(conv, tokenize=True, add_generation_prompt=False))`
+- **chat_template** = `len(tokenizer.apply_chat_template(conv, tokenize=True, add_generation_prompt=False))`
   — what an SFT trainer actually tokenizes; use when the question is **"does it fit a 32k/131k
-  training window."** (Wrap per-row in try/except: if a trace's role shape makes the template raise,
-  fall back to the plain count and tally the fallbacks.)
+  training window."** If a trace's role shape makes the template raise, report it as
+  uncountable for this representation and tally it separately; do not substitute a
+  plain-text count.
 - ⚠️ **The two can differ by MORE than the wrapper tokens — and in the surprising direction.**
   Qwen3's chat template **strips historical `<think>` blocks** from earlier assistant turns, so on
   thinking-mode traces `apply_chat_template` can count **fewer** tokens than plain-concat (which keeps
@@ -50,11 +48,13 @@ name in a row's `model` field (e.g. `hosted_vllm/<numeric-id>`) is NOT a usable 
   count; a thinking-preserving template (`qwen3_thinking_acc.jinja2`) → conservative count ≈ plain.
   Report BOTH and pick by the training template; for a safe "fits 32k" answer use the larger (plain /
   thinking-preserving) count.
+- **serialized** = compact JSON of the raw `conversations` value, including role
+  fields and JSON punctuation. This is the legacy datagen-counter measurement;
+  it is useful for continuity but is neither plain text nor training-faithful.
 
 ## Threshold + metadata filter-count (the common ask)
 Recipe: `load_dataset` (non-streaming) → per row compute (a) the token count and (b) a metadata
-predicate → count the intersection; report each leg separately so it's auditable. Pattern lives in
-`scripts/analysis/_filter_swesmith_complete_32k.py` (a worked one-off — copy + adapt the predicate).
+predicate → count the intersection; report each leg separately so it's auditable.
 
 ### ⚠️ The metadata-confound trap (read this before any field predicate)
 Instruction text leaks into the trace. Fields like **`task_complete`** appear *verbatim in the user
