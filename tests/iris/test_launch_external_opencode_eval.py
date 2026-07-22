@@ -25,7 +25,8 @@ def test_mint_requires_one_capability_url(monkeypatch):
     assert (
         _MODULE.mint_capability_api_base(
             iris_bin="iris",
-            cluster="cw-us-east-02a",
+            parent_cluster="marin",
+            parent_ingress_host="https://iris.oa.dev",
             endpoint_name="/serve/example",
             ttl_hours=24,
         )
@@ -43,7 +44,8 @@ def test_mint_rejects_missing_or_ambiguous_urls(monkeypatch):
     with pytest.raises(RuntimeError, match="unambiguous"):
         _MODULE.mint_capability_api_base(
             iris_bin="iris",
-            cluster="cw-us-east-02a",
+            parent_cluster="marin",
+            parent_ingress_host="https://iris.oa.dev",
             endpoint_name="/serve/example",
             ttl_hours=24,
         )
@@ -73,7 +75,6 @@ def test_submit_uses_env_for_url_and_fails_fast_when_missing():
             "DAYTONA_API_KEY": "daytona",
             "HF_TOKEN": "hf",
             "OPENAI_API_KEY": "judge",
-            "IRIS_INGRESS_API_KEY": "sidecar",
         },
         "https://iris.oa.dev/proxy/t/token/serve.example/v1",
     )
@@ -82,6 +83,58 @@ def test_submit_uses_env_for_url_and_fails_fast_when_missing():
     assert "${EXTERNAL_AGENT_API_BASE:?missing minted endpoint URL}" in shell
     assert "api_base=${EXTERNAL_AGENT_API_BASE}" in shell
     assert "https://iris.oa.dev" not in shell
+
+
+def test_parent_mirror_requires_a_peer_row(monkeypatch):
+    class Result:
+        returncode = 0
+        stderr = ""
+        stdout = "NAME ACCESS PEER ADDRESS TASK\n/serve/example link cw-us-east-02a 10.0.0.1 /user/job\n"
+
+    monkeypatch.setattr(_MODULE.subprocess, "run", lambda *a, **k: Result())
+    _MODULE.wait_for_parent_endpoint_mirror(
+        iris_bin="iris",
+        parent_cluster="marin",
+        endpoint_name="/serve/example",
+        timeout_seconds=0,
+        sleep=lambda _: None,
+        monotonic=lambda: 0,
+    )
+
+
+def test_parent_mirror_rejects_a_missing_or_local_endpoint(monkeypatch):
+    class Result:
+        returncode = 0
+        stderr = ""
+        stdout = "NAME ACCESS PEER ADDRESS TASK\n/serve/example link local 10.0.0.1 /user/job\n"
+
+    monkeypatch.setattr(_MODULE.subprocess, "run", lambda *a, **k: Result())
+    with pytest.raises(RuntimeError, match="did not mirror"):
+        _MODULE.wait_for_parent_endpoint_mirror(
+            iris_bin="iris",
+            parent_cluster="marin",
+            endpoint_name="/serve/example",
+            timeout_seconds=0,
+            sleep=lambda _: None,
+            monotonic=lambda: 0,
+        )
+
+
+def test_mint_rejects_a_peer_ingress_url(monkeypatch):
+    class Result:
+        returncode = 0
+        stderr = ""
+        stdout = "Capability URL: https://iris-cw-us-east-02a.oa.dev/proxy/t/token/serve.example/\n"
+
+    monkeypatch.setattr(_MODULE.subprocess, "run", lambda *a, **k: Result())
+    with pytest.raises(RuntimeError, match="unexpected ingress host"):
+        _MODULE.mint_capability_api_base(
+            iris_bin="iris",
+            parent_cluster="marin",
+            parent_ingress_host="https://iris.oa.dev",
+            endpoint_name="/serve/example",
+            ttl_hours=24,
+        )
 
 
 def test_selected_secrets_file_replaces_stale_inherited_values(tmp_path):

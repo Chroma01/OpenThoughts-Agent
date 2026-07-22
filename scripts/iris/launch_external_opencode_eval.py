@@ -17,23 +17,89 @@ import os
 import re
 import subprocess
 import sys
+import time
+from urllib.parse import urlsplit
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_IRIS_BIN = "/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris"
 _CAPABILITY_URL_RE = re.compile(r"https://[^\s]+")
+DEFAULT_PARENT_CLUSTER = "marin"
+DEFAULT_PARENT_INGRESS_HOST = "https://iris.oa.dev"
+DEFAULT_MIRROR_TIMEOUT_SECONDS = 180.0
+DEFAULT_MIRROR_POLL_SECONDS = 3.0
+# OpenAI-compatible installed agents require a non-empty value, but the scoped
+# capability URL is the credential. Do not use a sidecar bearer here.
+DUMMY_API_KEY = "capability-url-no-auth-header"
+
+
+def _is_mirrored_parent_endpoint(stdout: str, endpoint_name: str) -> bool:
+    """Return whether the parent listed ``endpoint_name`` as a peer endpoint."""
+    for line in stdout.splitlines():
+        columns = line.split()
+        if len(columns) >= 3 and columns[0] == endpoint_name:
+            return columns[2] != "local"
+    return False
+
+
+def wait_for_parent_endpoint_mirror(
+    *,
+    iris_bin: str,
+    parent_cluster: str,
+    endpoint_name: str,
+    timeout_seconds: float = DEFAULT_MIRROR_TIMEOUT_SECONDS,
+    poll_seconds: float = DEFAULT_MIRROR_POLL_SECONDS,
+    sleep=time.sleep,
+    monotonic=time.monotonic,
+) -> None:
+    """Wait for FederationSync before minting a parent-scoped endpoint URL."""
+    deadline = monotonic() + timeout_seconds
+    while True:
+        result = subprocess.run(
+            [
+                iris_bin,
+                "--cluster",
+                parent_cluster,
+                "endpoints",
+                "list",
+                endpoint_name,
+                "--exact",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode:
+            raise RuntimeError(
+                "Iris parent endpoint lookup failed "
+                f"(exit {result.returncode}): {result.stderr[-800:]}"
+            )
+        if _is_mirrored_parent_endpoint(result.stdout, endpoint_name):
+            return
+        if monotonic() >= deadline:
+            raise RuntimeError(
+                f"endpoint {endpoint_name!r} did not mirror onto parent "
+                f"{parent_cluster!r} within {timeout_seconds:.0f}s; the serving job "
+                "must be submitted through the parent with --target-cluster."
+            )
+        sleep(poll_seconds)
 
 
 def mint_capability_api_base(
-    *, iris_bin: str, cluster: str, endpoint_name: str, ttl_hours: float
+    *,
+    iris_bin: str,
+    parent_cluster: str,
+    parent_ingress_host: str,
+    endpoint_name: str,
+    ttl_hours: float,
 ) -> str:
-    """Mint and validate a scoped capability URL without exposing its token."""
+    """Mint a parent-scoped capability URL without exposing its token."""
     result = subprocess.run(
         [
             iris_bin,
             "--cluster",
-            cluster,
+            parent_cluster,
             "endpoints",
             "mint",
             endpoint_name,
@@ -53,6 +119,13 @@ def mint_capability_api_base(
     if len(urls) != 1:
         raise RuntimeError(
             "Iris endpoint mint returned no unambiguous capability URL; refusing to launch."
+        )
+    minted_host = urlsplit(urls[0]).hostname
+    expected_host = urlsplit(parent_ingress_host).hostname
+    if not expected_host or minted_host != expected_host:
+        raise RuntimeError(
+            "Iris parent mint returned a URL for an unexpected ingress host; "
+            "refusing to submit an unreachable eval."
         )
     # Iris returns a scoped proxy base and directs callers to append the app
     # path. OpenCode speaks the OpenAI-compatible ``/v1`` API.
@@ -92,8 +165,7 @@ def build_submit_command(
         "DAYTONA_API_KEY": require_secret(env, "DAYTONA_API_KEY"),
         "HF_TOKEN": require_secret(env, "HF_TOKEN"),
         "OPENAI_API_KEY": require_secret(env, "OPENAI_API_KEY"),
-        # The pinggy sidecar's static bearer is separate from the capability URL.
-        "OPENCODE_DUMMY_KEY": require_secret(env, "IRIS_INGRESS_API_KEY"),
+        "OPENCODE_DUMMY_KEY": DUMMY_API_KEY,
         "EXTERNAL_AGENT_API_BASE": api_base,
     }
     command = [
@@ -147,11 +219,18 @@ def main() -> int:
     parser.add_argument("--job-name", required=True)
     parser.add_argument("--endpoint-name", required=True)
     parser.add_argument("--cluster", default="cw-us-east-02a")
+    parser.add_argument("--parent-cluster", default=DEFAULT_PARENT_CLUSTER)
+    parser.add_argument(
+        "--parent-ingress-host", default=DEFAULT_PARENT_INGRESS_HOST
+    )
     parser.add_argument("--task-image", required=True)
     parser.add_argument(
         "--iris-bin", default=os.environ.get("IRIS_BIN", DEFAULT_IRIS_BIN)
     )
     parser.add_argument("--ttl-hours", type=float, default=24.0)
+    parser.add_argument(
+        "--mirror-timeout-seconds", type=float, default=DEFAULT_MIRROR_TIMEOUT_SECONDS
+    )
     parser.add_argument("--secrets-env", required=True)
     parser.add_argument(
         "--harbor-config",
@@ -180,9 +259,16 @@ def main() -> int:
     # DAYTONA_API_KEY otherwise produces a full, but completely invalid, eval.
     load_secrets_env(secret_path, os.environ)
 
+    wait_for_parent_endpoint_mirror(
+        iris_bin=args.iris_bin,
+        parent_cluster=args.parent_cluster,
+        endpoint_name=args.endpoint_name,
+        timeout_seconds=args.mirror_timeout_seconds,
+    )
     api_base = mint_capability_api_base(
         iris_bin=args.iris_bin,
-        cluster=args.cluster,
+        parent_cluster=args.parent_cluster,
+        parent_ingress_host=args.parent_ingress_host,
         endpoint_name=args.endpoint_name,
         ttl_hours=args.ttl_hours,
     )

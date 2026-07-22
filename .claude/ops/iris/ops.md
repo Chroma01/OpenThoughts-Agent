@@ -1096,15 +1096,13 @@ that select it live in the `datagen-launch-iris` skill.
 
 ### Current ingress = NATIVE `/proxy/t/*` capability-URL (pinggy retired 2026-07-06)
 
-The iris controller's EndpointProxy fronts registered endpoints publicly. The datagen worker
-co-locates a RecordProxy (`0.0.0.0:8010`) in front of vLLM and registers it with the controller;
-the Daytona sandbox reaches vLLM through the controller's public host.
+The Iris EndpointProxy fronts registered LINK endpoints. A Daytona sandbox must receive an
+`https://iris.oa.dev/proxy/t/<JWT>/<endpoint>/v1` capability URL; its OpenAI key is only an inert
+non-empty placeholder.
 
-- **Recipe flags:** `--ingress_mode controller --ingress_host https://iris.oa.dev`.
-- **What the worker does at serve-spawn:** `register_endpoint(name, address, …, access=LINK)` →
-  `mint_endpoint_token(endpoint_name)` → the sandbox base_url is the **capability URL**
-  `https://iris.oa.dev/proxy/t/<JWT>/otagent-<slug>/v1` (a dummy OpenAI key is injected). Endpoint
-  names are `otagent-<slug>` (dot-free → no encoding needed).
+- **Marin-local serving (normal TPU datagen/eval):** `--ingress_mode controller --ingress_host https://iris.oa.dev`; the worker registers and mints on Marin, so the token issuer and public ingress match.
+- **CoreWeave serving (RL or an external eval endpoint):** submit the serving job through the Marin meta-scheduler with `--target-cluster cw-us-east-02a` and forward the Marin login. Register on the peer, wait for FederationSync to mirror the endpoint on Marin, then mint at the Marin parent (`federated_capability_api_base`) and use `iris.oa.dev`. A CoreWeave peer token is rejected by the parent; its own `iris-cw-us-east-02a.oa.dev` host is IP-locked and unreachable from Daytona. Check the prerequisite with `iris --cluster=marin endpoints list <endpoint> --exact`: it must show a non-local peer before minting.
+- **Never use a peer mint for a Daytona route:** `iris --cluster=cw-us-east-02a endpoints mint …` is only valid against that peer controller, not the Marin parent ingress.
 - **Token TTL is re-minted per serve-spawn (24h).** ⚠️ The minted token has its own TTL, clamped
   server-side to `MAX_ENDPOINT_TOKEN_TTL_SECONDS`; the endpoint *registration* lease-renews but the
   **token does not**. If a job outlives the token TTL the sandbox's in-flight requests start
