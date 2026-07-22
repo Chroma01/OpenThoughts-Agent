@@ -390,14 +390,32 @@ def fetch_complete_ray_logs(base: list[str], pod: str, destination: Path) -> int
     if not inventory:
         return 0
     try:
-        saved, skipped = save_ray_logs(base, pod, "task", inventory, sys.maxsize, destination)
+        saved, skipped = save_ray_logs(
+            base,
+            pod,
+            "task",
+            inventory,
+            sys.maxsize,
+            destination,
+            incremental=True,
+            python_executable=runtime_python,
+        )
     except RuntimeError:
         # Ray rotates/removes worker logs while a live pod is writing. Rebuild
         # the inventory once so a stale path cannot abort the whole fleet scan.
         inventory = ray_log_inventory(base, pod, "task", patterns=None, python_executable=runtime_python)
         if not inventory:
             return 0
-        saved, skipped = save_ray_logs(base, pod, "task", inventory, sys.maxsize, destination)
+        saved, skipped = save_ray_logs(
+            base,
+            pod,
+            "task",
+            inventory,
+            sys.maxsize,
+            destination,
+            incremental=True,
+            python_executable=runtime_python,
+        )
     if skipped:
         raise AssertionError("A maximum-size sync should not skip Ray/vLLM logs.")
     return len(saved)

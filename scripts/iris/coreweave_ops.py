@@ -51,6 +51,7 @@ RAY_LOG_PATTERNS = (
 )
 DEFAULT_MAX_TRIAL_FILE_BYTES = 20 * 1024 * 1024
 DEFAULT_MAX_VLLM_LOG_BYTES = 100 * 1024 * 1024
+RAY_LOG_SYNC_MANIFEST = ".ray-vllm-sync-manifest.json"
 TRANSIENT_KUBECTL_EXEC_MARKERS = (
     "<!doctype html",
     "<html",
@@ -364,13 +365,157 @@ patterns = __PATTERNS__
 root = Path('/tmp/ray/session_latest/logs')
 files = set(root.rglob('*')) if patterns is None else {path for pattern in patterns for path in root.glob(pattern)}
 files = {path for path in files if path.is_file()}
-print(json.dumps([{'path': str(path.relative_to(root)), 'size': path.stat().st_size} for path in sorted(files)]))
+print(json.dumps([
+    {
+        'path': str(path.relative_to(root)),
+        'size': path.stat().st_size,
+        # A same-named Ray log may be rotated and recreated.  Its inode lets
+        # the local collector distinguish that from an append-only growth.
+        'inode': path.stat().st_ino,
+    }
+    for path in sorted(files)
+]))
 """.replace("__PATTERNS__", serialized_patterns)
     runtime_python = python_executable or resolve_container_python(base, pod, container)
     raw = command(
         [*base, "-n", NAMESPACE, "exec", pod, "-c", container, "--", runtime_python, "-c", script]
     )
     return json.loads(raw)
+
+
+def _safe_ray_log_path(value: str) -> Path:
+    path = PurePosixPath(value)
+    if path.is_absolute() or not path.parts or any(part in {"", ".", ".."} for part in path.parts):
+        raise RuntimeError(f"Refusing unsafe Ray/vLLM log path {value!r}")
+    return Path(*path.parts)
+
+
+def _read_ray_log_sync_manifest(destination: Path) -> dict[str, dict[str, int]]:
+    path = destination / RAY_LOG_SYNC_MANIFEST
+    try:
+        loaded = json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+    files = loaded.get("files") if isinstance(loaded, dict) else None
+    if not isinstance(files, dict):
+        return {}
+    return {
+        name: entry
+        for name, entry in files.items()
+        if isinstance(name, str)
+        and isinstance(entry, dict)
+        and isinstance(entry.get("inode"), int)
+        and isinstance(entry.get("size"), int)
+    }
+
+
+def _write_ray_log_sync_manifest(destination: Path, inventory: list[dict[str, Any]]) -> None:
+    files = {
+        str(item["path"]): {"inode": int(item["inode"]), "size": int(item["size"])}
+        for item in inventory
+        if isinstance(item.get("inode"), int)
+    }
+    write_json(destination / RAY_LOG_SYNC_MANIFEST, {"version": 1, "files": files})
+
+
+def plan_ray_log_delta(
+    inventory: list[dict[str, Any]], destination: Path
+) -> list[dict[str, Any]]:
+    """Choose append offsets for an append-only Ray/vLLM log mirror.
+
+    A growing file can be appended only when the previous inode and exact
+    local size agree with the durable manifest.  Any uncertainty (a missing
+    manifest, rotation, truncation, or local edit) deliberately falls back to
+    a complete replacement.
+    """
+    previous = _read_ray_log_sync_manifest(destination)
+    transfers: list[dict[str, Any]] = []
+    for item in inventory:
+        path = str(item["path"])
+        size = int(item["size"])
+        inode = item.get("inode")
+        local_path = destination / _safe_ray_log_path(path)
+        prior = previous.get(path)
+        offset = 0
+        if (
+            isinstance(inode, int)
+            and prior is not None
+            and prior["inode"] == inode
+            and 0 <= prior["size"] <= size
+            and local_path.is_file()
+            and local_path.stat().st_size == prior["size"]
+        ):
+            offset = prior["size"]
+        if offset != size:
+            transfers.append({**item, "offset": offset})
+    return transfers
+
+
+def _delta_archive_script(transfers: list[dict[str, Any]]) -> str:
+    """Build a streaming tar program carrying only the requested log suffixes."""
+    requested = json.dumps(transfers)
+    return """
+import io
+import json
+import sys
+import tarfile
+from pathlib import Path
+
+root = Path('/tmp/ray/session_latest/logs')
+requests = __REQUESTS__
+with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as archive:
+    for request in requests:
+        relative = request['path']
+        source = root / relative
+        stat = source.stat()
+        offset = int(request['offset'])
+        expected_size = int(request['size'])
+        expected_inode = request.get('inode')
+        if not source.is_file() or stat.st_size < expected_size:
+            raise RuntimeError(f'Ray log changed while collecting: {relative}')
+        if expected_inode is not None and stat.st_ino != expected_inode:
+            raise RuntimeError(f'Ray log rotated while collecting: {relative}')
+        info = tarfile.TarInfo(relative)
+        info.size = expected_size - offset
+        info.pax_headers = {
+            'otagent.offset': str(offset),
+            'otagent.inode': str(stat.st_ino),
+        }
+        with source.open('rb') as handle:
+            handle.seek(offset)
+            archive.addfile(info, handle)
+""".replace("__REQUESTS__", requested)
+
+
+def _extract_ray_log_delta(archive: tarfile.TarFile, destination: Path) -> None:
+    for member in archive:
+        if not member.isfile():
+            raise RuntimeError(f"Refusing non-file Ray/vLLM archive member {member.name!r}")
+        offset_text = member.pax_headers.get("otagent.offset")
+        if offset_text is None:
+            raise RuntimeError(f"Ray/vLLM delta member {member.name!r} has no append offset")
+        try:
+            offset = int(offset_text)
+        except ValueError as error:
+            raise RuntimeError(f"Invalid append offset for Ray/vLLM log {member.name!r}") from error
+        target = destination / _safe_ray_log_path(member.name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source = archive.extractfile(member)
+        if source is None:
+            raise RuntimeError(f"Could not extract Ray/vLLM log member {member.name!r}")
+        if offset:
+            if not target.is_file() or target.stat().st_size != offset:
+                raise RuntimeError(
+                    f"Local Ray/vLLM log changed before append: {member.name!r} at offset {offset}"
+                )
+            mode = "ab"
+        else:
+            mode = "wb"
+        with target.open(mode) as output:
+            while chunk := source.read(1024 * 1024):
+                output.write(chunk)
 
 
 def save_ray_logs(
@@ -380,33 +525,31 @@ def save_ray_logs(
     inventory: list[dict[str, Any]],
     max_bytes: int,
     destination: Path,
+    *,
+    incremental: bool = False,
+    python_executable: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     selected = [item for item in inventory if item["size"] <= max_bytes]
     skipped = [item for item in inventory if item["size"] > max_bytes]
     if not selected:
         return selected, skipped
 
+    transfers = plan_ray_log_delta(selected, destination) if incremental else selected
+    if not transfers:
+        _write_ray_log_sync_manifest(destination, selected)
+        return selected, skipped
+
     archive_error: tarfile.TarError | None = None
     stderr = ""
     return_code = 0
     for attempt in range(DNS_ATTEMPTS):
+        remote_command = (
+            [python_executable or resolve_container_python(base, pod, container), "-c", _delta_archive_script(transfers)]
+            if incremental
+            else ["tar", "-C", RAY_LOG_DIR, "-cf", "-", *(item["path"] for item in transfers)]
+        )
         process = subprocess.Popen(
-            [
-                *base,
-                "-n",
-                NAMESPACE,
-                "exec",
-                pod,
-                "-c",
-                container,
-                "--",
-                "tar",
-                "-C",
-                RAY_LOG_DIR,
-                "-cf",
-                "-",
-                *(item["path"] for item in selected),
-            ],
+            [*base, "-n", NAMESPACE, "exec", pod, "-c", container, "--", *remote_command],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -414,13 +557,18 @@ def save_ray_logs(
         archive_error = None
         try:
             with tarfile.open(fileobj=process.stdout, mode="r|") as archive:
-                for member in archive:
-                    archive.extract(member, destination, filter="data")
+                if incremental:
+                    _extract_ray_log_delta(archive, destination)
+                else:
+                    for member in archive:
+                        archive.extract(member, destination, filter="data")
         except tarfile.TarError as error:
             archive_error = error
         stderr = process.stderr.read().decode() if process.stderr else ""
         return_code = process.wait()
         if not archive_error and return_code == 0:
+            if incremental:
+                _write_ray_log_sync_manifest(destination, selected)
             return selected, skipped
         if not is_transient_kubectl_exec_failure(stderr) or attempt == DNS_ATTEMPTS - 1:
             break

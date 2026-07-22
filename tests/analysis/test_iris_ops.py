@@ -121,6 +121,68 @@ def test_save_ray_logs_retries_transient_kubectl_html(monkeypatch, tmp_path):
     assert (tmp_path / "worker-1.out").read_bytes() == b"ray log\n"
 
 
+def _ray_delta_archive(entries: list[tuple[str, int, bytes]]) -> bytes:
+    archive_bytes = BytesIO()
+    with tarfile.open(fileobj=archive_bytes, mode="w") as archive:
+        for name, offset, payload in entries:
+            member = tarfile.TarInfo(name)
+            member.size = len(payload)
+            member.pax_headers = {"otagent.offset": str(offset)}
+            archive.addfile(member, BytesIO(payload))
+    return archive_bytes.getvalue()
+
+
+def test_save_ray_logs_incrementally_appends_and_replaces_rotated_logs(monkeypatch, tmp_path):
+    class TarProcess:
+        def __init__(self, archive: bytes):
+            self.stdout = BytesIO(archive)
+            self.stderr = BytesIO()
+
+        def wait(self) -> int:
+            return 0
+
+    commands: list[list[str]] = []
+    archives = iter(
+        [
+            _ray_delta_archive([("worker-1.out", 0, b"abc")]),
+            _ray_delta_archive([("worker-1.out", 3, b"def")]),
+            _ray_delta_archive([("worker-1.out", 0, b"xy")]),
+        ]
+    )
+
+    def fake_popen(command, **_kwargs):
+        commands.append(command)
+        return TarProcess(next(archives))
+
+    monkeypatch.setattr(coreweave_ops.subprocess, "Popen", fake_popen)
+    initial = [{"path": "worker-1.out", "size": 3, "inode": 41}]
+    saved, skipped = coreweave_ops.save_ray_logs(
+        ["kubectl"], "pod", "task", initial, 100, tmp_path, incremental=True, python_executable="python"
+    )
+    assert (saved, skipped) == (initial, [])
+    assert (tmp_path / "worker-1.out").read_bytes() == b"abc"
+
+    grown = [{"path": "worker-1.out", "size": 6, "inode": 41}]
+    coreweave_ops.save_ray_logs(
+        ["kubectl"], "pod", "task", grown, 100, tmp_path, incremental=True, python_executable="python"
+    )
+    assert (tmp_path / "worker-1.out").read_bytes() == b"abcdef"
+    assert '"offset": 3' in commands[1][-1]
+
+    # An unchanged file does not open another kubectl exec stream.
+    coreweave_ops.save_ray_logs(
+        ["kubectl"], "pod", "task", grown, 100, tmp_path, incremental=True, python_executable="python"
+    )
+    assert len(commands) == 2
+
+    rotated = [{"path": "worker-1.out", "size": 2, "inode": 99}]
+    coreweave_ops.save_ray_logs(
+        ["kubectl"], "pod", "task", rotated, 100, tmp_path, incremental=True, python_executable="python"
+    )
+    assert (tmp_path / "worker-1.out").read_bytes() == b"xy"
+    assert '"offset": 0' in commands[2][-1]
+
+
 def test_coreweave_command_retries_transient_kubectl_html(monkeypatch):
     results = iter(
         [
@@ -169,6 +231,7 @@ def test_ray_log_inventory_uses_explicit_python_for_rl_images(monkeypatch):
         ["kubectl"], "pod", "task", python_executable="/opt/openthoughts/envs/rl/bin/python"
     ) == []
     assert "/opt/openthoughts/envs/rl/bin/python" in commands[0]
+    assert "st_ino" in commands[0][-1]
 
 
 def test_rl_sync_warning_never_renders_proxy_html():
