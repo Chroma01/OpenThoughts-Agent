@@ -82,3 +82,19 @@ def test_submit_uses_env_for_url_and_fails_fast_when_missing():
     assert "${EXTERNAL_AGENT_API_BASE:?missing minted endpoint URL}" in shell
     assert "api_base=${EXTERNAL_AGENT_API_BASE}" in shell
     assert "https://iris.oa.dev" not in shell
+
+
+def test_selected_secrets_file_replaces_stale_inherited_values(tmp_path):
+    secret_path = tmp_path / "secrets.env"
+    secret_path.write_text(
+        "# current credentials\nexport DAYTONA_API_KEY=current\nHF_TOKEN='hf'\n"
+    )
+    environ = {"DAYTONA_API_KEY": "stale", "UNCHANGED": "value"}
+
+    _MODULE.load_secrets_env(secret_path, environ)
+
+    assert environ == {
+        "DAYTONA_API_KEY": "current",
+        "HF_TOKEN": "hf",
+        "UNCHANGED": "value",
+    }

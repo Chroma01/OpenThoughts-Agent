@@ -68,6 +68,22 @@ def require_secret(env: dict[str, str], name: str) -> str:
     return value
 
 
+def load_secrets_env(path: Path, environ: dict[str, str]) -> None:
+    """Load the selected secret file, replacing any stale inherited values."""
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key:
+            environ[key] = value.strip().strip('"').strip("'")
+
+
 def build_submit_command(
     args: argparse.Namespace, env: dict[str, str], api_base: str
 ) -> list[str]:
@@ -160,10 +176,9 @@ def main() -> int:
     secret_path = Path(args.secrets_env).expanduser()
     if not secret_path.is_file():
         raise SystemExit(f"secrets environment file not found: {secret_path}")
-    for line in secret_path.read_text().splitlines():
-        if line and not line.lstrip().startswith("#") and "=" in line:
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    # File values deliberately replace inherited variables.  A stale exported
+    # DAYTONA_API_KEY otherwise produces a full, but completely invalid, eval.
+    load_secrets_env(secret_path, os.environ)
 
     api_base = mint_capability_api_base(
         iris_bin=args.iris_bin,
