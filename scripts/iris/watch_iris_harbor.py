@@ -297,6 +297,7 @@ def fetch_ray_vllm_logs(job: HarborJob, bundle_root: Path) -> tuple[str, str | N
             inventory,
             DEFAULT_MAX_VLLM_LOG_BYTES,
             destination / "logs",
+            incremental=True,
         )
     except Exception as error:
         return "unavailable", f"Ray/vLLM sync failed: {error}"

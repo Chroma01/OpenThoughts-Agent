@@ -276,6 +276,9 @@ capacity AND a footgun). Node allocatable ≈ **128 CPU / ~2014 GiB mem / 8 GPU*
   MarinSkyRL fix that landed after the image build can be picked up live via `--skyrl-ref <commit>`;
   only the compiled vLLM fork requires an image rebuild (then **bump the digest**, using the
   immutable `:gpu-rl-<gitsha>` tag's digest).
+- **Iris environment flags use two arguments:** write `-e KEY VALUE` (for example,
+  `-e GITSHA "$GITSHA"`), **not** `-e KEY=VALUE`. The current Iris CLI rejects the latter before
+  submitting a job.
 - **⚠ BUILD THE IMAGE MULTI-LAYER (`SINGLE_SNAPSHOT=0`) — a single >8 GB layer is UN-PULLABLE cold
   over the CoreWeave→ghcr egress.** A kaniko `--single-snapshot` build collapses everything kaniko
   adds into ONE ~16.6 GB layer; the first **fresh** pull of that single-stream layer never
@@ -1096,15 +1099,13 @@ that select it live in the `datagen-launch-iris` skill.
 
 ### Current ingress = NATIVE `/proxy/t/*` capability-URL (pinggy retired 2026-07-06)
 
-The iris controller's EndpointProxy fronts registered endpoints publicly. The datagen worker
-co-locates a RecordProxy (`0.0.0.0:8010`) in front of vLLM and registers it with the controller;
-the Daytona sandbox reaches vLLM through the controller's public host.
+The Iris EndpointProxy fronts registered LINK endpoints. A Daytona sandbox must receive an
+`https://iris.oa.dev/proxy/t/<JWT>/<endpoint>/v1` capability URL; its OpenAI key is only an inert
+non-empty placeholder.
 
-- **Recipe flags:** `--ingress_mode controller --ingress_host https://iris.oa.dev`.
-- **What the worker does at serve-spawn:** `register_endpoint(name, address, …, access=LINK)` →
-  `mint_endpoint_token(endpoint_name)` → the sandbox base_url is the **capability URL**
-  `https://iris.oa.dev/proxy/t/<JWT>/otagent-<slug>/v1` (a dummy OpenAI key is injected). Endpoint
-  names are `otagent-<slug>` (dot-free → no encoding needed).
+- **Marin-local serving (normal TPU datagen/eval):** `--ingress_mode controller --ingress_host https://iris.oa.dev`; the worker registers and mints on Marin, so the token issuer and public ingress match.
+- **CoreWeave serving (RL or an external eval endpoint):** submit the serving job through the Marin meta-scheduler with `--target-cluster cw-us-east-02a` and forward the Marin login. Register on the peer, wait for FederationSync to mirror the endpoint on Marin, then mint at the Marin parent (`federated_capability_api_base`) and use `iris.oa.dev`. A CoreWeave peer token is rejected by the parent; its own `iris-cw-us-east-02a.oa.dev` host is IP-locked and unreachable from Daytona. Check the prerequisite with `iris --cluster=marin endpoints list <endpoint> --exact`: it must show a non-local peer before minting.
+- **Never use a peer mint for a Daytona route:** `iris --cluster=cw-us-east-02a endpoints mint …` is only valid against that peer controller, not the Marin parent ingress.
 - **Token TTL is re-minted per serve-spawn (24h).** ⚠️ The minted token has its own TTL, clamped
   server-side to `MAX_ENDPOINT_TOKEN_TTL_SECONDS`; the endpoint *registration* lease-renews but the
   **token does not**. If a job outlives the token TTL the sandbox's in-flight requests start

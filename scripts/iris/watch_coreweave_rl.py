@@ -33,6 +33,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from botocore.exceptions import ClientError
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -87,6 +89,7 @@ ERROR_PATTERNS = (
     re.compile(r"Train loop failed", re.IGNORECASE),
 )
 LOG_SUFFIXES = (".log", ".out", ".err", ".jsonl", ".txt")
+MISSING_OBJECT_ERROR_CODES = {"404", "NoSuchKey", "NoSuchObject", "NotFound"}
 
 
 @dataclass(frozen=True)
@@ -390,14 +393,32 @@ def fetch_complete_ray_logs(base: list[str], pod: str, destination: Path) -> int
     if not inventory:
         return 0
     try:
-        saved, skipped = save_ray_logs(base, pod, "task", inventory, sys.maxsize, destination)
+        saved, skipped = save_ray_logs(
+            base,
+            pod,
+            "task",
+            inventory,
+            sys.maxsize,
+            destination,
+            incremental=True,
+            python_executable=runtime_python,
+        )
     except RuntimeError:
         # Ray rotates/removes worker logs while a live pod is writing. Rebuild
         # the inventory once so a stale path cannot abort the whole fleet scan.
         inventory = ray_log_inventory(base, pod, "task", patterns=None, python_executable=runtime_python)
         if not inventory:
             return 0
-        saved, skipped = save_ray_logs(base, pod, "task", inventory, sys.maxsize, destination)
+        saved, skipped = save_ray_logs(
+            base,
+            pod,
+            "task",
+            inventory,
+            sys.maxsize,
+            destination,
+            incremental=True,
+            python_executable=runtime_python,
+        )
     if skipped:
         raise AssertionError("A maximum-size sync should not skip Ray/vLLM logs.")
     return len(saved)
@@ -469,6 +490,12 @@ def is_log_object(relative_path: str) -> bool:
         or "/logs/" in path
         or path.startswith("logs/")
     )
+
+
+def is_missing_object_error(error: ClientError) -> bool:
+    """Return whether a listed object disappeared before it could be downloaded."""
+    error_details = error.response.get("Error", {})
+    return str(error_details.get("Code")) in MISSING_OBJECT_ERROR_CODES
 
 
 def recent_trace_jobs(
@@ -621,7 +648,16 @@ def sync_trace_inventory(
                         )
                     continue
                 local_path.parent.mkdir(parents=True, exist_ok=True)
-                inventory.client.download_file(inventory.bucket, item["Key"], str(local_path))
+                try:
+                    inventory.client.download_file(inventory.bucket, item["Key"], str(local_path))
+                except ClientError as error:
+                    if not is_missing_object_error(error):
+                        raise
+                    skipped += 1
+                    skipped_objects.append(
+                        {"key": relative, "size": size, "reason": "missing_after_listing"}
+                    )
+                    continue
                 copied += 1
                 if progress and (inspected == candidate_objects or inspected % 25 == 0):
                     progress.phase(
