@@ -11,6 +11,7 @@ printed or persisted by this launcher.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shlex
@@ -20,6 +21,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
+
+from hpc.iris.capability_tokens import (
+    persist_token_duration_policy,
+    resolve_token_duration_policy,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -315,6 +321,9 @@ def build_submit_command(
         "OPENCODE_DUMMY_KEY": DUMMY_API_KEY,
         "EXTERNAL_AGENT_API_BASE": api_base,
     }
+    task_env["OT_AGENT_CAPABILITY_TOKEN_DURATION_POLICY"] = (
+        args.capability_token_duration_policy_json
+    )
     durable_jobs_dir = durable_harbor_jobs_dir(
         s3_output_root=args.s3_output_dir, iris_job_name=args.job_name
     )
@@ -341,6 +350,8 @@ def build_submit_command(
         args.priority,
         "--max-retries",
         "0",
+        "--timeout",
+        str(args.timeout),
         "--no-wait",
         "--job-name",
         args.job_name,
@@ -360,7 +371,9 @@ def main() -> int:
         "--existing-endpoint",
         help="Use an already-running federated endpoint instead of submitting a new serve.",
     )
-    parser.add_argument("--serve-name", help="Serving job name (default: <job-name>-serve).")
+    parser.add_argument(
+        "--serve-name", help="Serving job name (default: <job-name>-serve)."
+    )
     parser.add_argument(
         "--endpoint-name", help="Endpoint name (default: /serve/<serve-name>)."
     )
@@ -396,7 +409,18 @@ def main() -> int:
     parser.add_argument(
         "--iris-bin", default=os.environ.get("IRIS_BIN", DEFAULT_IRIS_BIN)
     )
-    parser.add_argument("--ttl-hours", type=float, default=24.0)
+    parser.add_argument(
+        "--ttl-hours",
+        type=float,
+        default=None,
+        help="Requested scoped-token TTL. Defaults to the controller maximum.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=0,
+        help="Iris eval timeout in seconds (0 derives the minted-token lifetime).",
+    )
     parser.add_argument(
         "--mirror-timeout-seconds", type=float, default=DEFAULT_MIRROR_TIMEOUT_SECONDS
     )
@@ -438,6 +462,31 @@ def main() -> int:
     )
     args.model = args.model or f"vllm/{args.serve_model}"
 
+    requested_ttl_seconds = (
+        None if args.ttl_hours is None else int(args.ttl_hours * 3600)
+    )
+    try:
+        token_policy = resolve_token_duration_policy(
+            agent="opencode",
+            timeout_seconds=args.timeout,
+            requested_token_ttl_seconds=requested_ttl_seconds,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    args.timeout = token_policy.effective_timeout_seconds
+    args.ttl_hours = token_policy.effective_token_ttl_seconds / 3600.0
+    args.capability_token_duration_policy_json = json.dumps(
+        token_policy.to_dict(), sort_keys=True
+    )
+    policy_path = persist_token_duration_policy(
+        job_name=args.job_name, policy=token_policy
+    )
+    print(
+        "[external-eval] capability-token policy: "
+        f"timeout={args.timeout}s manifest={policy_path}",
+        flush=True,
+    )
+
     # Reject an invalid durable destination before minting a capability token or
     # contacting the controller.  ``build_submit_command`` repeats this check
     # because it is also called directly by unit tests and other tooling.
@@ -461,9 +510,14 @@ def main() -> int:
         marin_repo = Path(args.marin_repo).expanduser()
         if not marin_repo.is_dir():
             parser.error(f"Marin checkout not found: {marin_repo}")
-        print(f"[external-eval] submitting federated serve {args.serve_name}", flush=True)
+        print(
+            f"[external-eval] submitting federated serve {args.serve_name}", flush=True
+        )
         serve_result = subprocess.run(
-            build_serve_command(args), cwd=marin_repo, env=submit_environment, check=False
+            build_serve_command(args),
+            cwd=marin_repo,
+            env=submit_environment,
+            check=False,
         )
         if serve_result.returncode:
             return serve_result.returncode

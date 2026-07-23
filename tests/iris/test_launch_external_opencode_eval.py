@@ -61,6 +61,8 @@ def test_submit_uses_env_for_url_and_fails_fast_when_missing():
         memory="128GB",
         disk="128GB",
         priority="batch",
+        timeout=86400,
+        capability_token_duration_policy_json='{"token_required": true}',
         job_name="eval-v2",
         harbor_config="config.yaml",
         datagen_config="external.yaml",
@@ -88,6 +90,7 @@ def test_submit_uses_env_for_url_and_fails_fast_when_missing():
     assert "--n_concurrent 256" in shell
     assert "--job_name eval-v2" in shell
     assert "--experiments_dir /tmp/ot-agent-runs/eval-v2" in shell
+    assert command[command.index("--timeout") + 1] == "86400"
     assert (
         "--harbor_extra_arg=--jobs-dir=s3://marin-us-east-02a/iris/eval-v2/trace_jobs"
         in shell
@@ -178,10 +181,14 @@ def test_selected_secrets_file_replaces_stale_inherited_values(tmp_path):
     }
 
 
-def test_main_submits_federated_serve_then_parent_minted_durable_eval(tmp_path, monkeypatch):
+def test_main_submits_federated_serve_then_parent_minted_durable_eval(
+    tmp_path, monkeypatch
+):
     """The default profile must run the full parent→peer→eval launch sequence."""
     secret_path = tmp_path / "secrets.env"
-    secret_path.write_text("DAYTONA_API_KEY=daytona\nHF_TOKEN=hf\nOPENAI_API_KEY=judge\n")
+    secret_path.write_text(
+        "DAYTONA_API_KEY=daytona\nHF_TOKEN=hf\nOPENAI_API_KEY=judge\n"
+    )
     marin_repo = tmp_path / "marin"
     marin_repo.mkdir()
     calls: list[tuple[list[str], dict]] = []
@@ -195,9 +202,13 @@ def test_main_submits_federated_serve_then_parent_minted_durable_eval(tmp_path, 
     def fake_run(command, **kwargs):
         calls.append((command, kwargs))
         if "endpoints" in command and "list" in command:
-            return Result("NAME ACCESS PEER ADDRESS TASK\n/serve/grug-r7-serve link cw-us-east-02a 10.0.0.1 task\n")
+            return Result(
+                "NAME ACCESS PEER ADDRESS TASK\n/serve/grug-r7-serve link cw-us-east-02a 10.0.0.1 task\n"
+            )
         if "endpoints" in command and "mint" in command:
-            return Result("Capability URL: https://iris.oa.dev/proxy/t/token/serve.grug-r7-serve/\n")
+            return Result(
+                "Capability URL: https://iris.oa.dev/proxy/t/token/serve.grug-r7-serve/\n"
+            )
         return Result()
 
     monkeypatch.setattr(_MODULE.subprocess, "run", fake_run)
@@ -229,14 +240,23 @@ def test_main_submits_federated_serve_then_parent_minted_durable_eval(tmp_path, 
         "--cluster",
     ]
     assert "--target-cluster" in serve_command
-    assert serve_command[serve_command.index("--target-cluster") + 1] == "cw-us-east-02a"
+    assert (
+        serve_command[serve_command.index("--target-cluster") + 1]
+        == "cw-us-east-02a"
+    )
     assert serve_command[serve_command.index("--idle-timeout-hours") + 1] == "1.0"
     assert "--model-loader-extra-config" not in " ".join(serve_command)
     assert serve_kwargs["env"]["KUBECONFIG"] == _MODULE.DEFAULT_KUBECONFIG
 
     eval_command, eval_kwargs = calls[-1]
     assert eval_command[eval_command.index("--job-name") + 1] == "grug-r7"
-    assert eval_command[eval_command.index("--task-image") + 1] == _MODULE.DEFAULT_TASK_IMAGE
+    assert (
+        eval_command[eval_command.index("--task-image") + 1]
+        == _MODULE.DEFAULT_TASK_IMAGE
+    )
     assert eval_kwargs["env"]["KUBECONFIG"] == _MODULE.DEFAULT_KUBECONFIG
     assert "https://iris.oa.dev" not in eval_command[-1]
-    assert "--jobs-dir=s3://marin-us-east-02a/iris/grug-r7/trace_jobs" in eval_command[-1]
+    assert (
+        "--jobs-dir=s3://marin-us-east-02a/iris/grug-r7/trace_jobs" in eval_command[-1]
+    )
+    assert eval_command[eval_command.index("--timeout") + 1] == "86400"
