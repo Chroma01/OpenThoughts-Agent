@@ -230,6 +230,8 @@ def test_main_submits_federated_serve_then_parent_minted_durable_eval(tmp_path, 
     ]
     assert "--target-cluster" in serve_command
     assert serve_command[serve_command.index("--target-cluster") + 1] == "cw-us-east-02a"
+    assert serve_command[serve_command.index("--idle-timeout-hours") + 1] == "1.0"
+    assert "--model-loader-extra-config" not in " ".join(serve_command)
     assert serve_kwargs["env"]["KUBECONFIG"] == _MODULE.DEFAULT_KUBECONFIG
 
     eval_command, eval_kwargs = calls[-1]

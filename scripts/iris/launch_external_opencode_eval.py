@@ -45,6 +45,10 @@ DEFAULT_TASK_IMAGE = (
     "a172ed5a83df94775684bc66ea6afa7b530162c21d872b3bd185ec663eb9f1a2"
 )
 DEFAULT_SERVE_READY_TIMEOUT_SECONDS = 1800.0
+# The serve watches only model-inference requests (not readiness/health probes)
+# and frees the H100x8 slice after this idle interval.  The Marin-side flag is
+# intentionally distinct from the 24-hour capability-token and wall-clock TTLs.
+DEFAULT_SERVE_IDLE_TIMEOUT_HOURS = 1.0
 # OpenAI-compatible installed agents require a non-empty value, but the scoped
 # capability URL is the credential. Do not use a sidecar bearer here.
 DUMMY_API_KEY = "capability-url-no-auth-header"
@@ -246,11 +250,12 @@ def build_serve_command(args: argparse.Namespace) -> list[str]:
         "512g",
         "--wait-timeout",
         str(args.serve_ready_timeout_seconds),
+        "--idle-timeout-hours",
+        str(args.serve_idle_timeout_hours),
         "--no-wait",
         f"--vllm-arg=--data-parallel-size={args.serve_data_parallel_size}",
         f"--vllm-arg=--max-num-seqs={args.serve_max_num_seqs}",
         "--vllm-arg=--enable-expert-parallel",
-        '--vllm-arg=--model-loader-extra-config={"distributed":true}',
         "--vllm-arg=--enable-auto-tool-choice",
         "--vllm-arg=--tool-call-parser=hermes",
         f"--vllm-arg=--served-model-name={args.serve_model}",
@@ -374,6 +379,12 @@ def main() -> int:
         "--serve-ready-timeout-seconds",
         type=float,
         default=DEFAULT_SERVE_READY_TIMEOUT_SECONDS,
+    )
+    parser.add_argument(
+        "--serve-idle-timeout-hours",
+        type=float,
+        default=DEFAULT_SERVE_IDLE_TIMEOUT_HOURS,
+        help="Stop a newly created serve after this long without a model-inference request.",
     )
     parser.add_argument(
         "--serve-vllm-arg",
