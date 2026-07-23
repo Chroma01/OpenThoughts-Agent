@@ -12,7 +12,16 @@ import pytest
 from botocore.exceptions import ClientError
 
 from scripts.iris import coreweave_ops
-from scripts.iris.iris_ops import job_bundle, job_id_parts, load_bundle_manifest, write_bundle_manifest
+from scripts.iris.iris_ops import (
+    box_table,
+    filter_records,
+    format_duration,
+    job_bundle,
+    job_id_parts,
+    load_bundle_manifest,
+    parse_regex_filters,
+    write_bundle_manifest,
+)
 from scripts.iris import watch_coreweave_rl
 
 
@@ -25,6 +34,26 @@ def test_job_bundle_uses_cluster_and_full_iris_identity(tmp_path):
 
     assert json.loads(bundle.manifest_path.read_text())["job_id"] == "/benjaminfeuer/glm52-r10"
     assert load_bundle_manifest(bundle)["progress"] == {"completed": 4}
+
+
+def test_shared_regex_filters_duration_and_table_renderer():
+    records = [
+        {"cluster": "cw-rno2a", "state": "running", "name": "glm52"},
+        {"cluster": "marin", "state": "running", "name": "qwen"},
+        {"cluster": "cw-rno2a", "state": "failed", "name": "glm52"},
+    ]
+    filters = parse_regex_filters(["cluster=^cw-", "name=glm", "state=running"], {"cluster", "name", "state"})
+
+    assert filter_records(records, filters, lambda record: record) == [records[0]]
+    assert format_duration(60_000, 7_320_000) == "2h 1m"
+    assert "│ one │ two │" in box_table(["A", "B"], [["one", "two"]])
+
+
+def test_shared_regex_filter_rejects_unknown_fields_and_invalid_regexes():
+    with pytest.raises(ValueError, match="Unknown filter field"):
+        parse_regex_filters(["missing=value"], {"state"})
+    with pytest.raises(ValueError, match="Invalid regex"):
+        parse_regex_filters(["state=["], {"state"})
 
 
 @pytest.mark.parametrize("job_id", ["glm52-r10", "/benjaminfeuer", "/benjaminfeuer/../bad"])
@@ -280,13 +309,14 @@ job_id,state,submitted_at_ms,finished_at_ms,entrypoint_json
     jobs, errors = watch_coreweave_rl.discover_rl_jobs(
         cluster,
         "benjaminfeuer",
-        terminal_since_ms=1200,
+        submitted_since_ms=1200,
     )
 
     assert errors == []
     assert [job.short_name for job in jobs] == ["rl-live", "rl-failed"]
     assert [job.is_terminal for job in jobs] == [False, True]
-    assert "j.state IN (4,5) AND j.finished_at_ms >= 1200" in queries[0]
+    assert "OR j.state IN (4,5)" in queries[0]
+    assert "j.submitted_at_ms >= 1200" in queries[0]
 
 
 def test_recent_trace_jobs_uses_remote_last_modified_and_preserves_remote_counts():

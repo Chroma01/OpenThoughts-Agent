@@ -34,6 +34,7 @@ import yaml
 # Directory containing Harbor YAML configs (relative to this file)
 _DIRENV = os.path.dirname(__file__)
 HARBOR_CONFIG_DIR = os.path.join(_DIRENV, "harbor_yaml")
+VERIFIER_OPENAI_API_KEY_TEMPLATE = "${OPENAI_API_KEY}"
 
 
 def resolve_harbor_config_path(
@@ -628,6 +629,16 @@ def merge_harbor_config(
         existing_kwargs.update(agent_kwargs)
         agent["kwargs"] = existing_kwargs
 
+    # Harbor resolves verifier environment templates from its host process and
+    # then passes the resolved values to the sandbox.  The task-level configs
+    # do not consistently declare this dependency, so relying on their
+    # ``[verifier.env]`` blocks leaves LLM-based verifiers without credentials.
+    # Keep this a template rather than a literal: the secret never lands in the
+    # generated YAML or the resumable Harbor config.
+    verifier = modified_config.setdefault("verifier", {})
+    verifier_env = verifier.setdefault("env", {})
+    verifier_env.setdefault("OPENAI_API_KEY", VERIFIER_OPENAI_API_KEY_TEMPLATE)
+
     return modified_config
 
 
@@ -909,7 +920,7 @@ def build_harbor_command(
                 with open(config_json_path, "rb") as _f:
                     os.fsync(_f.fileno())
                 print(
-                    f"[build_harbor_command] Sync complete, fsync'd",
+                    "[build_harbor_command] Sync complete, fsync'd",
                     flush=True,
                 )
             except (OSError, json.JSONDecodeError, ValueError) as exc:

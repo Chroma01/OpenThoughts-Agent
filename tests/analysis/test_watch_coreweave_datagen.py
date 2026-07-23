@@ -49,6 +49,41 @@ def test_run_iris_does_not_retry_non_dns_failure(monkeypatch):
     assert len(calls) == 1
 
 
+def test_run_iris_retries_transient_finelog_stats_error(monkeypatch):
+    results = iter(
+        [
+            subprocess.CompletedProcess(
+                [],
+                1,
+                stderr=(
+                    "raise _translate_connect_error(exc) from exc "
+                    "finelog.errors.StatsError"
+                ),
+            ),
+            subprocess.CompletedProcess([], 0, stdout="logs\n"),
+        ]
+    )
+    calls: list[list[str]] = []
+    delays: list[int] = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        return next(results)
+
+    monkeypatch.setattr(iris_ops.subprocess, "run", fake_run)
+    monkeypatch.setattr(iris_ops.time, "sleep", delays.append)
+
+    result = iris_ops.run_iris_command(
+        ["job", "logs", "/benjaminfeuer/glm52-pilot-codecontests-r10", "--no-tail"],
+        cluster="cw-rno2a",
+        iris_bin="/fake/iris",
+    )
+
+    assert result.returncode == 0
+    assert len(calls) == 2
+    assert delays == [iris_ops.DNS_INITIAL_BACKOFF]
+
+
 def test_progress_from_harbor_aggregate_includes_mean_and_typed_errors():
     progress = monitor.progress_from_harbor_aggregate(
         {

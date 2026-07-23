@@ -54,7 +54,11 @@ from scripts.iris.coreweave_ops import (  # noqa: E402
 )
 from scripts.iris.iris_ops import (  # noqa: E402
     DEFAULT_BUNDLE_ROOT,
+    box_table,
+    filter_records,
+    format_duration,
     job_bundle,
+    parse_regex_filters,
     run_iris_command,
     write_bundle_manifest,
 )
@@ -182,10 +186,10 @@ def parse_args() -> argparse.Namespace:
         help="Root for canonical local Iris evidence bundles and RL reports.",
     )
     parser.add_argument(
-        "--terminal-hours",
+        "--hours",
         type=float,
         default=24.0,
-        help="Also report succeeded/failed RL jobs finished within this many hours (default: 24).",
+        help="Only include jobs submitted within this many hours; 0 means all history (default: 24).",
     )
     parser.add_argument("--user", default=DEFAULT_USER, help=f"Iris user to monitor (default: {DEFAULT_USER}).")
     parser.add_argument("--all-users", action="store_true", help="Discover active RL jobs for every user.")
@@ -205,6 +209,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--no-sync", action="store_true", help="Report lifecycle state without collecting artifacts.")
+    parser.add_argument(
+        "--filter",
+        action="append",
+        default=[],
+        metavar="KEY=REGEX",
+        help=(
+            "Keep jobs matching every case-insensitive regex filter. Available keys: "
+            "cluster, job, name, dataset, type, state, submitted, duration."
+        ),
+    )
     parser.add_argument(
         "--quiet-progress",
         action="store_true",
@@ -283,16 +297,17 @@ def discover_rl_jobs(
     cluster: Cluster,
     user: str | None,
     *,
-    terminal_since_ms: int,
+    submitted_since_ms: int | None = None,
 ) -> tuple[list[RlJob], list[str]]:
     where_user = "" if user is None else f" AND j.job_id LIKE '/{user}/%'"
+    where_submission = "" if submitted_since_ms is None else f" AND j.submitted_at_ms >= {submitted_since_ms}"
     sql = (
         "SELECT j.job_id, j.state, j.submitted_at_ms, j.finished_at_ms, jc.entrypoint_json "
         "FROM jobs j JOIN job_config jc ON j.job_id=jc.job_id "
         "WHERE ("
         f"j.state IN ({','.join(str(state) for state in sorted(ACTIVE_STATES))}) "
-        f"OR (j.state IN (4,5) AND j.finished_at_ms >= {terminal_since_ms})"
-        f"){where_user} "
+        "OR j.state IN (4,5)"
+        f"){where_user}{where_submission} "
         "ORDER BY j.submitted_at_ms DESC"
     )
     result = run_iris(cluster, ["query", sql, "-f", "csv"])
@@ -746,19 +761,18 @@ def sync_warning(errors: tuple[str, ...]) -> str | None:
     return first_error[-90:]
 
 
-def box_table(headers: list[str], rows: list[list[str]]) -> str:
-    widths = [len(header) for header in headers]
-    for row in rows:
-        for index, value in enumerate(row):
-            widths[index] = max(widths[index], len(value))
-
-    def border(left: str, middle: str, right: str) -> str:
-        return left + middle.join("─" * (width + 2) for width in widths) + right
-
-    def line(values: list[str]) -> str:
-        return "│" + "│".join(f" {value.ljust(width)} " for value, width in zip(values, widths)) + "│"
-
-    return "\n".join([border("┌", "┬", "┐"), line(headers), border("├", "┼", "┤"), *(line(row) for row in rows), border("└", "┴", "┘")])
+def job_filter_values(job: RlJob, *, now_ms: int) -> dict[str, str]:
+    """Return the pre-sync RL job fields available to ``--filter``."""
+    return {
+        "cluster": job.cluster.name,
+        "job": job.job_id,
+        "name": job.short_name,
+        "dataset": job.dataset,
+        "type": "RL",
+        "state": job.state,
+        "submitted": datetime.fromtimestamp(job.submitted_at_ms / 1000, UTC).strftime("%m-%d %H:%M"),
+        "duration": format_duration(job.submitted_at_ms, job.finished_at_ms, now_ms=now_ms),
+    }
 
 
 def report_row(job: RlJob, artifacts: ArtifactResult, directory: Path) -> list[str]:
@@ -905,34 +919,43 @@ def main() -> int:
         raise ValueError("--max-non-log-bytes must be non-negative")
     if args.trace_sync_limit < 0:
         raise ValueError("--trace-sync-limit must be non-negative")
-    if args.terminal_hours <= 0:
-        raise ValueError("--terminal-hours must be positive")
+    if args.hours < 0:
+        raise ValueError("--hours must be non-negative")
     if not args.all_users and not re.fullmatch(r"[A-Za-z0-9_-]+", args.user):
         raise ValueError("--user may contain only letters, numbers, _ and -")
+    filters = parse_regex_filters(
+        args.filter,
+        {"cluster", "job", "name", "dataset", "type", "state", "submitted", "duration"},
+    )
     args.bundle_root.mkdir(parents=True, exist_ok=True)
     report_directory = args.bundle_root / "reports" / "rl"
     report_directory.mkdir(parents=True, exist_ok=True)
     progress = ProgressReporter(enabled=not args.quiet_progress)
+    checked_at = datetime.now(UTC)
+    now_ms = int(checked_at.timestamp() * 1000)
 
     jobs: list[RlJob] = []
     errors: list[str] = []
     scope_user = None if args.all_users else args.user
-    terminal_since_ms = int(datetime.now(UTC).timestamp() * 1000 - args.terminal_hours * 3_600_000)
+    submitted_since_ms = None if args.hours == 0 else now_ms - int(args.hours * 3_600_000)
     for cluster in CLUSTERS:
-        progress.phase(f"discovering active and recent terminal RL jobs on {cluster.name}")
+        progress.phase(f"discovering RL jobs on {cluster.name}")
         found, discovery_errors = discover_rl_jobs(
             cluster,
             scope_user,
-            terminal_since_ms=terminal_since_ms,
+            submitted_since_ms=submitted_since_ms,
         )
         active_count = sum(not job.is_terminal for job in found)
         terminal_count = len(found) - active_count
+        window_label = "all history" if args.hours == 0 else f"submitted in last {args.hours:g}h"
         progress.phase(
             f"discovery {cluster.name}: {active_count:,} active, {terminal_count:,} "
-            f"succeeded/failed in last {args.terminal_hours:g}h"
+            f"succeeded/failed; {window_label}"
         )
         jobs.extend(found)
         errors.extend(discovery_errors)
+
+    jobs = filter_records(jobs, filters, lambda job: job_filter_values(job, now_ms=now_ms))
 
     synced_jobs: list[tuple[RlJob, ArtifactResult, Path]] = []
     ordered_jobs = sorted(jobs, key=lambda item: (item.cluster.name, item.submitted_at_ms, item.job_id))
@@ -998,10 +1021,11 @@ def main() -> int:
     table = (
         box_table(["Job", "Dataset", "Step", "Reward", "Policy Loss", "Grad Norm", "Traces", "Trend"], rows)
         if rows
-        else f"No active or succeeded/failed CoreWeave Iris RL jobs in the last {args.terminal_hours:g} hours."
+        else "No active or succeeded/failed CoreWeave Iris RL jobs in the selected window."
     )
-    checked_at = datetime.now(UTC)
-    report = f"# Iris CoreWeave RL status — {checked_at.isoformat()}\n\n{table}\n"
+    filter_suffix = f"; filters={','.join(args.filter)}" if args.filter else ""
+    window = "all" if args.hours == 0 else f"{args.hours:g}h"
+    report = f"# Iris CoreWeave RL status — {checked_at.isoformat()}; submitted={window}{filter_suffix}\n\n{table}\n"
     if errors:
         report += "\n## Monitor errors\n\n" + "\n".join(f"- {error}" for error in errors) + "\n"
     timestamp = checked_at.strftime("%Y%m%dT%H%M%SZ")

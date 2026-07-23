@@ -44,7 +44,11 @@ from scripts.iris.coreweave_ops import (  # noqa: E402
 )
 from scripts.iris.iris_ops import (  # noqa: E402
     DEFAULT_BUNDLE_ROOT,
+    box_table,
+    filter_records,
+    format_duration,
     job_bundle,
+    parse_regex_filters,
     run_iris_command,
     write_bundle_manifest,
 )
@@ -136,7 +140,23 @@ def parse_args() -> argparse.Namespace:
         help="Root for canonical local Iris evidence bundles and Harbor reports.",
     )
     parser.add_argument("--stalled-after-minutes", type=int, default=DEFAULT_STALL_MINUTES)
+    parser.add_argument(
+        "--hours",
+        type=float,
+        default=24.0,
+        help="Only include jobs submitted within this many hours; 0 means all history (default: 24).",
+    )
     parser.add_argument("--job", help="Restrict the live report to one exact Iris job id.")
+    parser.add_argument(
+        "--filter",
+        action="append",
+        default=[],
+        metavar="KEY=REGEX",
+        help=(
+            "Keep jobs matching every case-insensitive regex filter. Available keys: "
+            "cluster, job, name, dataset, kind, state, submitted, duration."
+        ),
+    )
     parser.add_argument("--notify", action="store_true", help="Send a macOS notification on health changes.")
     return parser.parse_args()
 
@@ -212,11 +232,12 @@ def harbor_job_from_row(cluster: Cluster, row: dict[str, str]) -> HarborJob | No
     )
 
 
-def discover_harbor_jobs(cluster: Cluster) -> tuple[list[HarborJob], list[str]]:
+def discover_harbor_jobs(cluster: Cluster, *, submitted_since_ms: int | None = None) -> tuple[list[HarborJob], list[str]]:
+    submitted_clause = "" if submitted_since_ms is None else f" AND j.submitted_at_ms >= {submitted_since_ms}"
     sql = (
         "SELECT j.job_id, j.state, j.submitted_at_ms, jc.entrypoint_json "
         "FROM jobs j JOIN job_config jc ON j.job_id=jc.job_id "
-        f"WHERE j.state IN (1,2,3) AND j.job_id LIKE '/{USER}/%' "
+        f"WHERE j.state IN (1,2,3) AND j.job_id LIKE '/{USER}/%'{submitted_clause} "
         "ORDER BY j.submitted_at_ms DESC"
     )
     result = run_iris(cluster, ["query", sql, "-f", "csv"])
@@ -543,27 +564,18 @@ def health_label(
     return f"no new result ({idle_minutes:.0f}m)", last_advanced_at
 
 
-def box_table(headers: list[str], rows: list[list[str]]) -> str:
-    widths = [len(header) for header in headers]
-    for row in rows:
-        for index, value in enumerate(row):
-            widths[index] = max(widths[index], len(value))
-
-    def border(left: str, middle: str, right: str, fill: str) -> str:
-        return left + middle.join(fill * (width + 2) for width in widths) + right
-
-    def line(values: list[str]) -> str:
-        return "│" + "│".join(f" {value.ljust(width)} " for value, width in zip(values, widths)) + "│"
-
-    return "\n".join(
-        [
-            border("┌", "┬", "┐", "─"),
-            line(headers),
-            border("├", "┼", "┤", "─"),
-            *(line(row) for row in rows),
-            border("└", "┴", "┘", "─"),
-        ]
-    )
+def job_filter_values(job: HarborJob, *, now_ms: int) -> dict[str, str]:
+    """Return the pre-sync Harbor job fields available to ``--filter``."""
+    return {
+        "cluster": job.cluster.name,
+        "job": job.job_id,
+        "name": job.job_id.rsplit("/", 1)[-1],
+        "dataset": job.dataset,
+        "kind": job.kind,
+        "state": job.state,
+        "submitted": datetime.fromtimestamp(job.submitted_at_ms / 1000, UTC).strftime("%m-%d %H:%M"),
+        "duration": format_duration(job.submitted_at_ms, now_ms=now_ms),
+    }
 
 
 def notify(message: str) -> None:
@@ -579,23 +591,32 @@ def main() -> int:
     args = parse_args()
     if args.stalled_after_minutes <= 0:
         raise ValueError("--stalled-after-minutes must be positive")
+    if args.hours < 0:
+        raise ValueError("--hours must be non-negative")
+    filters = parse_regex_filters(
+        args.filter,
+        {"cluster", "job", "name", "dataset", "kind", "state", "submitted", "duration"},
+    )
     args.bundle_root.mkdir(parents=True, exist_ok=True)
     report_directory = args.bundle_root / "reports" / "harbor"
     report_directory.mkdir(parents=True, exist_ok=True)
     latest_path = report_directory / "latest.json"
     previous = load_json(latest_path)
     checked_at = datetime.now(UTC)
+    now_ms = int(checked_at.timestamp() * 1000)
+    submitted_since_ms = None if args.hours == 0 else now_ms - int(args.hours * 3_600_000)
 
     jobs: list[HarborJob] = []
     errors: list[str] = []
     for cluster in CLUSTERS:
-        found, cluster_errors = discover_harbor_jobs(cluster)
+        found, cluster_errors = discover_harbor_jobs(cluster, submitted_since_ms=submitted_since_ms)
         jobs.extend(found)
         errors.extend(cluster_errors)
     if args.job:
         jobs = [job for job in jobs if job.job_id == args.job]
         if not jobs:
             errors.append(f"No active Harbor job with id {args.job!r} was discovered.")
+    jobs = filter_records(jobs, filters, lambda job: job_filter_values(job, now_ms=now_ms))
 
     s3_clients: dict[str, Any] = {}
     local_logs: dict[str, tuple[Path | None, str | None, int | None]] = {}
@@ -685,7 +706,9 @@ def main() -> int:
         table = box_table(["Cluster", "Kind", "Harbor run", "Dataset", "State", "Trials", "Remaining", "Count source", "Mean", "Errors", "Finelog", "Ray/vLLM", "Trend"], rows)
     else:
         table = "No active Iris Harbor datagen or eval jobs discovered."
-    report = f"# Iris Harbor datagen / eval status — {checked_at.isoformat()}\n\n{table}\n"
+    filter_suffix = f"; filters={','.join(args.filter)}" if args.filter else ""
+    window = "all" if args.hours == 0 else f"{args.hours:g}h"
+    report = f"# Iris Harbor datagen / eval status — {checked_at.isoformat()}; submitted={window}{filter_suffix}\n\n{table}\n"
     if errors:
         report += "\n## Monitor errors\n\n" + "\n".join(f"- {error}" for error in errors) + "\n"
     timestamp = checked_at.strftime("%Y%m%dT%H%M%SZ")

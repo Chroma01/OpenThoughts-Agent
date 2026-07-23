@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""List one Iris user's recent jobs in chronological order (oldest first)."""
+"""List one Iris user's recent jobs across selected clusters (oldest first)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
-from scripts.iris.iris_ops import DEFAULT_CLUSTER, STATE_NAMES, run_iris_command
+from scripts.iris.iris_ops import (
+    STATE_NAMES,
+    box_table,
+    filter_records,
+    format_duration,
+    parse_regex_filters,
+    run_iris_command,
+)
 
 USER_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 STATE_LABELS = {"killed": "terminated", "worker_failed": "worker failed"}
@@ -22,6 +29,7 @@ COREWEAVE_KUBECONFIGS = {
     "cw-rno2a": Path("/Users/benjaminfeuer/.kube/coreweave-iris"),
     "cw-us-east-02a": Path("/Users/benjaminfeuer/.kube/coreweave-iris-gpu"),
 }
+DEFAULT_CLUSTERS = ("cw-rno2a", "cw-us-east-02a", "marin")
 
 
 def command_environment(cluster: str) -> dict[str, str] | None:
@@ -74,13 +82,16 @@ def query_jobs(*, user: str, hours: float, cluster: str, now_ms: int | None = No
     """Return one user's submitted jobs since the bounded epoch cutoff."""
     if not USER_RE.fullmatch(user):
         raise ValueError(f"Invalid Iris user {user!r}")
-    if hours <= 0:
-        raise ValueError("--hours must be positive")
-    cutoff_ms = (now_ms if now_ms is not None else int(time.time() * 1000)) - int(hours * 3_600_000)
+    if hours < 0:
+        raise ValueError("--hours must be non-negative")
+    cutoff_clause = ""
+    if hours:
+        cutoff_ms = (now_ms if now_ms is not None else int(time.time() * 1000)) - int(hours * 3_600_000)
+        cutoff_clause = f" AND submitted_at_ms >= {cutoff_ms}"
     sql = (
         "SELECT job_id,state,submitted_at_ms,started_at_ms,finished_at_ms,error,exit_code "
         "FROM jobs "
-        f"WHERE job_id LIKE '/{user}/%' AND submitted_at_ms >= {cutoff_ms} "
+        f"WHERE job_id LIKE '/{user}/%' {cutoff_clause} "
         "ORDER BY submitted_at_ms ASC"
     )
     result = run_iris_command(
@@ -101,47 +112,106 @@ def _timestamp(ms: str | None) -> str:
         return "—"
 
 
+def _milliseconds(value: str | None) -> int | None:
+    try:
+        return int(value or "")
+    except (TypeError, ValueError):
+        return None
+
+
+def job_filter_values(row: dict[str, str], *, now_ms: int | None = None) -> dict[str, str]:
+    """Return the visible fields available to ``--filter`` for one job."""
+    started_at_ms = _milliseconds(row.get("started_at_ms"))
+    submitted_at_ms = _milliseconds(row.get("submitted_at_ms"))
+    finished_at_ms = _milliseconds(row.get("finished_at_ms"))
+    job_id = row.get("job_id", "")
+    return {
+        "cluster": row.get("cluster", ""),
+        "submitted": _timestamp(row.get("submitted_at_ms")),
+        "job": job_id,
+        "name": job_id.rsplit("/", 1)[-1],
+        "type": classify_job_type(job_id),
+        "state": state_label(row.get("state")),
+        "duration": format_duration(started_at_ms if started_at_ms is not None else submitted_at_ms, finished_at_ms, now_ms=now_ms),
+        "exit": row.get("exit_code") or "—",
+        "error": (row.get("error") or "").replace("\n", " "),
+    }
+
+
 def _short(value: str, width: int) -> str:
     return value if len(value) <= width else f"{value[:width - 1]}…"
 
 
-def render_table(rows: list[dict[str, str]]) -> str:
+def render_table(rows: list[dict[str, str]], *, now_ms: int | None = None) -> str:
     """Render controller rows as a stable oldest-first Unicode table."""
-    headers = ("Submitted UTC", "Job", "Type (hint)", "State", "Exit", "Error")
+    headers = ("Cluster", "Submitted UTC", "Job", "Type (hint)", "State", "Duration", "Exit", "Error")
     values = [
         (
-            _timestamp(row.get("submitted_at_ms")),
-            _short(row.get("job_id", ""), 54),
-            classify_job_type(row.get("job_id", "")),
-            state_label(row.get("state")),
-            row.get("exit_code") or "—",
-            _short((row.get("error") or "").replace("\n", " "), 54) or "—",
+            fields["cluster"] or "—",
+            fields["submitted"],
+            _short(fields["job"], 54),
+            fields["type"],
+            fields["state"],
+            fields["duration"],
+            fields["exit"],
+            _short(fields["error"], 54) or "—",
         )
         for row in rows
+        for fields in [job_filter_values(row, now_ms=now_ms)]
     ]
-    widths = [len(header) for header in headers]
-    for value in values:
-        widths = [max(width, len(cell)) for width, cell in zip(widths, value)]
-    def border(left: str, join: str, right: str) -> str:
-        return left + join.join("─" * (width + 2) for width in widths) + right
-    lines = [border("┌", "┬", "┐"), "│ " + " │ ".join(headers[i].ljust(widths[i]) for i in range(len(headers))) + " │", border("├", "┼", "┤")]
-    lines.extend("│ " + " │ ".join(row[i].ljust(widths[i]) for i in range(len(headers))) + " │" for row in values)
-    lines.append(border("└", "┴", "┘"))
-    return "\n".join(lines)
+    return box_table(headers, values)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--user", default=getpass.getuser(), help="Iris username (default: current OS user).")
-    parser.add_argument("--hours", type=float, default=24.0, help="Submitted-job window in hours (default: 24).")
-    parser.add_argument("--cluster", default=DEFAULT_CLUSTER, help=f"Iris cluster (default: {DEFAULT_CLUSTER}).")
+    parser.add_argument("--hours", type=float, default=24.0, help="Submitted-job window in hours; 0 means all history (default: 24).")
+    parser.add_argument(
+        "--cluster",
+        action="append",
+        help=f"Iris cluster to query; repeat to select several (default: {', '.join(DEFAULT_CLUSTERS)}).",
+    )
+    parser.add_argument(
+        "--filter",
+        action="append",
+        default=[],
+        metavar="KEY=REGEX",
+        help=(
+            "Keep jobs matching every case-insensitive regex filter. Available keys: "
+            "cluster, submitted, job, name, type, state, duration, exit, error. "
+            "Repeat the flag (for example: --filter 'state=running' --filter 'name=glm52')."
+        ),
+    )
     args = parser.parse_args(argv)
+    clusters = args.cluster or DEFAULT_CLUSTERS
     try:
-        rows = query_jobs(user=args.user, hours=args.hours, cluster=args.cluster)
-    except (RuntimeError, ValueError) as error:
+        filters = parse_regex_filters(
+            args.filter,
+            {"cluster", "submitted", "job", "name", "type", "state", "duration", "exit", "error"},
+        )
+    except ValueError as error:
         parser.error(str(error))
-    print(f"# Iris jobs — user={args.user} cluster={args.cluster} last={args.hours:g}h; oldest first")
-    print(render_table(rows))
+    rows: list[dict[str, str]] = []
+    errors: list[str] = []
+    for cluster in clusters:
+        try:
+            rows.extend({**row, "cluster": cluster} for row in query_jobs(user=args.user, hours=args.hours, cluster=cluster))
+        except (RuntimeError, ValueError) as error:
+            errors.append(f"{cluster}: {error}")
+    if errors and not rows:
+        parser.error("; ".join(errors))
+
+    rows.sort(key=lambda row: _milliseconds(row.get("submitted_at_ms")) or 0)
+    now_ms = int(time.time() * 1000)
+    rows = filter_records(rows, filters, lambda row: job_filter_values(row, now_ms=now_ms))
+    filter_suffix = f" filters={','.join(args.filter)}" if args.filter else ""
+    window = "all" if args.hours == 0 else f"{args.hours:g}h"
+    print(f"# Iris jobs — user={args.user} clusters={','.join(clusters)} last={window}{filter_suffix}; oldest first")
+    print(render_table(rows, now_ms=now_ms))
+    if errors:
+        print("\n## Cluster query errors")
+        for error in errors:
+            print(f"- {error}")
     return 0
 
 

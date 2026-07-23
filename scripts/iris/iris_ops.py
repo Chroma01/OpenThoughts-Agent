@@ -46,13 +46,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Collection, Mapping, Sequence, TypeVar
 
 
 # The operational helpers deliberately validate identifiers with the current
@@ -95,8 +96,8 @@ NAME_TO_INT = {v: k for k, v in STATE_NAMES.items()}
 RUNNING_STATES = {"pending", "building", "running", "unspecified"}
 TERMINAL_STATES = {"succeeded", "failed", "killed", "worker_failed", "unschedulable"}
 
-# Retry/backoff for the Iris CLI call: a transient tunnel/RPC blip should not
-# a transient tunnel/RPC blip should not be read as a terminal transition).
+# Retry/backoff for Iris CLI calls: transient controller and Finelog connection
+# failures should not be read as terminal job transitions.
 IRIS_ATTEMPTS = 3
 IRIS_BACKOFFS = (2, 5)
 DNS_ATTEMPTS = 4
@@ -109,6 +110,98 @@ TRANSIENT_DNS_MARKERS = (
     "name or service not known",
     "nodename nor servname provided",
 )
+TRANSIENT_FINELOG_MARKERS = (
+    "finelog.errors.statserror",
+    "raise _translate_connect_error(exc)",
+)
+
+
+@dataclass(frozen=True)
+class RegexFilter:
+    """One case-insensitive ``field=regex`` predicate for a status record."""
+
+    field: str
+    pattern: re.Pattern[str]
+
+
+Record = TypeVar("Record")
+
+
+def parse_regex_filters(specifications: Sequence[str], allowed_fields: Collection[str]) -> list[RegexFilter]:
+    """Parse user-facing ``field=regex`` filters and validate their field names."""
+    allowed = {field.lower() for field in allowed_fields}
+    filters: list[RegexFilter] = []
+    for specification in specifications:
+        field, separator, expression = specification.partition("=")
+        normalized_field = field.strip().lower()
+        if not separator or not normalized_field or not expression:
+            raise ValueError(f"Invalid filter {specification!r}; expected KEY=REGEX.")
+        if normalized_field not in allowed:
+            raise ValueError(
+                f"Unknown filter field {normalized_field!r}; choose from {', '.join(sorted(allowed))}."
+            )
+        try:
+            pattern = re.compile(expression, re.IGNORECASE)
+        except re.error as error:
+            raise ValueError(f"Invalid regex in filter {specification!r}: {error}") from error
+        filters.append(RegexFilter(normalized_field, pattern))
+    return filters
+
+
+def filter_records(
+    records: Sequence[Record],
+    filters: Sequence[RegexFilter],
+    field_values: Callable[[Record], Mapping[str, object]],
+) -> list[Record]:
+    """Return records matching every regex predicate against their named fields."""
+    if not filters:
+        return list(records)
+    matching: list[Record] = []
+    for record in records:
+        values = {field.lower(): str(value) for field, value in field_values(record).items()}
+        if all(regex_filter.pattern.search(values[regex_filter.field]) for regex_filter in filters):
+            matching.append(record)
+    return matching
+
+
+def format_duration(
+    started_at_ms: int | None,
+    finished_at_ms: int | None = None,
+    *,
+    now_ms: int | None = None,
+) -> str:
+    """Format elapsed time from start through finish or the current instant."""
+    if started_at_ms is None:
+        return "—"
+    ended_at_ms = finished_at_ms if finished_at_ms is not None else now_ms if now_ms is not None else int(time.time() * 1000)
+    if ended_at_ms < started_at_ms:
+        return "—"
+    total_minutes = (ended_at_ms - started_at_ms) // 60_000
+    days, remaining_minutes = divmod(total_minutes, 1_440)
+    hours, minutes = divmod(remaining_minutes, 60)
+    parts = ([f"{days}d"] if days else []) + ([f"{hours}h"] if hours else []) + [f"{minutes}m"]
+    return " ".join(parts)
+
+
+def box_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
+    """Render a consistently styled Unicode table for Iris command-line reports."""
+    rendered_rows = [[str(value) for value in row] for row in rows]
+    if any(len(row) != len(headers) for row in rendered_rows):
+        raise ValueError("Every table row must have one value per header.")
+    widths = [len(header) for header in headers]
+    for row in rendered_rows:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+
+    def border(left: str, middle: str, right: str) -> str:
+        return left + middle.join("─" * (width + 2) for width in widths) + right
+
+    def line(values: Sequence[str]) -> str:
+        return "│" + "│".join(f" {value.ljust(width)} " for value, width in zip(values, widths)) + "│"
+
+    return "\n".join(
+        [border("┌", "┬", "┐"), line(headers), border("├", "┼", "┤"), *(line(row) for row in rendered_rows), border("└", "┴", "┘")]
+    )
 
 
 @dataclass(frozen=True)
@@ -185,6 +278,14 @@ def is_transient_dns_failure(result: subprocess.CompletedProcess[str]) -> bool:
     return any(marker in message for marker in TRANSIENT_DNS_MARKERS)
 
 
+def is_transient_iris_connection_failure(result: subprocess.CompletedProcess[str]) -> bool:
+    """Return whether an Iris command failed on a retryable network dependency."""
+    if result.returncode == 0:
+        return False
+    message = f"{result.stderr}\n{result.stdout}".lower()
+    return any(marker in message for marker in (*TRANSIENT_DNS_MARKERS, *TRANSIENT_FINELOG_MARKERS))
+
+
 def run_iris_command(
     arguments: list[str],
     *,
@@ -193,7 +294,7 @@ def run_iris_command(
     environment: dict[str, str] | None = None,
     timeout: int = 180,
 ) -> subprocess.CompletedProcess[str]:
-    """Run an Iris CLI command with bounded retries for transient DNS failures."""
+    """Run an Iris CLI command with bounded retries for transient connection failures."""
     for attempt in range(DNS_ATTEMPTS):
         result = subprocess.run(
             [iris_bin, f"--cluster={cluster}", *arguments],
@@ -202,7 +303,7 @@ def run_iris_command(
             timeout=timeout,
             env=environment,
         )
-        if not is_transient_dns_failure(result) or attempt == DNS_ATTEMPTS - 1:
+        if not is_transient_iris_connection_failure(result) or attempt == DNS_ATTEMPTS - 1:
             return result
         time.sleep(DNS_INITIAL_BACKOFF * 2**attempt)
     raise AssertionError("unreachable")
