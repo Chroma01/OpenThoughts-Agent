@@ -7,11 +7,10 @@ import sys
 import tempfile
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 import yaml
 
-from hpc.arguments import LlamaFactoryArgs
 from hpc.data_argument_keys import DATA_ARGUMENT_KEYS
 from hpc.launch_utils import (
     resolve_job_and_paths,
@@ -161,7 +160,7 @@ def prebuild_arrow_cache(base_config: dict, train_config_path: str = "") -> None
         print("[arrow-cache] No train_config_path provided, skipping pre-build.")
         return
 
-    print(f"[arrow-cache] Pre-building tokenization cache via LlamaFactory pipeline...")
+    print("[arrow-cache] Pre-building tokenization cache via LlamaFactory pipeline...")
     os.makedirs(cache_dir, exist_ok=True)
 
     try:
@@ -178,7 +177,8 @@ def prebuild_arrow_cache(base_config: dict, train_config_path: str = "") -> None
         # This uses the real template, tokenizer, and preprocessing — the
         # exact same .map() calls that training will use — so the cache
         # fingerprints match and compute nodes skip tokenization.
-        import subprocess, sys
+        import subprocess
+        import sys
         result = subprocess.run(
             [
                 sys.executable, "-c",
@@ -202,7 +202,7 @@ def prebuild_arrow_cache(base_config: dict, train_config_path: str = "") -> None
         else:
             # Common failure: bf16 validation on CPU. Fall back to raw cache only.
             stderr_short = result.stderr.strip().split("\n")[-3:]
-            print(f"[arrow-cache] LlamaFactory pipeline failed (non-fatal):")
+            print("[arrow-cache] LlamaFactory pipeline failed (non-fatal):")
             for line in stderr_short:
                 print(f"[arrow-cache]   {line}")
             print("[arrow-cache] Falling back to raw dataset cache only.")
@@ -1145,16 +1145,26 @@ def construct_sft_sbatch_script(exp_args: dict, hpc) -> str:
     if hpc.needs_ssh_tunnel:
         # JSC clusters use proxychains4 for internet access
         srun_prefix += " $PROXY_CMD"
-    # if os.environ.get("IMAGE"):
-    #     print(f"Using Apptainer image: {os.environ['IMAGE']}")
-    #     srun_prefix += f' apptainer exec --nv {os.environ["IMAGE"]}'
+    # Containerized clusters (EmpireAI/Pyxis): add --container-image and related flags.
+    # For non-container clusters this is a no-op (flag-off byte-identical invariant).
+    container_flags = hpc.get_container_srun_flags()
+    if container_flags:
+        srun_prefix += f" {container_flags}"
 
-    # The srun child processes need the conda environment re-activated because
-    # srun launches a non-interactive shell that doesn't inherit the batch step's
-    # conda activation.  Prepend the conda activate so every node uses the right
-    # Python (critical for sft-qwen35 which needs transformers >= 5.3.0).
-    conda_activate = _get_sft_conda_activate(hpc, exp_args)
-    cmd = f'{conda_activate} && python -m hpc.sft_launch_utils --config "{config_path}"'
+    # Build the command that srun will execute.
+    # For containerized clusters: no conda (env is inside the .sqsh); use the
+    # cluster's env_vars (PATH sanitize, NCCL bond0, node-local caches) instead.
+    # For conda clusters: prepend conda-activate so every node uses the right Python.
+    if hpc.is_containerized:
+        container_env = hpc.get_env_exports()
+        cmd_parts = []
+        if container_env:
+            cmd_parts.append(container_env)
+        cmd_parts.append(f'python -m hpc.sft_launch_utils --config "{config_path}"')
+        cmd = "; ".join(cmd_parts)
+    else:
+        conda_activate = _get_sft_conda_activate(hpc, exp_args)
+        cmd = f'{conda_activate} && python -m hpc.sft_launch_utils --config "{config_path}"'
     srun_command = f"{srun_prefix} bash -c '{cmd}'"
     substitutions = {
         "time_limit": exp_args.get("time_limit") or "24:00:00",
@@ -1164,7 +1174,7 @@ def construct_sft_sbatch_script(exp_args: dict, hpc) -> str:
         "job_name": job_name,
         "sbatch_extra_directives": "\n".join(sbatch_directives),
         "module_commands": hpc.get_module_commands(),
-        "conda_activate": _get_sft_conda_activate(hpc, exp_args),
+        "conda_activate": "" if hpc.is_containerized else _get_sft_conda_activate(hpc, exp_args),
         "cluster_env_file": hpc.dotenv_filename,
         "cuda_setup": cuda_setup,
         "nccl_exports": hpc.get_nccl_exports(),
