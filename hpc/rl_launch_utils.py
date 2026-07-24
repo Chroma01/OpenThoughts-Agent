@@ -961,7 +961,12 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> str:
         build_sbatch_directives,
         resolve_conda_activate,
     )
-    from hpc.rl_config_utils import parse_rl_config, build_skyrl_hydra_args, extract_terminal_bench_agent_env
+    from hpc.rl_config_utils import (
+        apply_context_budget_overrides,
+        build_skyrl_hydra_args,
+        extract_terminal_bench_agent_env,
+        parse_rl_config,
+    )
 
     print("\n=== RL MODE (Universal Launcher) ===")
 
@@ -1091,14 +1096,15 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> str:
     exp_paths = job_setup.paths
     experiments_subdir = str(exp_paths.root)
 
-    # Build Hydra args from YAML + CLI overrides
-    hydra_args = build_skyrl_hydra_args(parsed, exp_args, hpc)
-
-    # Apply CLI overrides (--skyrl_override key=value)
     skyrl_overrides = exp_args.get("skyrl_override") or []
-    if skyrl_overrides:
-        hydra_args.extend(skyrl_overrides)
-        print(f"Applied {len(skyrl_overrides)} CLI overrides")
+    parsed, passthrough_overrides = apply_context_budget_overrides(parsed, skyrl_overrides)
+    print(f"Resolved context budget: {parsed.context_budget.as_dict()}")
+
+    # Build Hydra args from YAML + permitted CLI overrides.
+    hydra_args = build_skyrl_hydra_args(parsed, exp_args, hpc)
+    if passthrough_overrides:
+        hydra_args.extend(passthrough_overrides)
+        print(f"Applied {len(passthrough_overrides)} non-context CLI overrides")
 
     # --- Auto-resume guard: defeat the dedup-fork -> step-0 trap -------------
     # When the run dir collides with a prior run, setup_experiments_dir forks it
@@ -1327,7 +1333,12 @@ def launch_rl_job(exp_args: dict, hpc) -> Optional[str]:
         Job ID if submitted, None if dry_run.
     """
     from hpc.launch_utils import launch_sbatch
-    from hpc.rl_config_utils import get_skyrl_command_preview, parse_rl_config, build_skyrl_hydra_args
+    from hpc.rl_config_utils import (
+        apply_context_budget_overrides,
+        build_skyrl_hydra_args,
+        get_skyrl_command_preview,
+        parse_rl_config,
+    )
 
     # Check for RL environment
     rl_env_path = check_rl_environment()
@@ -1357,9 +1368,11 @@ def launch_rl_job(exp_args: dict, hpc) -> Optional[str]:
         rl_config_path = exp_args.get("rl_config")
         if rl_config_path:
             parsed = parse_rl_config(rl_config_path)
+            parsed, passthrough_overrides = apply_context_budget_overrides(
+                parsed, exp_args.get("skyrl_override") or []
+            )
             hydra_args = build_skyrl_hydra_args(parsed, exp_args, hpc)
-            skyrl_overrides = exp_args.get("skyrl_override") or []
-            hydra_args.extend(skyrl_overrides)
+            hydra_args.extend(passthrough_overrides)
             print("\nSkyRL command preview:")
             print(get_skyrl_command_preview(parsed.entrypoint, hydra_args))
 

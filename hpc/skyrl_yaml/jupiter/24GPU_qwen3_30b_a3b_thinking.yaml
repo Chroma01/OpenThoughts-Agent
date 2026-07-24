@@ -3,12 +3,16 @@ entrypoint: examples.terminal_bench.entrypoints.main_tbench
 config_groups:
   terminal_bench_config: terminal_bench
 
+context_budget:
+  request_window_tokens: 32768
+  max_new_tokens_per_turn: 8192
+  max_turns: 999999
+
 terminal_bench:
   trials_dir: null
 
   harbor:
     name: terminus-2
-    max_episodes: 999999
     enable_summarize: false
     store_all_messages: true
     trajectory_config:
@@ -68,8 +72,6 @@ terminal_bench:
       - ContextLengthExceededError
 
   model_info:
-    max_input_tokens: 24576
-    max_output_tokens: 8192
 
   archiving:
     enabled: false
@@ -106,7 +108,6 @@ trainer:
   micro_forward_batch_size_per_gpu: 4
   micro_train_batch_size_per_gpu: 1
 
-  max_prompt_length: 999999
 
   eval_interval: 999999
   eval_before_train: false
@@ -199,16 +200,12 @@ generator:
   enable_ray_prometheus_stats: false
   vllm_stats_interval: 1
   append_eos_token_after_stop_str_in_multi_turn: true
-  max_turns: 999999
-
   sampling_params:
-    max_generate_length: 8192
     temperature: 1.2
     top_p: 0.95
     top_k: 20
 
   engine_init_kwargs:
-    max_model_len: 32768
     custom_chat_template_chat_completion_path: ./chat_templates/qwen3_thinking_acc.jinja2
     enable_return_routed_experts: false
 

@@ -45,6 +45,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from hpc.launch_utils import PROJECT_ROOT as HPC_PROJECT_ROOT
 from hpc.rl_config_utils import (
+    apply_context_budget_overrides,
     parse_rl_config,
     build_skyrl_hydra_args,
     get_skyrl_command_preview,
@@ -220,6 +221,9 @@ class LocalRLRunner:
         # Build experiment args dict (mimics exp_args from HPC launcher)
         exp_args = self._build_exp_args()
 
+        parsed, passthrough_overrides = apply_context_budget_overrides(parsed, self.config.skyrl_overrides)
+        print(f"Resolved context budget: {parsed.context_budget.as_dict()}")
+
         # Build Hydra args using shared utility
         # Create a minimal HPC-like object for the builder
         hpc_stub = _LocalHPCStub(
@@ -228,9 +232,8 @@ class LocalRLRunner:
         )
         hydra_args = build_skyrl_hydra_args(parsed, exp_args, hpc_stub)
 
-        # Add CLI overrides
-        if self.config.skyrl_overrides:
-            hydra_args.extend(self.config.skyrl_overrides)
+        if passthrough_overrides:
+            hydra_args.extend(passthrough_overrides)
 
         if self.config.dry_run:
             print("\n[DRY RUN] Would execute SkyRL with:")
