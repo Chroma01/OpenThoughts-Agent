@@ -318,12 +318,12 @@ def _install_inline_subagent_merger() -> None:
     def patched_extract_conversations_from_trajectory(
         trajectory_file: Path, run_metadata: Dict[str, Any], embed_tools_in_conversation: bool = True,
         include_literal_tokens: bool = False,
+        sft_format: bool = False,
     ) -> List[Dict[str, Any]]:
-        # Accept include_literal_tokens for signature-compat with harbor's
-        # extract_conversations_from_trajectory. This inline-subagent-merger
-        # reimplements extraction and does NOT emit literal token columns
-        # (that plumbing belongs to the opencode literal-traces runtime).
-        _ = include_literal_tokens
+        # Keep the replacement signature aligned with Harbor's extractor. This
+        # inline-subagent-merger emits the legacy conversations shape and does
+        # not emit literal-token columns; the literal runtime skips this patch.
+        _ = embed_tools_in_conversation, include_literal_tokens, sft_format
         try:
             trajectory_data = json.loads(trajectory_file.read_text())
         except (json.JSONDecodeError, OSError) as exc:

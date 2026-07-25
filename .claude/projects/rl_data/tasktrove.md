@@ -1,11 +1,11 @@
 # TaskTrove — dataset tracker
 
 Comprehensive inventory of **`open-thoughts/TaskTrove`** (HF `repo_type="dataset"`), the OpenThoughts-Agent
-task-dataset collection (complement to `open-thoughts/AgentTrove` traces). Verified 2026-06-14.
+task-dataset collection (complement to `open-thoughts/AgentTrove` traces). Verified 2026-07-24.
 
-- **Version: v3.6** · **124 subdirs** · **~2,437,536 tasks** total.
+- **Version: v3.7** · **124 subdirs** · **~2,435,088 tasks** total.
 - **Structure:** one subdir per source dataset, named `org__name/` (the source HF repo `org/name` with `/`→`__`), containing **`tasks.parquet`** (columns `path`: str, `task_binary`: gzip-tar bytes). So a subdir maps back to its source repo by replacing the first `__` with `/` (e.g. `laion__exp_rpt_stack-csharp-v5` → `laion/exp_rpt_stack-csharp-v5`).
-- **Prior versions** resolvable at git tags `v1` / `v2` / (code-contests fix `v3.1`); v3.2 = swegym v2→v5 swap; **v3.5 (2026-07-19) = +3 verifier-equipped datasets** (superuser + tezos StackExchange computer-use w/ ported nemotron_gym LLM-judge; `exp_rpt_issue-verified` = laion pytest mirror); **v3.6 (2026-07-19) = +5 SFT-source verified datasets** (unix/overflow/codereview/glaive LLM-judge; tulu3-personas-math deterministic exact-match).
+- **Prior versions** resolvable at git tags `v1` / `v2` / (code-contests fix `v3.1`); v3.2 = swegym v2→v5 swap; **v3.5 (2026-07-19) = +3 verifier-equipped datasets** (superuser + tezos StackExchange computer-use w/ ported nemotron_gym LLM-judge; `exp_rpt_issue-verified` = laion pytest mirror); **v3.6 (2026-07-19) = +5 SFT-source verified datasets** (unix/overflow/codereview/glaive LLM-judge; tulu3-personas-math deterministic exact-match); **v3.7 (2026-07-24) = replacement of the broken 5,000-row Stack-Pytest source with `laion/exp_rpt_stack-pytest-large-v2` (2,552 dependency-complete, deterministic-verifier tasks; one snapshot; 40/40 independent oracle; 200-task public smoke 62.2% positive with no exceptions).**
 - **Usage:** `python -m scripts.datagen.extract_tasks_from_parquet --parquet open-thoughts/TaskTrove --output_dir $SCRATCH/tasks/tasktrove --on_exist overwrite`.
 
 > **Caveats:** (1) `laion__nemotron-gym-agent-workplace-v2` does NOT follow the convention — its data is at `data/train-00000-of-00001.parquet` (297 rows, same schema), so `extract_tasks_from_parquet` may not pick it up like the other 115. (2) `task_binary` is stored as parquet `binary`; the brief calls it "gzip tar bytes".
@@ -38,7 +38,7 @@ The Harbor agentic coding/SWE task sets — the `exp_rpt_*` (repo-PR-test), `exp
 | DCAgent__exp_rpt_stack-dockerfile-v2 | 497 | |
 | DCAgent__exp_rpt_stack-jest-large | 5,000 | |
 | DCAgent__exp_rpt_stack-jest-v2 | 500 | |
-| DCAgent__exp_rpt_stack-pytest-large | 5,000 | |
+| laion__exp_rpt_stack-pytest-large-v2 | 2,552 | v3.7. Replaces the broken DCAgent source: task-level dependencies captured for both agent and verifier; one snapshot; hidden references used only for validation, never shipped. Independent deterministic oracle 40/40 reward=1.0; public 200-task smoke 125/200 positive, 0 exceptions. |
 | DCAgent__exp_rpt_stack-pytest-v2 | 500 | |
 | DCAgent__exp_rpt_unitsyn-python-large | 5,000 | |
 | DCAgent__exp_rpt_unitsyn-python-v3 | 500 | |

@@ -1770,7 +1770,31 @@ polaris = HPC(
     num_nodes_fast=56,
 )
 
-clusters = [jureca, jupiter, juwels, leonardo, capella, alpha, dip, lrz, vista, empireai, lonestar, claix, nyugreene, nyutorch, oumi, perlmutter, frontier, polaris]
+# MareNostrum 5 — BSC Barcelona, EuroHJC. EVIDEN BullSequana XH3000 with H100.
+# GPU partition: 1,120 nodes × 4 H100 64GB = 4,480 GPUs (TOP8 globally).
+# Specs from https://www.bsc.es/marenostrum/marenostrum/technical-information.
+# Hostname pattern, account, partition: TBD — update on first access.
+marenostrum = HPC(
+    name="marenostrum",
+    hostname_pattern=r"mn\d+-.*",  # BSC convention: mn5-<rack>-<node>
+    dotenv_filename="marenostrum.env",
+    account="default",  # TBD: BSC project allocation
+    partition="gpu",  # TBD: verify actual SLURM partition name
+    gpus_per_node=4,  # 4× H100 64GB SXM per BullSequana XH3000 node
+    cpus_per_node=112,  # 2× Intel Xeon Platinum 8480+ (56 cores each)
+    internet_node=True,  # BSC has outbound internet
+    gpus_type="H100 64GB",
+    total_partition_nodes=1120,  # 4,480 H100 GPUs / 4 per node
+    gpu_directive_format="--gres=gpu:{n}",
+    training_launcher="torchrun",
+    default_time_limit="24:00:00",
+    max_time_limit="48:00:00",
+    num_nodes_default=4,
+    num_nodes_slow=1,
+    num_nodes_fast=16,
+)
+
+clusters = [jureca, jupiter, juwels, leonardo, capella, alpha, dip, lrz, vista, empireai, lonestar, claix, nyugreene, nyutorch, oumi, perlmutter, frontier, polaris, marenostrum]
 
 
 def detect_hpc() -> HPC:

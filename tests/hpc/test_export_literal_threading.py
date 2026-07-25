@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from harbor.utils import traces_utils
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -62,6 +63,22 @@ def test_patches_literal_skips_inline_merger(monkeypatch):
     # inline-subagent-merger is skipped so Harbor's native literal-aware extraction runs
     assert called == ["safe", "sanitize"]
     assert "inline" not in called
+
+
+def test_inline_merger_accepts_current_harbor_extractor_keywords(tmp_path):
+    """Keep the replacement callable compatible with Harbor's extractor API."""
+    original = traces_utils.extract_conversations_from_trajectory
+    trajectory = tmp_path / "trajectory.json"
+    trajectory.write_text('{"steps": []}')
+    try:
+        mkupload._install_inline_subagent_merger()
+        assert traces_utils.extract_conversations_from_trajectory(
+            trajectory,
+            {"agent_name": "terminus-2", "model_name": "m", "start_time": "now"},
+            sft_format=False,
+        ) == []
+    finally:
+        traces_utils.extract_conversations_from_trajectory = original
 
 
 # --------------------------------------------------------------------------- #

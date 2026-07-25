@@ -96,6 +96,13 @@ class TracegenIrisLauncher(IrisLauncher):
 
         add_tasks_input_arg(parser, required=True)
 
+        parser.add_argument(
+            "--skip-daytona-snapshot-prebuild",
+            action="store_true",
+            help="Skip launch-host task extraction and Daytona snapshot prebuild. "
+            "The worker still receives harbor_env=daytona and handles its task set on-cluster.",
+        )
+
         # Health-check passthrough for the run_tracegen.py worker. These are
         # registered by hpc.arg_groups.add_ray_vllm_args on the local runner
         # but NOT auto-registered on the launcher (add_ray_vllm_args adds
@@ -215,7 +222,7 @@ class TracegenIrisLauncher(IrisLauncher):
         # convert_parquet_to_tasks step; the iris launcher was missing both
         # (the silent prereq that took Q4-v8 out tonight).
         # No-op when harbor_env != "daytona" or DAYTONA_API_KEY is unset.
-        if args.harbor_env == "daytona" and args.tasks_input_path:
+        if args.harbor_env == "daytona" and args.tasks_input_path and not args.skip_daytona_snapshot_prebuild:
             from hpc.hf_utils import resolve_dataset_path
             from hpc.launch_utils import (
                 convert_parquet_to_tasks,
@@ -257,6 +264,12 @@ class TracegenIrisLauncher(IrisLauncher):
                     harbor_env=args.harbor_env,
                     orgs=orgs,
                 )
+        elif args.skip_daytona_snapshot_prebuild:
+            print(
+                "[tracegen-iris] Skipping launch-host Daytona snapshot pre-build; "
+                "the worker will prepare tasks on-cluster.",
+                flush=True,
+            )
 
     def build_task_command(
         self, args: argparse.Namespace, remote_output_dir: str
