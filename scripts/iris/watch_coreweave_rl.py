@@ -740,6 +740,34 @@ def display_metric(value: Any | None, precision: int = 4) -> str:
     return str(value)
 
 
+def tis_ratio_summary(metrics: dict[str, Any]) -> str:
+    """Render the best available TIS ratio diagnostic without mislabeling it.
+
+    Worker ``train_status`` keys are namespaced under ``policy/`` by the
+    trainer before they reach ``WANDB_MIRROR``. Older runs predate that worker
+    diagnostic but expose the inference/train importance-ratio mean directly.
+    That legacy value is useful, but it is not mean absolute log-ratio, so keep
+    the label distinct.
+    """
+    log_ratio = metric(
+        metrics,
+        "policy/tis/log_ratio_abs_mean",
+        "tis/log_ratio_abs_mean",
+        "policy/log_ratio_abs_mean",
+        "log_ratio_abs_mean",
+    )
+    if log_ratio is not None:
+        return f"TIS |log r|={display_metric(log_ratio)}"
+
+    importance_ratio = metric(
+        metrics,
+        "policy/tis/imp_ratio_mean",
+        "tis/imp_ratio_mean",
+        "policy/rollout_train_prob_diff_mean",
+    )
+    return f"TIS r={display_metric(importance_ratio)}"
+
+
 def terminal_signal(finelog: Path) -> str | None:
     if not finelog.exists():
         return None
@@ -801,9 +829,8 @@ def report_row(job: RlJob, artifacts: ArtifactResult, directory: Path) -> list[o
     policy_loss = metric(metrics, "policy/policy_loss", "policy_loss")
     grad_norm = metric(metrics, "policy/raw_grad_norm", "raw_grad_norm")
     entropy = metric(metrics, "policy/policy_entropy", "policy_entropy")
-    log_ratio = metric(metrics, "tis/log_ratio_abs_mean", "log_ratio_abs_mean")
     signal = terminal_signal(directory / "finelog.log")
-    trend = f"entropy={display_metric(entropy)}; TIS log-ratio={display_metric(log_ratio)}"
+    trend = f"entropy={display_metric(entropy)}; {tis_ratio_summary(metrics)}"
     if signal:
         trend = "workload error detected; see error report"
     elif step is None:

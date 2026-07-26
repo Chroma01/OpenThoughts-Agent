@@ -427,6 +427,31 @@ def test_rl_report_row_keeps_artifact_exceptions_out_of_trend(tmp_path):
     assert row[2].value == "running"
 
 
+def test_rl_report_row_reads_policy_namespaced_tis_log_ratio(tmp_path):
+    (tmp_path / "finelog.log").write_text(
+        "Training Step Progress: 7 / 80\n"
+        'WANDB_MIRROR kind=train step=7 metrics={"policy/policy_entropy": 0.05, '
+        '"policy/tis/log_ratio_abs_mean": 0.125}\n'
+    )
+    cluster = watch_coreweave_rl.Cluster("cw-rno2a", Path("/tmp/kubeconfig"), None)
+    job = watch_coreweave_rl.RlJob(cluster, "/user/rl-job", "running", 0, "")
+    artifacts = watch_coreweave_rl.ArtifactResult(
+        "synced", "synced", "synced", "synced", None, None, ()
+    )
+
+    row = watch_coreweave_rl.report_row(job, artifacts, tmp_path)
+
+    assert row[-1].value == "entropy=0.05; TIS |log r|=0.125"
+
+
+def test_tis_ratio_summary_uses_distinct_legacy_importance_ratio_label():
+    summary = watch_coreweave_rl.tis_ratio_summary(
+        {"policy/rollout_train_prob_diff_mean": 50_087_992.0}
+    )
+
+    assert summary == "TIS r=5.009e+07"
+
+
 def test_rl_report_row_replaces_traceback_signal_with_error_report_pointer(tmp_path):
     (tmp_path / "finelog.log").write_text("Traceback (most recent call last)\nraw details\n")
     cluster = watch_coreweave_rl.Cluster("cw-rno2a", Path("/tmp/kubeconfig"), None)
