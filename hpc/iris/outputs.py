@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 
 
 # Default GCS prefix for workload outputs. EU-region matches where most
@@ -25,8 +26,29 @@ DEFAULT_LOCAL_OUTPUT_ROOT = "/tmp/ot-agent-runs"
 DEFAULT_S3_OUTPUT_ROOT = None
 
 
+@dataclass(frozen=True)
+class IrisOutputPaths:
+    """Resolved runtime and durable output locations for one Iris job."""
+
+    remote_output_dir: str
+    work_output_dir: str
+    harbor_jobs_dir: str
+
+
 def _join_output_path(root: str, job_name: str) -> str:
+    """Append one job-name component to an output root."""
+    if not job_name or "/" in job_name:
+        raise ValueError(
+            f"job_name must be one non-empty path component, got {job_name!r}"
+        )
     return f"{root.rstrip('/')}/{job_name.strip('/')}"
+
+
+def s3_harbor_jobs_dir(s3_output_root: str, job_name: str) -> str:
+    """Return the canonical durable Harbor jobs root for an S3-backed Iris job."""
+    if not s3_output_root.startswith("s3://"):
+        raise ValueError("--s3-output-dir must start with s3://")
+    return f"{_join_output_path(s3_output_root, job_name)}/trace_jobs"
 
 
 def resolve_output_mode(
@@ -74,7 +96,9 @@ def validate_output_args(
             raise SystemExit("--resume-from is only supported with --output-mode gcs.")
         local_output_root = str(args.local_output_dir).rstrip("/")
         if not local_output_root.startswith("/"):
-            raise SystemExit("--local-output-dir must be an absolute path inside the task container.")
+            raise SystemExit(
+                "--local-output-dir must be an absolute path inside the task container."
+            )
         args.local_output_dir = local_output_root
     if output_mode == "s3":
         if not getattr(args, "s3_output_dir", None):
@@ -88,7 +112,7 @@ def validate_output_args(
         args.s3_output_dir = s3_output_root
 
 
-def resolve_remote_output_dir(
+def _resolve_remote_output_dir(
     args: argparse.Namespace,
     *,
     job_name: str,
@@ -107,7 +131,7 @@ def resolve_remote_output_dir(
     return _join_output_path(args.gcs_output_dir, job_name)
 
 
-def resolve_work_output_dir(
+def _resolve_work_output_dir(
     args: argparse.Namespace,
     *,
     job_name: str,
@@ -125,3 +149,36 @@ def resolve_work_output_dir(
     if output_mode == "s3":
         return _join_output_path(args.local_output_dir, job_name)
     return remote_output_dir
+
+
+def resolve_output_paths(
+    args: argparse.Namespace,
+    *,
+    job_name: str,
+    output_mode: str,
+    resume_target: str | None,
+) -> IrisOutputPaths:
+    """Resolve all output paths consumed by Iris eval and datagen launchers."""
+    remote_output_dir = _resolve_remote_output_dir(
+        args,
+        job_name=job_name,
+        output_mode=output_mode,
+        resume_target=resume_target,
+    )
+    work_output_dir = _resolve_work_output_dir(
+        args,
+        job_name=job_name,
+        output_mode=output_mode,
+        remote_output_dir=remote_output_dir,
+    )
+    if output_mode == "s3":
+        harbor_jobs_dir = s3_harbor_jobs_dir(args.s3_output_dir, job_name)
+    elif output_mode == "local":
+        harbor_jobs_dir = f"{args.local_output_dir.rstrip('/')}/harbor_jobs"
+    else:
+        harbor_jobs_dir = remote_output_dir
+    return IrisOutputPaths(
+        remote_output_dir=remote_output_dir,
+        work_output_dir=work_output_dir,
+        harbor_jobs_dir=harbor_jobs_dir,
+    )

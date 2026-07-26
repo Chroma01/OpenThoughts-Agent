@@ -411,6 +411,24 @@ Finelog history and reports durable trial progress. Record the local diagnostic 
 incident/update before taking recovery action. A successful state-4 completion does not require
 this failure forensics capture.
 
+**Successful CoreWeave datagen cleanup:** durable S3 Harbor output uses
+`<s3-output-root>/<iris-job>/trace_jobs/<harbor-job>/<trial>`. Pass a campaign
+root to `--s3-output-dir`; the shared `hpc/iris/outputs.py` resolver appends the
+job and `trace_jobs` components for both eval and datagen. Run the canonical
+downloader/uploader on an Iris worker, not on the Mac:
+
+```bash
+python scripts/harbor/cleanup_coreweave_datagen_s3.py \
+  --target '<job>|s3://marin-us-east-02a/iris/<campaign>/<job>|penfever/<repo>'
+```
+
+Repeat `--target` for serial, idempotent cleanup. The tool performs a bounded
+parallel S3 download with retries, checks trajectory realness, publishes with
+one Hub commit, reloads the dataset, and deletes only worker-local staging.
+Raw S3 remains durable. Pre-fix jobs may exist as
+`<root>/<iris-job>/<harbor-job>/<trial>`; the downloader can rescue that shape,
+but it is not the canonical writer layout.
+
 For rno2a controller checks, a shell that has sourced `secrets.env` may inherit the unrelated
 `~/.kube/lambdaconfig`. Use `env -u KUBECONFIG` with `iris --cluster=cw-rno2a ...` and with
 `scripts/iris/iris_ops.py`; do not treat that kubeconfig error as an Iris/DNS failure.

@@ -1,8 +1,9 @@
 ---
 name: datagen-job-cleanup
 description: >-
-  Post-run cleanup for a datagen (trace-generation) job on an HPC cluster (Jupiter/Leonardo/Perlmutter):
-  get the generated traces onto HF (penfever org) and free disk. There is NO model checkpoint — the
+  Post-run cleanup for a datagen (trace-generation) job on Iris/CoreWeave or an HPC cluster
+  (Jupiter/Leonardo/Perlmutter): get the generated traces onto HF (penfever org) and free temporary
+  disk. There is NO model checkpoint — the
   artifact is the trace dataset. Covers the TIMEOUT-strands-traces gotcha (uploads silently never run),
   the ONE-level trace_jobs nesting (vs RL's double-nest), the real-vs-failed sanity check (avg_turns ≈ 1.0
   = dead run, don't upload), the otagent-env uploader, the non-empty HF verify, and safe disk cleanup
@@ -33,6 +34,39 @@ uploader must be the dir that DIRECTLY CONTAINS the `<task>__<id>` trial dirs, i
 RUN=/e/scratch/jureap59/feuer1/OpenThoughts-Agent/experiments/<job_name>   # or /e/data1/.../ot-baf/<job_name>
 INNER=$(ls -d $RUN/trace_jobs/*/ 2>/dev/null | head -1); echo "$INNER"
 ```
+
+### Iris/CoreWeave durable S3 layout
+
+`--s3-output-dir` is a campaign/root prefix, not a per-job destination. The
+shared Iris output resolver appends the Iris job name and routes Harbor to:
+
+```text
+<s3-output-root>/<iris-job>/trace_jobs/<harbor-job>/<trial>/result.json
+```
+
+For example, launch with
+`--s3-output-dir s3://marin-us-east-02a/iris/<campaign>`, not with a URI ending
+in `$JOB`. Eval and datagen both use the `IrisOutputPaths` plan in
+`hpc/iris/outputs.py`; do not reproduce this path construction in a launcher.
+
+Run S3 cleanup inside a `cw-rno2a` Iris worker so the transfer uses cluster
+credentials and bandwidth:
+
+```bash
+python scripts/harbor/cleanup_coreweave_datagen_s3.py \
+  --target '<job>|s3://marin-us-east-02a/iris/<campaign>/<job>|penfever/<repo>'
+```
+
+The downloader lists the prefix once, downloads with bounded parallelism and
+adaptive S3 retries, applies the realness gate, uploads in one Hub commit,
+reloads the published train split, and removes only its worker-local temporary
+copy. It never deletes the durable S3 source. Repeat `--target` to process
+several completed jobs serially and idempotently.
+
+Jobs launched before the shared-path fix may have the malformed rescue layout
+`<root>/<iris-job>/<harbor-job>/<trial>` with no `trace_jobs` component. The
+cleanup tool recognizes this existing layout from `result.json` parents, but
+new launchers must only write the canonical layout above.
 
 ## 2. Sanity-check the trials are REAL before uploading
 A served `/v1/models` healthcheck does NOT mean generation worked. Compute avg turn count + exception

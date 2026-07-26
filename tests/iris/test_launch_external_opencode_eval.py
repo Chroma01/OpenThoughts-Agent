@@ -97,20 +97,17 @@ def test_submit_uses_env_for_url_and_fails_fast_when_missing():
     )
 
 
-def test_durable_harbor_jobs_dir_isolated_per_iris_job():
+def test_s3_harbor_jobs_dir_isolated_per_iris_job():
     assert (
-        _MODULE.durable_harbor_jobs_dir(
-            s3_output_root="s3://marin-us-east-02a/iris/",
-            iris_job_name="eval-v2",
-        )
+        _MODULE.s3_harbor_jobs_dir("s3://marin-us-east-02a/iris/", "eval-v2")
         == "s3://marin-us-east-02a/iris/eval-v2/trace_jobs"
     )
 
 
 @pytest.mark.parametrize("root", ["", "/tmp/jobs", "gs://marin/jobs"])
-def test_durable_harbor_jobs_dir_rejects_non_s3_roots(root):
+def test_s3_harbor_jobs_dir_rejects_non_s3_roots(root):
     with pytest.raises(ValueError, match="s3-output-dir"):
-        _MODULE.durable_harbor_jobs_dir(s3_output_root=root, iris_job_name="eval-v2")
+        _MODULE.s3_harbor_jobs_dir(root, "eval-v2")
 
 
 def test_parent_mirror_requires_a_peer_row(monkeypatch):

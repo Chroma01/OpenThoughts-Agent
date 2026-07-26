@@ -60,9 +60,9 @@ from hpc.iris.outputs import (
     DEFAULT_GCS_OUTPUT_ROOT,
     DEFAULT_LOCAL_OUTPUT_ROOT,
     DEFAULT_S3_OUTPUT_ROOT,
+    IrisOutputPaths,
     resolve_output_mode,
-    resolve_remote_output_dir,
-    resolve_work_output_dir,
+    resolve_output_paths,
     validate_output_args,
 )
 from hpc.iris.regions import (
@@ -88,7 +88,7 @@ class IrisLauncher:
     Subclasses override:
       - ``add_task_specific_args(parser)``
       - ``normalize_paths(args)``
-      - ``build_task_command(args, remote_output_dir) -> list[str]``
+      - ``build_task_command(args, output_paths) -> list[str]``
       - ``build_env(args) -> dict[str, str]``  (optional override)
     """
 
@@ -376,7 +376,7 @@ class IrisLauncher:
         """Subclass hook: validate/normalize paths and infer defaults."""
 
     def build_task_command(
-        self, args: argparse.Namespace, remote_output_dir: str
+        self, args: argparse.Namespace, output_paths: IrisOutputPaths
     ) -> List[str]:
         """Subclass hook: build the ``python data/...py ...`` invocation."""
         raise NotImplementedError
@@ -638,36 +638,13 @@ class IrisLauncher:
         args.job_name = job_name
         user = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
 
-        remote_output_dir = resolve_remote_output_dir(
+        output_paths = resolve_output_paths(
             args,
             job_name=job_name,
             output_mode=output_mode,
             resume_target=resume_target,
         )
-        work_output_dir = resolve_work_output_dir(
-            args,
-            job_name=job_name,
-            output_mode=output_mode,
-            remote_output_dir=remote_output_dir,
-        )
-        args._work_output_dir = work_output_dir
-        # Harbor's --jobs-dir ROOT. Harbor writes each job under <jobs-dir>/<job-name>/,
-        # and run_eval's in-pod DB/HF upload reads <_jobs_dir_path>/<job-name>/, so the
-        # jobs-dir root must be the parent (no job-name) for those to line up.
-        #   - s3:   durable object-store root (s3://marin-us-east-02a/.../<user>); harbor appends <job>.
-        #   - local: pod-local scratch root; run_eval reads it back in-pod.
-        #   - gcs:  historical behavior (remote_output_dir already includes <job>).
-        if output_mode == "s3":
-            args._harbor_jobs_dir = args.s3_output_dir
-        elif output_mode == "local":
-            # Distinct from the experiments/work dir (local_output_dir/<job>) so
-            # Harbor's job dir (<root>/<job_name>/) holds ONLY trial subdirs +
-            # config.json/result.json — run_eval's _extract_job_metadata globs
-            # job-dir subdirs for trials, so a colliding experiments `logs/` dir
-            # would be mistaken for a trial and crash the in-pod DB upload.
-            args._harbor_jobs_dir = f"{args.local_output_dir.rstrip('/')}/harbor_jobs"
-        else:
-            args._harbor_jobs_dir = remote_output_dir
+        remote_output_dir = output_paths.remote_output_dir
 
         # Make sure the local managed tree exists so the daemon (and any
         # downstream consumers) find LOCAL_PATHS.runs/ on first run.
@@ -686,7 +663,7 @@ class IrisLauncher:
             args, remote_output_dir=remote_output_dir
         )
 
-        command = self.build_task_command(args, remote_output_dir)
+        command = self.build_task_command(args, output_paths)
         env_vars = self.build_env(args)
         if self.enforce_capability_token_duration:
             # Keep the same secret-free policy with the remote job as well as
@@ -746,11 +723,11 @@ class IrisLauncher:
             )
         else:
             print(
-                f"[iris] Work dir:   {work_output_dir}  (pod-local runtime state)",
+                f"[iris] Work dir:   {output_paths.work_output_dir}  (pod-local runtime state)",
                 flush=True,
             )
             print(
-                f"[iris] Jobs dir:   {args._harbor_jobs_dir}  (harbor --jobs-dir)",
+                f"[iris] Jobs dir:   {output_paths.harbor_jobs_dir}  (harbor --jobs-dir)",
                 flush=True,
             )
         print(f"[iris] Command:    {shlex.join(command)}", flush=True)

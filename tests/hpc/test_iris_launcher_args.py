@@ -87,14 +87,15 @@ class DummyIrisLauncher(IrisLauncher):
     def add_task_specific_args(self, parser):
         pass
 
-    def build_task_command(self, args, remote_output_dir):
+    def build_task_command(self, args, output_paths):
         return ["true"]
 
 
 class CapturingEvalIrisLauncher(EvalIrisLauncher):
-    def build_task_command(self, args, remote_output_dir):
-        self.remote_output_dir = remote_output_dir
-        self.command = super().build_task_command(args, remote_output_dir)
+    def build_task_command(self, args, output_paths):
+        self.output_paths = output_paths
+        self.remote_output_dir = output_paths.remote_output_dir
+        self.command = super().build_task_command(args, output_paths)
         return self.command
 
 
@@ -213,10 +214,11 @@ def test_eval_iris_gpu_s3_dry_run_covers_runtime_paths():
     expected_remote_output = "s3://marin-us-east-02a/evals/gpu-infra-smoke"
     expected_work_output = "/tmp/ot-agent-runs/gpu-infra-smoke"
     assert launcher.remote_output_dir == expected_remote_output
-    assert args._work_output_dir == expected_work_output
+    assert launcher.output_paths.work_output_dir == expected_work_output
     assert _option_value(launcher.command, "--experiments_dir") == expected_work_output
-    assert "--jobs-dir=s3://marin-us-east-02a/evals" in _equals_option_values(
-        launcher.command, "--harbor_extra_arg"
+    assert (
+        "--jobs-dir=s3://marin-us-east-02a/evals/gpu-infra-smoke/trace_jobs"
+        in _equals_option_values(launcher.command, "--harbor_extra_arg")
     )
     assert (args.dataset_path, args.gpus) == (HF_DATASET, 8)
 

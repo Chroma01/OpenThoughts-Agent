@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from hpc.iris.outputs import IrisOutputPaths
 from scripts.iris import list_iris_jobs, mirror_models
 from scripts.iris.launch_mirror import GcsToS3Launcher, HfMirrorIrisLauncher
 
@@ -54,6 +55,7 @@ def test_mirror_router_rejects_wrong_source_scheme_before_any_transfer(monkeypat
 
 
 def test_mirror_launchers_issue_the_canonical_mirror_command():
+    output_paths = IrisOutputPaths("unused", "unused", "unused")
     hf_args = SimpleNamespace(gcs_prefix=["gs://one", "gs://two"], repo=["org/model"])
     gcs_args = SimpleNamespace(
         gcs_prefix="gs://models",
@@ -62,7 +64,7 @@ def test_mirror_launchers_issue_the_canonical_mirror_command():
         s3_endpoint=None,
         repo=["org/model"],
     )
-    assert HfMirrorIrisLauncher(".").build_task_command(hf_args, "unused") == [
+    assert HfMirrorIrisLauncher(".").build_task_command(hf_args, output_paths) == [
         "python",
         "-m",
         "scripts.iris.mirror_models",
@@ -74,7 +76,7 @@ def test_mirror_launchers_issue_the_canonical_mirror_command():
         "--repo",
         "org/model",
     ]
-    assert GcsToS3Launcher(".").build_task_command(gcs_args, "unused") == [
+    assert GcsToS3Launcher(".").build_task_command(gcs_args, output_paths) == [
         "python",
         "-m",
         "scripts.iris.mirror_models",

@@ -26,6 +26,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from hpc.launch_utils import generate_served_model_id  # noqa: E402
 from hpc.harbor_utils import default_job_name  # noqa: E402
+from hpc.iris.outputs import IrisOutputPaths  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -105,14 +106,42 @@ def _launcher():
     return TracegenIrisLauncher(PROJECT_ROOT)
 
 
+def _gcs_output_paths(remote_output_dir: str) -> IrisOutputPaths:
+    return IrisOutputPaths(
+        remote_output_dir=remote_output_dir,
+        work_output_dir=remote_output_dir,
+        harbor_jobs_dir=remote_output_dir,
+    )
+
+
 def test_build_task_command_bakes_job_name_when_set():
     launcher = _launcher()
     cmd = launcher.build_task_command(
         _tracegen_args("tracegen-iris-20260704-070416"),
-        "gs://b/ot-agent/tracegen-iris-20260704-070416",
+        _gcs_output_paths("gs://b/ot-agent/tracegen-iris-20260704-070416"),
     )
     assert "--job_name" in cmd
     assert cmd[cmd.index("--job_name") + 1] == "tracegen-iris-20260704-070416"
+
+
+def test_build_task_command_uses_runtime_and_durable_output_roots():
+    launcher = _launcher()
+    args = _tracegen_args("tracegen-iris-20260704-070416")
+    output_paths = IrisOutputPaths(
+        remote_output_dir="s3://marin-us-east-02a/iris/tracegen-iris-20260704-070416",
+        work_output_dir="/tmp/ot-agent-runs/tracegen-iris-20260704-070416",
+        harbor_jobs_dir=(
+            "s3://marin-us-east-02a/iris/tracegen-iris-20260704-070416/trace_jobs"
+        ),
+    )
+
+    cmd = launcher.build_task_command(
+        args,
+        output_paths,
+    )
+
+    assert cmd[cmd.index("--experiments_dir") + 1] == output_paths.work_output_dir
+    assert f"--harbor_extra_arg=--jobs-dir={output_paths.harbor_jobs_dir}" in cmd
 
 
 def test_build_task_command_omits_job_name_when_none():
@@ -120,7 +149,7 @@ def test_build_task_command_omits_job_name_when_none():
     # command carries NO --job_name -> the worker drifts. run()'s persist fixes this.
     launcher = _launcher()
     args = _tracegen_args(None)
-    cmd = launcher.build_task_command(args, "gs://b/ot-agent/j")
+    cmd = launcher.build_task_command(args, _gcs_output_paths("gs://b/ot-agent/j"))
     assert "--job_name" not in cmd
 
 
@@ -142,8 +171,11 @@ def test_derive_and_persist_yields_stable_baked_name_across_serves():
     args.job_name = launcher._derive_job_name(args)  # the fix
     assert args.job_name and args.job_name.startswith("tracegen-iris-")
     out = "gs://b/ot-agent/" + args.job_name
-    cmd_serve0 = launcher.build_task_command(args, out)
-    cmd_serve1 = launcher.build_task_command(args, out)  # iris re-runs the baked cmd
+    output_paths = _gcs_output_paths(out)
+    cmd_serve0 = launcher.build_task_command(args, output_paths)
+    cmd_serve1 = launcher.build_task_command(
+        args, output_paths
+    )  # iris re-runs the baked cmd
     n0 = cmd_serve0[cmd_serve0.index("--job_name") + 1]
     n1 = cmd_serve1[cmd_serve1.index("--job_name") + 1]
     assert n0 == n1 == args.job_name

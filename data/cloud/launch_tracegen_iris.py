@@ -10,11 +10,10 @@ docker-not-gated, multi-host TPU is scaffolded but untested).
 from __future__ import annotations
 
 import argparse
-import os
 import shlex
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 # Add repo root to sys.path for imports
 _repo_root = Path(__file__).resolve().parents[2]
@@ -24,6 +23,7 @@ if str(_repo_root) not in sys.path:
 import yaml
 
 from hpc.iris_launch_utils import IrisLauncher
+from hpc.iris.outputs import IrisOutputPaths
 from hpc.cloud_launch_utils import repo_relative, infer_harbor_env_from_config
 from hpc.arg_groups import (
     add_harbor_args,
@@ -222,7 +222,11 @@ class TracegenIrisLauncher(IrisLauncher):
         # convert_parquet_to_tasks step; the iris launcher was missing both
         # (the silent prereq that took Q4-v8 out tonight).
         # No-op when harbor_env != "daytona" or DAYTONA_API_KEY is unset.
-        if args.harbor_env == "daytona" and args.tasks_input_path and not args.skip_daytona_snapshot_prebuild:
+        if (
+            args.harbor_env == "daytona"
+            and args.tasks_input_path
+            and not args.skip_daytona_snapshot_prebuild
+        ):
             from hpc.hf_utils import resolve_dataset_path
             from hpc.launch_utils import (
                 convert_parquet_to_tasks,
@@ -272,7 +276,7 @@ class TracegenIrisLauncher(IrisLauncher):
             )
 
     def build_task_command(
-        self, args: argparse.Namespace, remote_output_dir: str
+        self, args: argparse.Namespace, output_paths: IrisOutputPaths
     ) -> List[str]:
         cmd: List[str] = [
             "python",
@@ -299,7 +303,7 @@ class TracegenIrisLauncher(IrisLauncher):
                 "--gpus",
                 str(args.gpus),
                 "--experiments_dir",
-                remote_output_dir,
+                output_paths.work_output_dir,
             ]
         )
 
@@ -335,8 +339,9 @@ class TracegenIrisLauncher(IrisLauncher):
 
         for kwarg in args.agent_kwarg:
             cmd.extend(["--agent_kwarg", kwarg])
-        # Auto-inject --jobs-dir — see comment in eval/cloud/launch_eval_iris.py.
-        cmd.append(f"--harbor_extra_arg=--jobs-dir={remote_output_dir}")
+        # Keep Harbor's durable job root separate from the pod-local runtime
+        # directory. Harbor appends the stable job name below this root.
+        cmd.append(f"--harbor_extra_arg=--jobs-dir={output_paths.harbor_jobs_dir}")
         for extra in args.harbor_extra_arg:
             # `=` form for argparse accept of `-`-prefixed values; see
             # the same comment in eval/cloud/launch_eval_iris.py.

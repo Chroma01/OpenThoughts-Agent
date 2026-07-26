@@ -20,6 +20,7 @@ import argparse
 import pytest
 
 from hpc.iris import precache
+from hpc.iris.outputs import IrisOutputPaths
 from hpc.launch_utils import PROJECT_ROOT
 
 
@@ -53,6 +54,14 @@ HIT_LAYOUT = {
     ],
     "gs://marin-models-us/ot-agent/datasets/DCAgent/foo": ["train.parquet"],
 }
+
+
+def _gcs_output_paths(remote_output_dir: str) -> IrisOutputPaths:
+    return IrisOutputPaths(
+        remote_output_dir=remote_output_dir,
+        work_output_dir=remote_output_dir,
+        harbor_jobs_dir=remote_output_dir,
+    )
 
 
 @pytest.fixture
@@ -221,7 +230,9 @@ def test_launcher_hit_emits_offline_and_mirror_uris(monkeypatch, no_hf):
 
     # The built job command carries the serve URI + the offline dataset path,
     # and still passes --model as the HF id.
-    cmd = launcher.build_task_command(args, "gs://marin-models-us/ot-agent/eval-x")
+    cmd = launcher.build_task_command(
+        args, _gcs_output_paths("gs://marin-models-us/ot-agent/eval-x")
+    )
     assert "--vllm_model_uri" in cmd
     i = cmd.index("--vllm_model_uri")
     assert cmd[i + 1] == "s3://marin-models-us/ot-agent/models/Qwen/Qwen3-8B/"
@@ -251,6 +262,6 @@ def test_launcher_miss_auto_no_offline_no_serve_uri(monkeypatch):
     assert getattr(args, "_vllm_model_uri", None) is None
     # dataset_path left as the HF id (online worker snapshot_download, unchanged).
     assert args.dataset_path == "DCAgent/foo"
-    cmd = launcher.build_task_command(args, "gs://x/y")
+    cmd = launcher.build_task_command(args, _gcs_output_paths("gs://x/y"))
     assert "--vllm_model_uri" not in cmd
     assert "HF_HUB_OFFLINE" not in " ".join(cmd)

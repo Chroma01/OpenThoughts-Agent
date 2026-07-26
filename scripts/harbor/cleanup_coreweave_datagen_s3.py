@@ -18,7 +18,7 @@ import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import boto3
 from botocore.config import Config
@@ -66,8 +66,20 @@ def coreweave_s3_client():
     return boto3.client(
         "s3",
         endpoint_url=os.environ["AWS_ENDPOINT_URL"],
-        config=Config(max_pool_connections=DOWNLOAD_WORKERS, s3={"addressing_style": "virtual"}),
+        config=Config(
+            max_pool_connections=DOWNLOAD_WORKERS,
+            retries={"max_attempts": 10, "mode": "adaptive"},
+            s3={"addressing_style": "virtual"},
+        ),
     )
+
+
+def local_object_path(destination: Path, relative_key: str) -> Path:
+    """Map an S3 object key below a destination without permitting traversal."""
+    relative_path = PurePosixPath(relative_key)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise ValueError(f"Unsafe relative S3 object key: {relative_key!r}")
+    return destination.joinpath(*relative_path.parts)
 
 
 def download_prefix(target: CleanupTarget, destination: Path) -> int:
@@ -75,7 +87,9 @@ def download_prefix(target: CleanupTarget, destination: Path) -> int:
     bucket, prefix = parse_s3_uri(target.source_prefix)
     client = coreweave_s3_client()
     objects = []
-    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
+    for page in client.get_paginator("list_objects_v2").paginate(
+        Bucket=bucket, Prefix=prefix
+    ):
         for item in page.get("Contents", []):
             key = item["Key"]
             relative = key.removeprefix(prefix)
@@ -87,11 +101,14 @@ def download_prefix(target: CleanupTarget, destination: Path) -> int:
 
     def download_object(item: tuple[str, str]) -> None:
         key, relative = item
-        local_path = destination / relative
+        local_path = local_object_path(destination, relative)
         local_path.parent.mkdir(parents=True, exist_ok=True)
         client.download_file(bucket, key, str(local_path))
 
-    print(f"[cleanup] {target.job_name}: downloading {len(objects)} S3 objects", flush=True)
+    print(
+        f"[cleanup] {target.job_name}: downloading {len(objects)} S3 objects",
+        flush=True,
+    )
     copied = 0
     with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
         futures = [executor.submit(download_object, item) for item in objects]
@@ -107,23 +124,34 @@ def download_prefix(target: CleanupTarget, destination: Path) -> int:
 
 
 def direct_trial_directory(bundle_root: Path) -> Path:
-    """Locate the single Harbor directory directly containing trial directories."""
-    candidates = sorted(path for path in bundle_root.rglob("trace_jobs") if path.is_dir())
+    """Locate the single directory directly containing Harbor trial directories.
+
+    Canonical durable jobs use ``<job>/trace_jobs/<run>/<trial>/result.json``.
+    Runs launched before the Iris datagen path fix instead use the malformed
+    ``<job>/<run>/<trial>/result.json`` layout. Inferring the run directory
+    from actual results lets cleanup rescue both while keeping the canonical
+    writer layout explicit.
+    """
+    trial_results = [
+        result_path
+        for result_path in bundle_root.rglob("result.json")
+        if (result_path.parent / "agent" / "trajectory.json").is_file()
+    ]
+    candidates = sorted({result_path.parent.parent for result_path in trial_results})
     if len(candidates) != 1:
         raise RuntimeError(
-            f"Expected exactly one trace_jobs directory under {bundle_root}; found {candidates}"
+            f"Expected results from exactly one Harbor run under {bundle_root}; found {candidates}"
         )
-    inner_runs = sorted(path for path in candidates[0].iterdir() if path.is_dir())
-    if len(inner_runs) != 1:
-        raise RuntimeError(
-            f"Expected exactly one Harbor inner run under {candidates[0]}; found {inner_runs}"
-        )
-    return inner_runs[0]
+    return candidates[0]
 
 
 def realness_summary(job_dir: Path) -> tuple[int, float, int]:
     """Return trial count, mean agent-step count, and exception count."""
-    result_paths = sorted(job_dir.rglob("result.json"))
+    result_paths = sorted(
+        result_path
+        for result_path in job_dir.rglob("result.json")
+        if (result_path.parent / "agent" / "trajectory.json").is_file()
+    )
     turns: list[int] = []
     exceptions = 0
     for result_path in result_paths:
@@ -132,10 +160,10 @@ def realness_summary(job_dir: Path) -> tuple[int, float, int]:
         if exception.get("exception_type"):
             exceptions += 1
         trajectory_path = result_path.parent / "agent" / "trajectory.json"
-        if not trajectory_path.exists():
-            continue
         trajectory = json.loads(trajectory_path.read_text())
-        steps = trajectory.get("steps", []) if isinstance(trajectory, dict) else trajectory
+        steps = (
+            trajectory.get("steps", []) if isinstance(trajectory, dict) else trajectory
+        )
         if isinstance(steps, list):
             turns.append(len(steps))
     if not turns:
@@ -159,7 +187,9 @@ def publish_target(target: CleanupTarget) -> None:
     """Publish a target unless its Hub dataset is already verified nonempty."""
     existing_rows = hub_row_count(target.repo_id)
     if existing_rows:
-        print(f"[cleanup] {target.job_name}: {target.repo_id} already verified ({existing_rows} rows); skip")
+        print(
+            f"[cleanup] {target.job_name}: {target.repo_id} already verified ({existing_rows} rows); skip"
+        )
         return
 
     temporary_root = Path(tempfile.mkdtemp(prefix=f"{target.job_name}-"))
@@ -196,8 +226,13 @@ def publish_target(target: CleanupTarget) -> None:
         )
         rows = hub_row_count(target.repo_id)
         if rows == 0:
-            raise RuntimeError(f"{target.repo_id} uploaded but did not reload with any rows")
-        print(f"[cleanup] {target.job_name}: verified {target.repo_id} ({rows} rows)", flush=True)
+            raise RuntimeError(
+                f"{target.repo_id} uploaded but did not reload with any rows"
+            )
+        print(
+            f"[cleanup] {target.job_name}: verified {target.repo_id} ({rows} rows)",
+            flush=True,
+        )
     finally:
         shutil.rmtree(temporary_root)
 

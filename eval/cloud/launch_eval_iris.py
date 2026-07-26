@@ -29,6 +29,7 @@ if str(_repo_root) not in sys.path:
     sys.path.append(str(_repo_root))
 
 from hpc.iris_launch_utils import IrisLauncher
+from hpc.iris.outputs import IrisOutputPaths
 from hpc.cloud_launch_utils import repo_relative, infer_harbor_env_from_config
 from hpc.arg_groups import (
     add_harbor_args,
@@ -359,8 +360,6 @@ class EvalIrisLauncher(IrisLauncher):
         # applies to in-repo local task dirs; an HF-id (org/repo) passes through
         # untouched (the GPU-path HF-dataset guard) and a remote gs://|s3:// URI
         # also passes through (the worker's resolve_dataset_path handles those).
-        from hpc.hf_utils import is_hf_dataset_path
-
         args._orig_dataset_repo = None
         if args.dataset_path and is_hf_dataset_path(args.dataset_path):
             args._orig_dataset_repo = args.dataset_path
@@ -522,7 +521,7 @@ class EvalIrisLauncher(IrisLauncher):
         return result.env
 
     def build_task_command(
-        self, args: argparse.Namespace, remote_output_dir: str
+        self, args: argparse.Namespace, output_paths: IrisOutputPaths
     ) -> List[str]:
         cmd: List[str] = [
             "python",
@@ -547,10 +546,6 @@ class EvalIrisLauncher(IrisLauncher):
         elif args.dataset_path:
             cmd.extend(["--dataset_path", args.dataset_path])
 
-        # For s3/local output modes the runtime scratch (endpoint.json, logs)
-        # lives on pod-local disk; for gcs it is the same remote path.
-        work_output_dir = getattr(args, "_work_output_dir", remote_output_dir)
-
         cmd.extend(
             [
                 "--agent",
@@ -562,7 +557,7 @@ class EvalIrisLauncher(IrisLauncher):
                 "--gpus",
                 str(args.gpus),
                 "--experiments_dir",
-                work_output_dir,
+                output_paths.work_output_dir,
             ]
         )
 
@@ -598,8 +593,7 @@ class EvalIrisLauncher(IrisLauncher):
         # that run_eval's in-pod --upload_to_database then reads. User
         # --harbor_extra_arg entries follow below so an explicit
         # --harbor_extra_arg=--jobs-dir=... wins.
-        harbor_jobs_dir = getattr(args, "_harbor_jobs_dir", remote_output_dir)
-        cmd.append(f"--harbor_extra_arg=--jobs-dir={harbor_jobs_dir}")
+        cmd.append(f"--harbor_extra_arg=--jobs-dir={output_paths.harbor_jobs_dir}")
         for extra in args.harbor_extra_arg:
             # Use the `=` form so argparse on the worker side accepts values
             # that start with `-` (e.g. --harbor_extra_arg=--n-tasks). The

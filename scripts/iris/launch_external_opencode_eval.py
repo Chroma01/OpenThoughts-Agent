@@ -26,6 +26,7 @@ from hpc.iris.capability_tokens import (
     persist_token_duration_policy,
     resolve_token_duration_policy,
 )
+from hpc.iris.outputs import s3_harbor_jobs_dir
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -184,23 +185,6 @@ def load_secrets_env(path: Path, environ: dict[str, str]) -> None:
             environ[key] = value.strip().strip('"').strip("'")
 
 
-def durable_harbor_jobs_dir(*, s3_output_root: str, iris_job_name: str) -> str:
-    """Return the durable Harbor jobs root for one external-endpoint eval.
-
-    This deliberately follows the Iris datagen launcher pattern: object-store
-    artifacts are isolated by the Iris job name, while ``run_eval`` receives a
-    ``--jobs-dir`` root and Harbor creates its own deterministic run directory
-    beneath it.  Keeping the ``trace_jobs`` component makes terminal-job
-    recovery discoverable with the standard CoreWeave artifact readers.
-    """
-    root = s3_output_root.rstrip("/")
-    if not root.startswith("s3://"):
-        raise ValueError("--s3-output-dir must start with s3://")
-    if not iris_job_name or "/" in iris_job_name:
-        raise ValueError("--job-name must be a non-empty Iris job-name component")
-    return f"{root}/{iris_job_name}/trace_jobs"
-
-
 def default_job_name(now: datetime | None = None) -> str:
     """Return a unique, descriptive Iris job name for the default Grug profile."""
     timestamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
@@ -324,9 +308,7 @@ def build_submit_command(
     task_env["OT_AGENT_CAPABILITY_TOKEN_DURATION_POLICY"] = (
         args.capability_token_duration_policy_json
     )
-    durable_jobs_dir = durable_harbor_jobs_dir(
-        s3_output_root=args.s3_output_dir, iris_job_name=args.job_name
-    )
+    durable_jobs_dir = s3_harbor_jobs_dir(args.s3_output_dir, args.job_name)
     # ``run_eval`` needs a real local directory for its short-lived endpoint
     # metadata and process logs.  Harbor's long-lived trial artifacts are sent
     # to ``durable_jobs_dir`` instead (the same split as Iris datagen S3 mode).
@@ -491,9 +473,7 @@ def main() -> int:
     # contacting the controller.  ``build_submit_command`` repeats this check
     # because it is also called directly by unit tests and other tooling.
     try:
-        durable_harbor_jobs_dir(
-            s3_output_root=args.s3_output_dir, iris_job_name=args.job_name
-        )
+        s3_harbor_jobs_dir(args.s3_output_dir, args.job_name)
     except ValueError as error:
         parser.error(str(error))
 

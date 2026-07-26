@@ -14,6 +14,7 @@ import sys
 from typing import Sequence
 
 from hpc.iris_launch_utils import IrisLauncher
+from hpc.iris.outputs import IrisOutputPaths
 from hpc.launch_utils import PROJECT_ROOT
 
 
@@ -66,7 +67,7 @@ class HfMirrorIrisLauncher(IrisLauncher):
             )
 
     def build_task_command(
-        self, args: argparse.Namespace, remote_output_dir: str
+        self, args: argparse.Namespace, output_paths: IrisOutputPaths
     ) -> list[str]:
         command = ["python", "-m", "scripts.iris.mirror_models", "hf-to-gcs"]
         for prefix in args.gcs_prefix:
@@ -111,7 +112,7 @@ class GcsToS3Launcher(IrisLauncher):
             raise SystemExit("--gcs-prefix must start with gs://")
 
     def build_task_command(
-        self, args: argparse.Namespace, remote_output_dir: str
+        self, args: argparse.Namespace, output_paths: IrisOutputPaths
     ) -> list[str]:
         command = [
             "python",
