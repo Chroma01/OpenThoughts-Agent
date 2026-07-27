@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -55,6 +56,25 @@ def test_trial_artifacts_counts_recent_completed_traces_and_their_errors():
     assert artifacts.recent_errored == 1
 
 
+def test_trial_artifacts_excludes_agent_timeouts_from_failure_signal():
+    root = "jobs/run"
+    artifacts = watcher._trial_artifacts(
+        [
+            (f"{root}/timeout/result.json", NOW - timedelta(minutes=15)),
+            (f"{root}/timeout/exception.txt", NOW - timedelta(minutes=14)),
+            (f"{root}/error/result.json", NOW - timedelta(minutes=15)),
+            (f"{root}/error/exception.txt", NOW - timedelta(minutes=14)),
+        ],
+        root,
+        CUTOFF,
+        benign_timeout_trials={"timeout"},
+    )
+
+    assert artifacts.recent_completed == 2
+    assert artifacts.recent_errored == 1
+    assert artifacts.recent_benign_timeouts == 1
+
+
 def test_gcs_trial_artifacts_uses_server_filtered_blob_listings():
     blobs = {
         "result.json": [
@@ -87,6 +107,33 @@ def test_gcs_trial_artifacts_uses_server_filtered_blob_listings():
     assert artifacts.recent_errored == 1
 
 
+def test_s3_trial_artifacts_classifies_recent_agent_timeout_as_benign(monkeypatch):
+    root = "jobs/run"
+    objects = [
+        {"Key": f"{root}/timeout/result.json", "LastModified": NOW - timedelta(minutes=15)},
+        {"Key": f"{root}/timeout/exception.txt", "LastModified": NOW - timedelta(minutes=14)},
+        {"Key": f"{root}/error/result.json", "LastModified": NOW - timedelta(minutes=15)},
+        {"Key": f"{root}/error/exception.txt", "LastModified": NOW - timedelta(minutes=14)},
+    ]
+    messages = {
+        f"{root}/timeout/exception.txt": b"AgentTimeoutError: trial deadline exceeded",
+        f"{root}/error/exception.txt": b"RuntimeError: verifier crashed",
+    }
+
+    monkeypatch.setattr(watcher, "iter_objects", lambda *_args: objects)
+
+    class Client:
+        def get_object(self, *, Bucket, Key):  # noqa: N803
+            assert Bucket == "bucket"
+            return {"Body": io.BytesIO(messages[Key])}
+
+    artifacts = watcher.s3_trial_artifacts(Client(), "bucket", root, CUTOFF)
+
+    assert artifacts.recent_completed == 2
+    assert artifacts.recent_errored == 1
+    assert artifacts.recent_benign_timeouts == 1
+
+
 def test_health_uses_two_hour_trace_and_error_window():
     healthy = watcher.Progress(10, 20, "test", recent_completed=4, recent_errored=0)
     degraded = watcher.Progress(10, 20, "test", recent_completed=4, recent_errored=1)
@@ -108,6 +155,35 @@ def test_health_uses_two_hour_trace_and_error_window():
     assert watcher.health_label(_job(age_hours=1), stalled, {}, NOW, 120)[0] == (
         "warming up (+0 traces/2h)"
     )
+
+
+def test_health_treats_agent_timeouts_as_benign_in_the_two_hour_signal():
+    progress = watcher.Progress(
+        10,
+        20,
+        "test",
+        recent_completed=4,
+        recent_errored=0,
+        recent_benign_timeouts=4,
+        error_counts={"AgentTimeoutError": 4},
+    )
+
+    assert watcher.health_label(_job(), progress, {}, NOW, 120)[0] == (
+        "advancing (+4/2h; 0 errors; 4 benign timeouts)"
+    )
+    assert watcher.recent_trend_cell(_job(), progress).tone == "success"
+    assert watcher.report_row(_job(), progress, "advancing", None, "saved")[6].tone == "muted"
+
+
+def test_terminal_states_render_retryable_and_nonretryable_failures():
+    assert watcher.display_state("worker_failed") == "FAILED (RETRYABLE)"
+    assert watcher.display_state("unschedulable") == "FAILED (RETRYABLE)"
+    assert watcher.display_state("failed") == "FAILED (NON-RETRYABLE)"
+    assert watcher.display_state("killed") == "FAILED (NON-RETRYABLE)"
+    assert watcher.health_label(_job(state="worker_failed"), watcher.Progress(None, None, "test"), {}, NOW, 120)[0] == (
+        "terminal (FAILED (RETRYABLE))"
+    )
+    assert watcher._health_cell("terminal (FAILED (RETRYABLE))").tone == "error"
 
 
 def test_report_row_exposes_two_hour_trace_delta_and_error_rate():

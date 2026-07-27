@@ -90,6 +90,9 @@ EVAL_LIVE_TRIAL_PATTERN = re.compile(
     r"\b(?P<trial>[A-Za-z0-9][A-Za-z0-9._-]*__[A-Za-z0-9]+): "
     r"(?:starting environment|running agent|running verifier)"
 )
+AGENT_TIMEOUT_ERROR = "AgentTimeoutError"
+AGENT_TIMEOUT_PATTERN = re.compile(r"\bAgentTimeoutError\b")
+RETRYABLE_TERMINAL_STATES = {"worker_failed", "unschedulable"}
 
 
 @dataclass(frozen=True)
@@ -125,6 +128,7 @@ class Progress:
     exception_file_count: int | None = None
     recent_completed: int | None = None
     recent_errored: int | None = None
+    recent_benign_timeouts: int | None = None
     recent_window_error: str | None = None
 
 
@@ -134,6 +138,7 @@ class TrialArtifacts:
     exception_file_count: int
     recent_completed: int
     recent_errored: int
+    recent_benign_timeouts: int
 
 
 CLUSTERS = (
@@ -402,8 +407,25 @@ def _object_time(value: Any) -> datetime | None:
     return timestamp.astimezone(UTC)
 
 
+def _trial_name_for_artifact(key: str, root: str) -> str | None:
+    """Return a direct Harbor trial name for a result/exception object key."""
+    relative = key.removeprefix(f"{root.rstrip('/')}/")
+    if relative == key or relative.count("/") != 1:
+        return None
+    trial_name, _filename = relative.split("/", 1)
+    return trial_name
+
+
+def _is_agent_timeout_exception(text: str) -> bool:
+    """Recognize the one expected per-trial timeout without hiding other errors."""
+    return bool(AGENT_TIMEOUT_PATTERN.search(text))
+
+
 def _trial_artifacts(
-    objects: list[tuple[str, datetime | None]], root: str, cutoff: datetime
+    objects: list[tuple[str, datetime | None]],
+    root: str,
+    cutoff: datetime,
+    benign_timeout_trials: set[str] | None = None,
 ) -> TrialArtifacts:
     prefix = f"{root.rstrip('/')}/"
     completed: set[str] = set()
@@ -412,9 +434,10 @@ def _trial_artifacts(
     exception_file_count = 0
     for key, modified_at in objects:
         relative = key.removeprefix(prefix)
-        if relative == key or relative.count("/") != 1:
+        trial_name = _trial_name_for_artifact(key, root)
+        if trial_name is None:
             continue
-        trial_name, filename = relative.split("/", 1)
+        filename = relative.rsplit("/", 1)[1]
         if filename == "result.json":
             completed.add(trial_name)
             if modified_at is not None and modified_at >= cutoff:
@@ -426,7 +449,8 @@ def _trial_artifacts(
         sorted(completed),
         exception_file_count,
         len(recent_completed),
-        len(recent_completed & errored),
+        len((recent_completed & errored) - (benign_timeout_trials or set())),
+        len((recent_completed & errored) & (benign_timeout_trials or set())),
     )
 
 
@@ -435,6 +459,7 @@ def gcs_trial_artifacts(client: Any, root: str, cutoff: datetime) -> TrialArtifa
     bucket, object_prefix = location.split("/", 1)
     object_prefix = object_prefix.rstrip("/")
     objects: list[tuple[str, datetime | None]] = []
+    benign_timeout_trials: set[str] = set()
     for filename in ("result.json", "exception.txt"):
         blobs = client.list_blobs(
             bucket,
@@ -442,8 +467,19 @@ def gcs_trial_artifacts(client: Any, root: str, cutoff: datetime) -> TrialArtifa
             match_glob=f"{object_prefix}/*/{filename}",
             fields="items(name,timeCreated),nextPageToken",
         )
-        objects.extend((blob.name, _object_time(blob.time_created)) for blob in blobs)
-    return _trial_artifacts(objects, object_prefix, cutoff)
+        for blob in blobs:
+            modified_at = _object_time(blob.time_created)
+            objects.append((blob.name, modified_at))
+            if filename == "exception.txt" and modified_at is not None and modified_at >= cutoff:
+                try:
+                    is_timeout = _is_agent_timeout_exception(blob.download_as_text())
+                except Exception:
+                    is_timeout = False
+                if is_timeout:
+                    trial_name = _trial_name_for_artifact(blob.name, object_prefix)
+                    if trial_name is not None:
+                        benign_timeout_trials.add(trial_name)
+    return _trial_artifacts(objects, object_prefix, cutoff, benign_timeout_trials)
 
 
 def read_gcs_progress(
@@ -498,6 +534,7 @@ def read_gcs_progress(
         exception_file_count=artifacts.exception_file_count if artifacts else None,
         recent_completed=artifacts.recent_completed if artifacts else None,
         recent_errored=artifacts.recent_errored if artifacts else None,
+        recent_benign_timeouts=artifacts.recent_benign_timeouts if artifacts else None,
         recent_window_error=window_error,
     )
 
@@ -514,9 +551,30 @@ def s3_trial_artifacts(
     """Return direct trial artifacts, including the exact recent error intersection."""
     root = f"{prefix.rstrip('/')}/"
     objects: list[tuple[str, datetime | None]] = []
+    benign_timeout_trials: set[str] = set()
     for item in iter_objects(client, bucket, root):
-        objects.append((item["Key"], _object_time(item.get("LastModified"))))
-    return _trial_artifacts(objects, prefix.rstrip("/"), cutoff)
+        key = item["Key"]
+        modified_at = _object_time(item.get("LastModified"))
+        objects.append((key, modified_at))
+        if not (
+            key.endswith("/exception.txt")
+            and modified_at is not None
+            and modified_at >= cutoff
+        ):
+            continue
+        try:
+            text = client.get_object(Bucket=bucket, Key=key)["Body"].read().decode(
+                errors="replace"
+            )
+        except Exception:
+            continue
+        if _is_agent_timeout_exception(text):
+            trial_name = _trial_name_for_artifact(key, prefix.rstrip("/"))
+            if trial_name is not None:
+                benign_timeout_trials.add(trial_name)
+    return _trial_artifacts(
+        objects, prefix.rstrip("/"), cutoff, benign_timeout_trials
+    )
 
 
 def progress_from_harbor_aggregate(aggregate: dict[str, Any], source: str) -> Progress:
@@ -579,6 +637,7 @@ def read_s3_progress(
             exception_file_count=exception_file_count,
             recent_completed=artifacts.recent_completed,
             recent_errored=artifacts.recent_errored,
+            recent_benign_timeouts=artifacts.recent_benign_timeouts,
         )
     aggregate_progress = progress_from_harbor_aggregate(aggregate, "direct result.json")
     error_counts = aggregate_progress.error_counts
@@ -593,6 +652,7 @@ def read_s3_progress(
         exception_file_count=exception_file_count,
         recent_completed=artifacts.recent_completed,
         recent_errored=artifacts.recent_errored,
+        recent_benign_timeouts=artifacts.recent_benign_timeouts,
     )
 
 
@@ -674,10 +734,31 @@ def format_error_counts(progress: Progress) -> str:
         return "—"
     ranked = sorted(progress.error_counts.items(), key=lambda item: (-item[1], item[0]))
     displayed = ranked[:3]
-    detail = ", ".join(f"{name} {count}" for name, count in displayed)
+    detail = ", ".join(
+        f"{name} {count}{' (benign)' if name == AGENT_TIMEOUT_ERROR else ''}"
+        for name, count in displayed
+    )
     if len(ranked) > len(displayed):
         detail += f", +{len(ranked) - len(displayed)} types"
     return f"{sum(progress.error_counts.values())}: {detail}"
+
+
+def has_non_benign_errors(progress: Progress) -> bool:
+    """Whether aggregate Harbor errors include anything beyond agent timeouts."""
+    return any(
+        name != AGENT_TIMEOUT_ERROR and count > 0
+        for name, count in progress.error_counts.items()
+    )
+
+
+def recent_detail(progress: Progress) -> str:
+    """Render the health-relevant two-hour signal without calling timeouts failures."""
+    completed = progress.recent_completed or 0
+    errored = progress.recent_errored or 0
+    detail = f"+{completed}/2h; {errored} errors"
+    if progress.recent_benign_timeouts:
+        detail += f"; {progress.recent_benign_timeouts} benign timeouts"
+    return detail
 
 
 # A single H100x8 node sustains about 55 completed GLM-5.2 Terminus traces in
@@ -751,7 +832,7 @@ def health_label(
     if progress.error:
         return "output-unavailable", checked_at.isoformat()
     if job.state in TERMINAL_STATES:
-        return f"terminal ({job.state})", prior.get(
+        return f"terminal ({terminal_status(job.state)})", prior.get(
             "last_advanced_at", checked_at.isoformat()
         )
     if progress.completed is None:
@@ -760,7 +841,7 @@ def health_label(
         recent_completed = progress.recent_completed
         recent_errored = progress.recent_errored
         if recent_completed:
-            detail = f"+{recent_completed}/2h; {recent_errored} errors"
+            detail = recent_detail(progress)
             floor = capacity_floor_2h(job)
             error_rate = recent_errored / recent_completed
             if error_rate >= FAILING_ERROR_RATE:
@@ -824,6 +905,19 @@ def _monitor_error(scope: str, operation: str, error: object) -> MonitorError:
     return MonitorError(scope, operation, message)
 
 
+def terminal_status(state: str) -> str:
+    """Classify terminal controller state by whether an unchanged relaunch is useful."""
+    if state == "succeeded":
+        return "succeeded"
+    if state in RETRYABLE_TERMINAL_STATES:
+        return "FAILED (RETRYABLE)"
+    return "FAILED (NON-RETRYABLE)"
+
+
+def display_state(state: str) -> str:
+    return terminal_status(state) if state in TERMINAL_STATES else state
+
+
 def _state_cell(state: str) -> StyledCell:
     if state in {"running", "succeeded"}:
         tone = "success"
@@ -835,17 +929,17 @@ def _state_cell(state: str) -> StyledCell:
 
 
 def _health_cell(health: str) -> StyledCell:
+    normalized = health.lower()
     if health in {"advancing", "baseline", "healthy"} or health.startswith(
         ("advancing (", "healthy (")
     ):
         tone = "success"
-    elif health.startswith(
+    elif normalized.startswith(
         (
             "stalled",
             "failing",
             "output-unavailable",
             "terminal (failed",
-            "terminal (worker_failed",
         )
     ):
         tone = "error"
@@ -863,6 +957,8 @@ def recent_trend_cell(job: HarborJob, progress: Progress) -> StyledCell:
         return StyledCell("+0 traces; 0 errors", "warning")
     rate = errored / completed
     text = f"+{completed:,} traces; {errored:,} errors ({rate:.0%})"
+    if progress.recent_benign_timeouts:
+        text += f"; {progress.recent_benign_timeouts:,} benign timeouts"
     if errored == 0 or recent_window_is_healthy(job, progress):
         tone = "success"
     elif errored / completed >= FAILING_ERROR_RATE:
@@ -896,10 +992,13 @@ def report_row(
         f"{job.cluster.name}/{job.kind}",
         job.job_id.rsplit("/", 1)[-1],
         job.dataset,
-        _state_cell(job.state),
+        _state_cell(display_state(job.state)),
         f"{completed}/{total}",
         mean,
-        StyledCell(trial_errors, "warning" if trial_errors != "—" else "muted"),
+        StyledCell(
+            trial_errors,
+            "warning" if has_non_benign_errors(progress) else "muted",
+        ),
         recent_trend_cell(job, progress),
         StyledCell(evidence, "warning" if "unavailable" in evidence else "muted"),
         _health_cell(health),
@@ -1073,7 +1172,7 @@ def main() -> int:
                     f"{job.cluster.name}/{job.kind}",
                     job.job_id.rsplit("/", 1)[-1],
                     job.dataset,
-                    _state_cell(job.state),
+                    _state_cell(display_state(job.state)),
                     "?/?",
                     "—",
                     StyledCell("—", "muted"),
@@ -1085,6 +1184,8 @@ def main() -> int:
         current_jobs[job.job_id] = {
             "cluster": job.cluster.name,
             "job_kind": job.kind,
+            "state": display_state(job.state),
+            "controller_state": job.state,
             "completed": progress.completed,
             "total": progress.total,
             "mean_reward": progress.mean_reward,
@@ -1092,6 +1193,7 @@ def main() -> int:
             "exception_file_count": progress.exception_file_count,
             "recent_completed_2h": progress.recent_completed,
             "recent_errored_2h": progress.recent_errored,
+            "recent_benign_timeouts_2h": progress.recent_benign_timeouts,
             "last_advanced_at": last_advanced_at,
             "health": health,
             "jobs_dir": job.jobs_dir,
@@ -1112,7 +1214,8 @@ def main() -> int:
                     "dataset": job.dataset,
                     "harbor_job_name": job.harbor_job_name,
                     "jobs_dir": job.jobs_dir,
-                    "state": job.state,
+                    "state": display_state(job.state),
+                    "controller_state": job.state,
                     "submitted_at_ms": job.submitted_at_ms,
                     "last_synced_at": checked_at.isoformat(),
                     "progress": {
@@ -1123,6 +1226,7 @@ def main() -> int:
                         "exception_file_count": progress.exception_file_count,
                         "recent_completed_2h": progress.recent_completed,
                         "recent_errored_2h": progress.recent_errored,
+                        "recent_benign_timeouts_2h": progress.recent_benign_timeouts,
                     },
                 },
             )
