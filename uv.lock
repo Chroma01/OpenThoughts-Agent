@@ -5322,6 +5322,7 @@ cloud-vast = [
 ]
 datagen = [
     { name = "accelerate" },
+    { name = "boto3" },
     { name = "google-cloud-aiplatform" },
     { name = "google-genai" },
     { name = "ray", extra = ["default"], marker = "extra == 'extra-18-openthoughts-agent-datagen' or (extra == 'extra-18-openthoughts-agent-datagen-tpu' and extra == 'extra-18-openthoughts-agent-rl') or (extra == 'extra-18-openthoughts-agent-datagen-tpu' and extra == 'extra-18-openthoughts-agent-sft-qwen35') or (extra == 'extra-18-openthoughts-agent-rl' and extra == 'extra-18-openthoughts-agent-sft-qwen35')" },
@@ -5403,6 +5404,7 @@ requires-dist = [
     { name = "boto3", marker = "extra == 'cloud'" },
     { name = "boto3", marker = "extra == 'cloud-all'" },
     { name = "boto3", marker = "extra == 'cloud-aws'" },
+    { name = "boto3", marker = "extra == 'datagen'" },
     { name = "bs4" },
     { name = "certifi" },
     { name = "datasets", specifier = ">=2.0.0" },

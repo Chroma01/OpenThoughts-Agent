@@ -37,6 +37,7 @@ datagen-cpu = [
     "trufflehog>=2.2.0",
 ]
 datagen = [
+    "boto3",
     "ray[default]>=2.50.0",
     "torch-c-dlpack-ext==0.1.4",
     "google-cloud-aiplatform>=1.67.0",
