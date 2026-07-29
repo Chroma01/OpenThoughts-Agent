@@ -263,11 +263,10 @@ class IrisLauncher:
             choices=["auto", "gcs", "s3", "local"],
             default=os.environ.get("OT_AGENT_OUTPUT_MODE", "auto"),
             help="Where workload outputs are written. 'auto' uses GCS for TPU "
-            "and pod-local for GPU (Harbor writes trace_jobs to local NVMe, "
-            "run_eval registers to Supabase/HF in-pod). 'gcs' writes to "
+            "and durable S3 for GPU (an S3 root is required). 'gcs' writes to "
             "--gcs-output-dir/<job-name> (TPU); 's3' writes durable Harbor "
-            "artifacts to --s3-output-dir/<job-name> (CoreWeave R2); 'local' "
-            "writes to --local-output-dir/<job-name> (GPU, default).",
+            "artifacts to --s3-output-dir/<job-name> (CoreWeave); local pod "
+            "storage is scratch-only and is not a supported output mode.",
         )
         og.add_argument(
             "--gcs-output-dir",

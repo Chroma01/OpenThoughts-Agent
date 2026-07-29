@@ -173,36 +173,20 @@ def test_gpu_parsing_and_accelerator_resolution_cover_iris_specs():
         _parse_dummy_args("--gpu", "H100x8", "--tpu", "v5p-32")
 
 
-def test_eval_iris_gpu_local_default_registers_in_pod():
-    """Default GPU output mode is pod-local: Harbor writes to a local root and
-    run_eval registers to Supabase/HF in-pod. --upload_to_database is allowed."""
+def test_eval_iris_gpu_auto_requires_durable_s3_root():
+    """GPU auto mode fails closed rather than placing durable artifacts on a pod."""
     launcher, args = _parse_eval_args(
         "--job_name",
-        "gpu-local-smoke",
+        "gpu-auto-no-s3-root",
         "--upload_to_database",
         "--dry_run",
     )
-    assert launcher.run(args) == 0
-
-    assert args.output_mode == "local"
-    assert launcher.remote_output_dir == "/tmp/ot-agent-runs/gpu-local-smoke"
-    assert (
-        _option_value(launcher.command, "--experiments_dir")
-        == "/tmp/ot-agent-runs/gpu-local-smoke"
-    )
-    # Harbor jobs-dir root is DISTINCT from the experiments dir so the harbor
-    # job dir holds only trial subdirs; run_eval reads <root>/<job_name>.
-    assert "--jobs-dir=/tmp/ot-agent-runs/harbor_jobs" in _equals_option_values(
-        launcher.command, "--harbor_extra_arg"
-    )
-    assert "--upload_to_database" in launcher.command
-    assert (args.dataset_path, args.gpus) == (HF_DATASET, 8)
+    with pytest.raises(SystemExit, match="--s3-output-dir is required"):
+        launcher.run(args)
 
 
-def test_eval_iris_gpu_s3_dry_run_covers_runtime_paths():
+def test_eval_iris_gpu_auto_dry_run_uses_durable_s3_artifacts():
     launcher, args = _parse_eval_args(
-        "--output-mode",
-        "s3",
         "--s3-output-dir",
         "s3://marin-us-east-02a/evals",
         "--job_name",
@@ -211,6 +195,7 @@ def test_eval_iris_gpu_s3_dry_run_covers_runtime_paths():
     )
     assert launcher.run(args) == 0
 
+    assert args.output_mode == "s3"
     expected_remote_output = "s3://marin-us-east-02a/evals/gpu-infra-smoke"
     expected_work_output = "/tmp/ot-agent-runs/gpu-infra-smoke"
     assert launcher.remote_output_dir == expected_remote_output
@@ -228,6 +213,7 @@ def test_eval_iris_gpu_s3_dry_run_covers_runtime_paths():
     [
         (("--output-mode", "s3", "--s3-output-dir", ""), "--s3-output-dir is required"),
         (("--output-mode", "gcs"), "must not write to GCS"),
+        (("--output-mode", "local"), "must write durable artifacts to S3"),
         (
             ("--replicas", "2"),
             "GPU eval replicas > 1 need task sharding",

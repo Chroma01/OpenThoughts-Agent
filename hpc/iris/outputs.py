@@ -12,10 +12,8 @@ from dataclasses import dataclass
 # Override with $OT_AGENT_GCS_OUTPUT_ROOT or the --gcs-output-dir flag.
 DEFAULT_GCS_OUTPUT_ROOT = "gs://marin-eu-west4/ot-agent"
 
-# Pod-local runtime scratch root for the GPU eval path (--output-mode local
-# and the scratch dir used with --output-mode s3). The CoreWeave H100 pod has
-# ~1TB local NVMe; Harbor writes trace_jobs here and run_eval registers to
-# Supabase + HF in-pod before the ephemeral pod is torn down.
+# Pod-local runtime scratch root used by the GPU S3 path for endpoint files and
+# transient process logs. It is never a durable artifact destination.
 DEFAULT_LOCAL_OUTPUT_ROOT = "/tmp/ot-agent-runs"
 
 # No universal default S3 prefix — the CoreWeave object-store bucket
@@ -58,16 +56,16 @@ def resolve_output_mode(
 ) -> str:
     """Resolve ``--output-mode auto`` after the accelerator is known.
 
-    TPU keeps the established GCS path. GPU defaults to the pod-local path:
-    Harbor writes trace_jobs to fast local NVMe and run_eval performs the
-    in-pod Supabase/HF registration, which is the low-risk green-eval path.
-    Durable object-store output is opt-in via ``--output-mode s3``.
+    TPU keeps the established GCS path. GPU defaults to S3 so Harbor trial
+    artifacts survive a pod loss. The S3 path still uses pod-local scratch for
+    endpoint files and transient logs, but ``trace_jobs`` are durable from the
+    start. A launch without an S3 root therefore fails closed.
     """
     output_mode = getattr(args, "output_mode", "auto")
     if output_mode != "auto":
         return output_mode
     if accelerator_kind == "gpu":
-        return "local"
+        return "s3"
     return "gcs"
 
 
@@ -80,7 +78,12 @@ def validate_output_args(
     if accelerator_kind == "gpu" and output_mode == "gcs":
         raise SystemExit(
             "CoreWeave GPU Iris runs must not write to GCS. Use "
-            "--output-mode local (default) or --output-mode s3 --s3-output-dir s3://..."
+            "--output-mode s3 (the default) with --s3-output-dir s3://..."
+        )
+    if accelerator_kind == "gpu" and output_mode == "local":
+        raise SystemExit(
+            "CoreWeave GPU Iris runs must write durable artifacts to S3; "
+            "use --output-mode s3 with --s3-output-dir s3://..."
         )
     if accelerator_kind == "tpu" and output_mode in ("s3", "local"):
         raise SystemExit(
