@@ -801,7 +801,15 @@ class IrisLauncher:
                 preemptible=args.preemptible,
             )
 
-            priority_band = job_pb2.PRIORITY_BAND_UNSPECIFIED
+            # The deployed Iris client still calls the unset priority enum
+            # ``INHERIT``; newer protobufs renamed it to ``UNSPECIFIED``.
+            # Resolve either spelling so a requested priority can be
+            # submitted across both controller/client versions.
+            priority_band = getattr(
+                job_pb2,
+                "PRIORITY_BAND_UNSPECIFIED",
+                getattr(job_pb2, "PRIORITY_BAND_INHERIT", 0),
+            )
             if args.priority:
                 # Map name → enum the same way iris/cli/job.py does.
                 _PRIO = {
