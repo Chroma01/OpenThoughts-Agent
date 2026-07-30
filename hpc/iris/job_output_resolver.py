@@ -89,7 +89,8 @@ def _resolve_from_iris(job_ref: str, cluster_config: str) -> str:
                 f"{s3_hit.group(1)!r} (s3://), not a gs:// prefix. analyze_iris_harbor_job's "
                 "output-dir / trace-progress resolution only supports gs:// (TPU) jobs. "
                 "For CoreWeave RL trial-banking + rollout inspection use "
-                "`scripts/iris/analyze_coreweave_rl_job_live.sh <job>` (the authoritative banking signal); "
+                "`MarinSkyRL/scripts/iris/analyze_coreweave_rl_job_live.sh <job>` "
+                "(the authoritative banking signal); "
                 "analyze_iris_harbor_job's finelog/throughput sections still work on their own."
             )
         raise LookupError(

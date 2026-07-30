@@ -1,6 +1,6 @@
 # Debugging log for watcher S3 trace sync
 
-Keep `watch_coreweave_rl.py` from reporting an active RL job as partially
+Keep MarinSkyRL's `watch_coreweave_rl.py` from reporting an active RL job as partially
 synced when a selected object disappears between the S3 listing and download.
 
 ## Initial status

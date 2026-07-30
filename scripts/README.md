@@ -36,18 +36,14 @@ Utility entrypoints that support data generation, trace analysis, Harbor uploads
   ```bash
   python scripts/iris/watch_iris_harbor.py
   ```
-- `iris/watch_coreweave_rl.py` – canonical read-only CoreWeave RL monitor, including synchronized Finelog, pod/Ray logs, and rollout artifacts.
-  ```bash
-  python scripts/iris/watch_coreweave_rl.py
-  ```
+- CoreWeave RL monitoring and live-job analysis live in MarinSkyRL under
+  `scripts/iris/`.
 
 ### Iris operations
 
 - `iris/iris_ops.py` – shared Iris lifecycle polling, stable job identity, and canonical local-bundle helpers.
 - `iris/coreweave_ops.py` – shared CoreWeave pod, Ray/vLLM, and object-store collection operations.
-- `iris/watch_coreweave_rl.py` – RL-only watcher for active CoreWeave RL jobs.
 - `iris/watch_iris_harbor.py` – Harbor-only watcher for active Iris datagen and eval jobs.
-- `iris/analyze_coreweave_rl_job.py` / `iris/analyze_coreweave_rl_job_live.sh` – completed / live CoreWeave RL analysis.
 - `iris/analyze_iris_harbor_job.py` / `iris/analyze_iris_harbor_job_live.sh` – completed / live Iris Harbor datagen and eval analysis.
 
 ### Data generation helpers
