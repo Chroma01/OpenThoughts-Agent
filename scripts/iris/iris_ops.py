@@ -82,7 +82,7 @@ IRIS_BIN = os.environ.get(
 )
 DEFAULT_CLUSTER = "cw-us-east-02a"  # the GPU RL cluster; use "marin" for TPU jobs
 DEFAULT_BUNDLE_ROOT = Path(
-    "/Users/benjaminfeuer/Documents/experiments/active/iris-job-bundles"
+    "/Users/benjaminfeuer/Documents/iris-job-bundles"
 )
 
 # JobState int -> friendly name (lib/iris/src/iris/rpc/job.proto).

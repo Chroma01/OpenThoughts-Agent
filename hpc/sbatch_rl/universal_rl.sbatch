@@ -62,7 +62,7 @@ if [ ! -f "$WORKDIR/hpc/shell_utils/triton_cache.sh" ]; then
   echo "       Submit the job FROM the repo dir with DCFT exported — on Jupiter:" >&2
   echo "         cd /e/scratch/jureap59/feuer1/OpenThoughts-Agent && export DCFT=\$PWD" >&2
   echo "       or pass --chdir <repo> to sbatch. Do NOT submit from \$HOME or a scratch subdir." >&2
-  echo "       See .claude/skills/rl-agentic-launch-jupiter for the correct launch procedure." >&2
+  echo "       See .agents/skills/rl-agentic-launch-jupiter for the correct launch procedure." >&2
   exit 1
 fi
 cd "$WORKDIR"

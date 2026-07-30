@@ -6,12 +6,12 @@ Guidance for Claude Code when working in this repository.
 **datagen** (Harbor/Daytona traces + standard vLLM generation), **SFT** (LLaMA-Factory), **RL** (SkyRL/GRPO),
 **eval** (terminal-bench / agentic). One unified launcher: `python -m hpc.launch --job_type <type>`.
 
-## Source of truth = `.claude/`
+## Source of truth = `.agents/`
 
-This file is a thin index. The real, maintained documentation lives under **`.claude/`** — read the relevant
+This file is a thin index. The real, maintained documentation lives under **`.agents/`** — read the relevant
 piece for the task at hand (skills are also invocable by name via the Skill tool):
 
-- **`.claude/skills/<name>/SKILL.md`** — operational how-tos, one per task. By prefix:
+- **`.agents/skills/<name>/SKILL.md`** — operational how-tos, one per task. By prefix:
   - **launch:** `rl-agentic-launch-jupiter`, `rl-agentic-launch-iris` (CoreWeave H100), `rl-standard-launch-leonardo` (non-agentic GRPO), `sft-launch` (LLaMA-Factory + axolotl · Delphi), `datagen-launch` (agentic Harbor trace-gen), `datagen-standard-launch` (Curator + `generate.py`), `eval-agentic-launch`, `eval-standard-launch` (+ `*-iris` variants).
   - **cleanup:** `rl-agentic-job-cleanup` (agentic RL + traces), `rl-standard-job-cleanup` (standard GRPO — model + metrics only, no traces), `sft-job-cleanup`, `datagen-job-cleanup`, `eval-agentic-cleanup`, `eval-standard-cleanup`.
   - **monitor:** `monitor-cron-sweep`, `monitor-job-tables`, `rl-job-health-deep-dive` (per-RL-job probe → KILL/NO-KILL), `monitor-restore` (3-hourly sweep loop), `monitor-restore-iris-cron`.
@@ -19,9 +19,9 @@ piece for the task at hand (skills are also invocable by name via the Skill tool
   - **code:** `code-create-staged-plan` → `notes/<codebase>/`, `code-execute-staged-plan` → `agent_logs/`.
   - **build:** `build-gpu-rl-image-iris` (kaniko in-cluster; Mac can't build it).
   - **role:** `supervisor-init` — session bootstrap.
-- **`.claude/projects/<dep>/`** — facts & gotchas per codebase: `ot-agent/` (branches + launcher map), `marin/`, `marinskyrl/`, `harbor/`, `vllm/`, `llama-factory/`, `axolotl/`, `daytona/`, `ajudge/`; plus technique docs — `pyspy/` (**live-hang py-spy capture method** — read this when the operator asks to "go in with py-spy on the live job" / "scope the failure live").
-- **`.claude/ops/<target>/`** — machine/cluster particulars (access, paths, env/SIF map, gotchas): `jupiter/`, `leonardo/`, `torch/`, `iris/`, `local/` (this Mac), `all/` (cross-cluster HF/tmux), `experiments/` (the per-experiment tracker workspace `~/Documents/experiments`), `data/` (dataset trackers — e.g. `tasktrove.md`, the full TaskTrove inventory).
-- **`.claude/secret.md`** — untracked, gitignored; holds privileged values (pinggy bank, etc.) pulled out of the committable docs. Referenced by name from skills/ops.
+- **`.agents/projects/<dep>/`** — facts & gotchas per codebase: `ot-agent/` (branches + launcher map), `marin/`, `marinskyrl/`, `harbor/`, `vllm/`, `llama-factory/`, `axolotl/`, `daytona/`, `ajudge/`; plus technique docs — `pyspy/` (**live-hang py-spy capture method** — read this when the operator asks to "go in with py-spy on the live job" / "scope the failure live").
+- **`.agents/ops/<target>/`** — machine/cluster particulars (access, paths, env/SIF map, gotchas): `jupiter/`, `leonardo/`, `torch/`, `iris/`, `local/` (this Mac), `all/` (cross-cluster HF/tmux), `experiments/` (the per-experiment tracker workspace `~/Documents/experiments`), `data/` (dataset trackers — e.g. `tasktrove.md`, the full TaskTrove inventory).
+- **`.agents/secret.md`** — untracked, gitignored; holds privileged values (pinggy bank, etc.) pulled out of the committable docs. Referenced by name from skills/ops.
 
 ## Always (apply before any skill loads)
 

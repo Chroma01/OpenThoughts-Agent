@@ -4,7 +4,7 @@
 # meant to prove the axolotl backend trains + checkpoints THROUGH the launcher
 # (`python -m hpc.launch --job_type sft --sft_backend axolotl`).
 #
-# aarch64 (TACC Vista GH200) constraints — see .claude/ops/tacc/ops.md:
+# aarch64 (TACC Vista GH200) constraints — see .agents/ops/tacc/ops.md:
 #   - NO flash-attn-2 wheel for torch 2.11+cu128 on aarch64 -> attn_implementation: sdpa
 #     (the translator honors an explicit attn_implementation; without it, sample_packing
 #      would force flash_attention_2 and the job would die at model load).

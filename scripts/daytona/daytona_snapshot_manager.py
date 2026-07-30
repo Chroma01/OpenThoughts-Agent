@@ -63,7 +63,7 @@ API key resolution order:
     1. --api-key VALUE
     2. environment variable named by --api-key-env (default DAYTONA_DATA_API_KEY)
     3. that same variable read from a secrets file
-       (--secrets-file, default $DC_AGENT_SECRET_ENV; see .claude/secret.md)
+       (--secrets-file, default $DC_AGENT_SECRET_ENV; see .agents/secret.md)
 
 Exit codes
 ----------

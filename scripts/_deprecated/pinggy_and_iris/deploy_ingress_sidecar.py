@@ -19,11 +19,11 @@ Subcommands:
   status   Print job_id + state + ingress_host + healthz. No side effects.
 
 Secrets: the sandbox-facing bearer is read from ``IRIS_INGRESS_API_KEY`` in the
-environment (``source "$DC_AGENT_SECRET_ENV"`` first; see .claude/secret.md). It is
+environment (``source "$DC_AGENT_SECRET_ENV"`` first; see .agents/secret.md). It is
 never printed.
 
 Examples:
-  source "${DC_AGENT_SECRET_ENV:?see .claude/secret.md}"
+  source "${DC_AGENT_SECRET_ENV:?see .agents/secret.md}"
   python scripts/inference/deploy_ingress_sidecar.py deploy
   python scripts/inference/deploy_ingress_sidecar.py ensure   # cron
   python scripts/inference/deploy_ingress_sidecar.py status
@@ -75,7 +75,7 @@ def require_key() -> str:
     if not key:
         raise SystemExit(
             "IRIS_INGRESS_API_KEY not in env — "
-            "`source \"$DC_AGENT_SECRET_ENV\"` first (see .claude/secret.md)."
+            "`source \"$DC_AGENT_SECRET_ENV\"` first (see .agents/secret.md)."
         )
     return key
 

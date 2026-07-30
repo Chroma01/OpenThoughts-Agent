@@ -9,7 +9,7 @@
 # Runs INSIDE an iris job whose task-image is docker.io/library/ubuntu:22.04
 # (kaniko's executor is distroless / no bash, so it cannot be the task image
 # directly). We crane-export the kaniko executor rootfs over / and run
-# /kaniko/executor. See .claude/skills/build-gpu-rl-image-iris/SKILL.md.
+# /kaniko/executor. See .agents/skills/build-gpu-rl-image-iris/SKILL.md.
 #
 # Required env (passed by the iris launch as -e):
 #   DOCKER_USER_ID  ghcr user (penfever)

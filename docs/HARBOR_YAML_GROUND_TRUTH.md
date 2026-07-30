@@ -53,7 +53,7 @@ agentic eval needs no `--harbor-config` flag:
 
 The two files have an identical body; **only `timeout_multiplier` differs.** Keep them in
 sync. The multiplier lives IN the file (not a CLI default). See
-`.claude/skills/eval-agentic-launch/SKILL.md` §3b for the full policy.
+`.agents/skills/eval-agentic-launch/SKILL.md` §3b for the full policy.
 
 ## How `--config-yaml` resolves (no symlinks)
 

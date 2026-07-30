@@ -126,7 +126,7 @@ def _assemble_plugins(base_config: dict) -> list:
     # LigerFusedLinearCrossEntropy fuses the LM head + cross-entropy so the full
     # ~18 GB logit tensor (seq 32768 × vocab ~152k × bf16) never materializes —
     # the exact allocation that OOM'd in the ZeRO-3 backward. Mirrors LF's
-    # `enable_liger_kernel: true`. See .claude/projects/axolotl/axolotl.md
+    # `enable_liger_kernel: true`. See .agents/projects/axolotl/axolotl.md
     # §Qwen3-32B + agent_logs/2026-07-09_sft_32b_axolotl_oom_config_gap.md.
     if base_config.get("enable_liger_kernel"):
         plugins.append(_PLUGIN_LIGER)
@@ -215,7 +215,7 @@ def translate_lf_to_axolotl(base_config: dict, exp_args: dict, dataset_paths, mo
     # --- attention: LF `attn`/`fa2` -> axolotl attn_implementation (varlen) ---
     # An explicit `attn_implementation` in the base config wins (e.g. `sdpa` on
     # aarch64 clusters like TACC Vista, which have NO flash-attn-2 wheel for
-    # torch 2.11+cu128 — see .claude/ops/tacc/ops.md). Otherwise, sample_packing
+    # torch 2.11+cu128 — see .agents/ops/tacc/ops.md). Otherwise, sample_packing
     # without a varlen backend warns about cross-sample decontamination, so a
     # flash backend matches LF throughput/semantics.
     lf_attn = base_config.get("attn")

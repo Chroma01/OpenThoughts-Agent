@@ -2,12 +2,14 @@
 """Sweep every active Iris Harbor datagen *and eval* job across Iris clusters.
 
 With no arguments this discovers the current user's Harbor launch commands:
-``run_tracegen.py`` for datagen and ``eval.local.run_eval`` for evals.  It reads
-each job's recorded Harbor output location when available, counts direct trial
-``result.json`` objects, and writes a durable box-table report.  Older eval
-launches that only used pod-local ``trace_jobs`` remain visible as ``log-only``
-rows instead of being silently omitted.  The monitor is read-only: it never
-stops or relaunches a job.
+``run_tracegen.py`` for datagen and ``eval.local.run_eval`` for command-style
+evals. Current callable evals expose only ``_callable_runner.py`` in the
+controller, so the watcher also recognizes callable jobs with an ``eval-*``
+Iris job name. It reads each job's recorded Harbor output location when
+available, counts direct trial ``result.json`` objects, and writes a durable
+box-table report. Older eval launches that only used pod-local ``trace_jobs``
+remain visible as ``log-only`` rows instead of being silently omitted. The
+monitor is read-only: it never stops or relaunches a job.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -52,6 +55,7 @@ from scripts.iris.iris_ops import (  # noqa: E402
     filter_records,
     format_duration,
     job_bundle,
+    job_id_parts,
     parse_regex_filters,
     run_iris_command,
     write_error_report,
@@ -62,6 +66,7 @@ from scripts.iris.iris_ops import (  # noqa: E402
 USER = "benjaminfeuer"
 DEFAULT_STALL_MINUTES = 120
 TRACE_TREND_HOURS = 2
+STARTUP_OUTPUT_GRACE = timedelta(hours=2)
 MEAN_PARSE_TAIL_BYTES = 8 * 1024 * 1024
 STATE_NAMES = {
     1: "pending",
@@ -90,9 +95,18 @@ EVAL_LIVE_TRIAL_PATTERN = re.compile(
     r"\b(?P<trial>[A-Za-z0-9][A-Za-z0-9._-]*__[A-Za-z0-9]+): "
     r"(?:starting environment|running agent|running verifier)"
 )
+EVAL_TRIAL_EVENT_PATTERN = re.compile(
+    r"^\[(?P<time>\d{2}:\d{2}:\d{2})\].*?\| Trial "
+    r"(?P<trial>\S+?)(?::)?\s+(?P<event>.+?)\s*$",
+    re.MULTILINE,
+)
+EVAL_TRIAL_FAILURE_PATTERN = re.compile(r"^failed \((?P<error>[^)]+)\)$")
+EVAL_TRIAL_SUCCESS_PATTERN = re.compile(r"^(?:completed|succeeded|passed)\b")
 AGENT_TIMEOUT_ERROR = "AgentTimeoutError"
 AGENT_TIMEOUT_PATTERN = re.compile(r"\bAgentTimeoutError\b")
 RETRYABLE_TERMINAL_STATES = {"worker_failed", "unschedulable"}
+CALLABLE_RUNNER = "_callable_runner.py"
+EVAL_JOB_ID_PATTERN = re.compile(r"^/[^/]+/eval(?:-|$)")
 
 
 @dataclass(frozen=True)
@@ -150,7 +164,9 @@ CLUSTERS = (
     Cluster(
         name="cw-us-east-02a",
         iris_bin=Path("/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris"),
-        environment={"KUBECONFIG": "/Users/benjaminfeuer/.kube/coreweave-iris-gpu"},
+        # The active cw-us context lives in the shared Iris kubeconfig; the
+        # legacy GPU-only file lacks it and prevented discovery entirely.
+        environment={"KUBECONFIG": "/Users/benjaminfeuer/.kube/coreweave-iris"},
     ),
     Cluster(
         name="marin",
@@ -237,11 +253,13 @@ def dataset_from_command(command: str) -> str:
     return "?"
 
 
-def harbor_job_kind(command: str) -> str | None:
-    """Classify a baked command without guessing from its Iris job name."""
+def harbor_job_kind(command: str, job_id: str) -> str | None:
+    """Classify a baked command, including opaque current callable evals."""
     if "run_tracegen.py" in command:
         return "datagen"
     if "eval.local.run_eval" in command or "eval/local/run_eval.py" in command:
+        return "eval"
+    if CALLABLE_RUNNER in command and EVAL_JOB_ID_PATTERN.match(job_id):
         return "eval"
     return None
 
@@ -253,8 +271,18 @@ def harbor_job_from_row(cluster: Cluster, row: dict[str, str]) -> HarborJob | No
     Harbor YAML default ``trace_jobs`` directory and have no controller-visible
     durable path.  They still need a lifecycle/finelog row in the watcher.
     """
+    # Iris records child jobs such as an eval's spawned ``/inference-<id>``
+    # worker beside its root job. They inherit a callable entrypoint and can
+    # look like a separate Harbor eval, but they do not own an evidence bundle.
+    # Ignore them instead of letting ``job_bundle`` abort the monitor tick.
+    job_id = row["job_id"]
+    try:
+        job_id_parts(job_id)
+    except ValueError:
+        return None
+
     command = entrypoint_text(row.get("entrypoint_json", ""))
-    kind = harbor_job_kind(command)
+    kind = harbor_job_kind(command, job_id)
     if kind is None:
         return None
     jobs_dir_match = JOBS_DIR_PATTERN.search(command)
@@ -264,7 +292,7 @@ def harbor_job_from_row(cluster: Cluster, row: dict[str, str]) -> HarborJob | No
     gpu_match = GPU_COUNT_PATTERN.search(command) or GPU_SHAPE_PATTERN.search(command)
     return HarborJob(
         cluster=cluster,
-        job_id=row["job_id"],
+        job_id=job_id,
         state=STATE_NAMES.get(int(row["state"]), f"state-{row['state']}"),
         submitted_at_ms=int(row["submitted_at_ms"]),
         kind=kind,
@@ -288,7 +316,8 @@ def discover_harbor_jobs(
     sql = (
         "SELECT j.job_id, j.state, j.submitted_at_ms, jc.entrypoint_json "
         "FROM jobs j JOIN job_config jc ON j.job_id=jc.job_id "
-        f"WHERE j.state IN (1,2,3) AND j.job_id LIKE '/{USER}/%'{submitted_clause} "
+        f"WHERE j.state IN (1,2,3) AND j.root_job_id = j.job_id "
+        f"AND j.job_id LIKE '/{USER}/%'{submitted_clause} "
         "ORDER BY j.submitted_at_ms DESC"
     )
     result = run_iris(cluster, ["query", sql, "-f", "csv"])
@@ -626,6 +655,19 @@ def read_s3_progress(
         aggregate_path.write_bytes(response["Body"].read())
         aggregate = json.loads(aggregate_path.read_text())
     except Exception as error:
+        # A just-submitted worker has no Harbor directory until it reaches its
+        # first task.  Object storage returns NoSuchKey in that normal startup
+        # window; reserve monitor errors for a missing aggregate after output
+        # has begun or for a real storage failure.
+        if completed == 0 and "NoSuchKey" in str(error):
+            return Progress(
+                None,
+                None,
+                "output pending",
+                recent_completed=0,
+                recent_errored=0,
+                recent_benign_timeouts=0,
+            )
         return Progress(
             completed,
             None,
@@ -726,6 +768,78 @@ def finelog_activity(local_log: Path | None) -> str:
     if active_trials:
         return f"finelog ({len(active_trials)} recent trial ID{'s' if len(active_trials) != 1 else ''})"
     return "finelog (no current trial line)"
+
+
+def progress_from_eval_finelog(
+    job: HarborJob, local_log: Path | None, checked_at: datetime
+) -> Progress:
+    """Recover eval lifecycle progress when a legacy callable lacks artifacts.
+
+    Callable eval roots run Harbor in a separate process and may expose neither
+    ``--jobs-dir`` nor ``/app/trace_jobs``. Their Finelog still records the
+    trial lifecycle, including the final typed failure for each attempt.  This
+    is intentionally a fallback: aggregate artifacts remain the authoritative
+    source for reward and total-trial counts.
+    """
+    if local_log is None:
+        return Progress(None, None, "finelog lifecycle", "finelog unavailable")
+    try:
+        log_text = local_log.read_text(errors="replace")
+    except OSError as error:
+        return Progress(None, None, "finelog lifecycle", f"finelog unreadable: {error}")
+
+    # The latest state for a retrying trial is what matters: a prior failure
+    # followed by ``started`` is still in flight, not a completed error.
+    states: dict[str, tuple[str, datetime, str | None]] = {}
+    for match in EVAL_TRIAL_EVENT_PATTERN.finditer(log_text):
+        hour, minute, second = (int(value) for value in match.group("time").split(":"))
+        event_at = checked_at.replace(
+            hour=hour, minute=minute, second=second, microsecond=0
+        )
+        if event_at > checked_at + timedelta(minutes=5):
+            event_at -= timedelta(days=1)
+        event = match.group("event")
+        trial = match.group("trial")
+        failure = EVAL_TRIAL_FAILURE_PATTERN.match(event)
+        if failure:
+            states[trial] = ("failed", event_at, failure.group("error"))
+        elif EVAL_TRIAL_SUCCESS_PATTERN.match(event):
+            states[trial] = ("succeeded", event_at, None)
+        elif event in {"started", "environment started", "agent started", "verification started"}:
+            states[trial] = ("running", event_at, None)
+
+    terminal = [state for state in states.values() if state[0] != "running"]
+    error_counts = Counter(
+        error for state, _event_at, error in terminal if state == "failed" and error
+    )
+    # Finelog timestamps do not carry a date. They are exact for a job younger
+    # than a day; for longer-running jobs retain total lifecycle data but leave
+    # the two-hour window unknown rather than fabricate a recent trend.
+    recent: list[tuple[str, datetime, str | None]] | None = None
+    submitted_at = datetime.fromtimestamp(job.submitted_at_ms / 1000, UTC)
+    if checked_at - submitted_at <= timedelta(days=1):
+        cutoff = checked_at - timedelta(hours=TRACE_TREND_HOURS)
+        recent = [state for state in terminal if state[1] >= cutoff]
+    recent_completed = len(recent) if recent is not None else None
+    recent_errored = (
+        sum(1 for state, _event_at, error in recent if state == "failed" and error != AGENT_TIMEOUT_ERROR)
+        if recent is not None
+        else None
+    )
+    recent_benign_timeouts = (
+        sum(1 for state, _event_at, error in recent if state == "failed" and error == AGENT_TIMEOUT_ERROR)
+        if recent is not None
+        else None
+    )
+    return Progress(
+        len(terminal),
+        None,
+        "finelog lifecycle fallback",
+        error_counts=dict(error_counts),
+        recent_completed=recent_completed,
+        recent_errored=recent_errored,
+        recent_benign_timeouts=recent_benign_timeouts,
+    )
 
 
 def format_error_counts(progress: Progress) -> str:
@@ -1095,11 +1209,19 @@ def main() -> int:
             result = ("unavailable", str(error))
         ray_vllm_logs[key] = result
         if result[1]:
-            errors.append(
-                _monitor_error(
-                    f"{job.cluster.name}/{job.job_id}", "Ray/vLLM sync", result[1]
-                )
+            submitted_at = datetime.fromtimestamp(job.submitted_at_ms / 1000, UTC)
+            startup_pending = (
+                checked_at - submitted_at < STARTUP_OUTPUT_GRACE
+                and "No running Iris pod found" in result[1]
             )
+            if startup_pending:
+                ray_vllm_logs[key] = ("awaiting worker", None)
+            else:
+                errors.append(
+                    _monitor_error(
+                        f"{job.cluster.name}/{job.job_id}", "Ray/vLLM sync", result[1]
+                    )
+                )
     rows: list[list[object]] = []
     current_jobs: dict[str, Any] = {}
     for job in sorted(jobs, key=lambda item: (item.cluster.name, item.job_id)):
@@ -1111,7 +1233,26 @@ def main() -> int:
             )
             if job.jobs_dir is None or job.harbor_job_name is None:
                 if job.kind == "eval":
-                    progress = read_pod_local_eval_progress(job, args.bundle_root)
+                    try:
+                        progress = read_pod_local_eval_progress(job, args.bundle_root)
+                    except Exception as error:
+                        local_log, _log_error, _synced_at = local_logs[key]
+                        progress = progress_from_eval_finelog(
+                            job, local_log, checked_at
+                        )
+                        # Older callable evals deliberately have no durable
+                        # jobs-dir and can have separate child pods.  A
+                        # readable Finelog lifecycle is a complete fallback
+                        # for the monitor, not an operator-facing failure.
+                        # Report only the genuinely unavailable case.
+                        if progress.completion_source == "finelog lifecycle":
+                            errors.append(
+                                _monitor_error(
+                                    f"{job.cluster.name}/{job.job_id}",
+                                    "pod-local eval aggregate",
+                                    f"{error}; Finelog lifecycle fallback unavailable",
+                                )
+                            )
                 else:
                     local_log, _log_error, _synced_at = local_logs[key]
                     progress = Progress(None, None, finelog_activity(local_log))

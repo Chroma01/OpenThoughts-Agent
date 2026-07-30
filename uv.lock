@@ -3574,6 +3574,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "marin-style"
+version = "0.3.0"
+source = { git = "https://github.com/marin-community/marin-style?rev=ccbf03e7ca58486d61fff7a4e73031673d7fd8a4#ccbf03e7ca58486d61fff7a4e73031673d7fd8a4" }
+dependencies = [
+    { name = "click" },
+    { name = "pyyaml" },
+]
+
+[[package]]
 name = "markdown-it-py"
 version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5391,6 +5400,7 @@ sft-qwen35 = [
 dev = [
     { name = "boto3" },
     { name = "marin-iris" },
+    { name = "marin-style" },
     { name = "matplotlib" },
     { name = "pytest" },
 ]
@@ -5485,6 +5495,7 @@ provides-extras = ["datagen-cpu", "datagen", "datagen-swesmith", "datagen-tpu", 
 dev = [
     { name = "boto3" },
     { name = "marin-iris", git = "https://github.com/marin-community/marin.git?subdirectory=lib%2Firis&rev=59f64fcd7e" },
+    { name = "marin-style", git = "https://github.com/marin-community/marin-style?rev=ccbf03e7ca58486d61fff7a4e73031673d7fd8a4" },
     { name = "matplotlib" },
     { name = "pytest" },
 ]

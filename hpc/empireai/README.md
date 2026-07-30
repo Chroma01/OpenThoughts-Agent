@@ -2,7 +2,7 @@
 
 aarch64 (Grace) + Blackwell **B200 sm_100**, **Pyxis/Enroot mandatory**. This dir holds the
 reusable container build defs + smoke templates for the three bring-up phases.
-Read `.claude/ops/empireai/ops.md` first (access model, module gotcha, storage, hardware).
+Read `.agents/ops/empireai/ops.md` first (access model, module gotcha, storage, hardware).
 
 > ⚠️ **STATUS (2026-07-02): cluster execution is BLOCKED on SLURM account provisioning.**
 > As of 2026-07-01 SU charging went live and `AccountingStorageEnforce = associations,limits,qos,safe`.

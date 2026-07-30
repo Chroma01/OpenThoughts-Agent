@@ -89,4 +89,4 @@ Submit from the repo checkout on Leonardo
 
 The protocol details (seeds, decoding params, the cache/TP/template gotchas) live in the experiment
 workspace `EVAL_CONVENTION.md`; the codebase/resume-capability map is in
-`.claude/projects/evalchemy/evalchemy.md`.
+`.agents/projects/evalchemy/evalchemy.md`.

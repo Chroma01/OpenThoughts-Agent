@@ -3,7 +3,7 @@
 # `python -m hpc.launch --job_type sft --sft_backend axolotl`.
 #
 # ⚠ DESIGN RATIONALE LIVES IN THE OPS DOC, NOT HERE — see
-# .claude/projects/axolotl/axolotl.md § "Qwen3-32B LF-parity SFT config":
+# .agents/projects/axolotl/axolotl.md § "Qwen3-32B LF-parity SFT config":
 # the LF→axolotl learning-parity map, the chatml-vs-qwen3 chat-template/masking
 # decision, the sdpa/liger/offload deviations, the 32B OOM diagnosis (config gap:
 # liger-off + offload-off — NOT a capacity ceiling), and the shared-$SCRATCH
@@ -19,7 +19,7 @@ trust_remote_code: true
 # DeepSpeed builds the FUSED DeepSpeedCPUAdam (not a GPU FusedAdam) — see the offload deepspeed
 # json below. The old "offload pending cpu_adam toolchain fix" blocker is RESOLVED: the vista
 # hpc.py block exports CC/CXX=gcc/g++ (commit e4543faf) so DeepSpeedCPUAdam builds on aarch64
-# (axolotl.md gotcha #2; .claude/ops/tacc/ops.md aarch64 §). LF offloads on Jupiter the same way.
+# (axolotl.md gotcha #2; .agents/ops/tacc/ops.md aarch64 §). LF offloads on Jupiter the same way.
 # `deepspeed:` is only the ON/OFF toggle — its PATH value is IGNORED by the translator
 # (hpc/axolotl_config_utils.py: ax["deepspeed"] = deepspeed_config or hardcoded default).
 # The honored path key is `deepspeed_config:` below → offload + shard-save variant (16-bit gather OFF).

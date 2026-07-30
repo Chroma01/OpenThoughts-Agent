@@ -503,7 +503,7 @@ def maybe_prebuild_daytona_snapshots(
     Callers compute their own ``harbor_env`` and ``orgs`` and pass them
     explicitly — this hook does not introspect job_type or env-var
     conventions on its own (per the unified-design decision in
-    ``~/.claude/plans/starry-percolating-journal.md``).
+    ``~/.agents/plans/starry-percolating-journal.md``).
 
     ``**passthrough`` is forwarded to ``ensure_snapshots`` so callers can
     set ``max_new_snapshots``, ``target_region``, ``build_timeout``, etc.

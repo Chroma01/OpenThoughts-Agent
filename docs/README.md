@@ -2,7 +2,7 @@
 
 Centralized, labeled reference docs for the OT-Agent subsystems. Operational
 how-tos (the per-task skills) and machine/cluster particulars live under
-`.claude/` (skills / ops / projects) — this directory holds the longer-form
+`.agents/` (skills / ops / projects) — this directory holds the longer-form
 subsystem references.
 
 | Doc | Covers |

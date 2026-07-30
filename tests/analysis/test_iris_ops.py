@@ -30,6 +30,15 @@ from scripts.iris.iris_ops import (
 from scripts.iris import watch_coreweave_rl
 
 
+def test_coreweave_rl_watcher_includes_east08_b200_cluster():
+    configs = coreweave_ops.CLUSTERS
+    clusters = {cluster.name: cluster for cluster in watch_coreweave_rl.CLUSTERS}
+
+    assert "cw-us-east-08a" in configs
+    assert clusters["cw-us-east-08a"].kubeconfig == configs["cw-us-east-08a"].kubeconfig
+    assert clusters["cw-us-east-08a"].context == "marin-us-east-08a_US-EAST-08A"
+
+
 def test_job_bundle_uses_cluster_and_full_iris_identity(tmp_path):
     bundle = job_bundle(tmp_path, "cw-rno2a", "/benjaminfeuer/glm52-r10")
 
@@ -153,6 +162,28 @@ def test_find_pod_uses_untruncated_iris_job_label(monkeypatch):
     assert coreweave_ops.find_pod(
         ["kubectl"], SimpleNamespace(job=job_id, pod=None)
     ) == ("iris-benjaminfeuer-grug-agentic-eval-v2-65k-harbor39-c309bb6c-0")
+
+
+def test_find_pod_uses_truncated_iris_job_label_when_unambiguous(monkeypatch):
+    job_id = "/benjaminfeuer/glm52-datagen-r11-45-mix-h2-language-balanced-retry"
+    truncated_label = job_id.lstrip("/").replace("/", ".")[:63]
+    pod_name = "iris-benjaminfeuer-glm52-datagen-r1-7390cd90-0-1547b9c722a7aaa4"
+    monkeypatch.setattr(
+        coreweave_ops,
+        "command",
+        lambda _args: json.dumps(
+            {
+                "items": [
+                    {
+                        "metadata": {"name": pod_name, "labels": {"iris.job_id": truncated_label}},
+                        "status": {"phase": "Running"},
+                    }
+                ]
+            }
+        ),
+    )
+
+    assert coreweave_ops.find_pod(["kubectl"], SimpleNamespace(job=job_id, pod=None)) == pod_name
 
 
 def test_save_ray_logs_reports_empty_tar_stream_as_sync_error(monkeypatch, tmp_path):

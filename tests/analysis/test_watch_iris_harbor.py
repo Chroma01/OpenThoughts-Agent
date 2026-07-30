@@ -12,6 +12,126 @@ NOW = datetime(2026, 7, 26, 16, tzinfo=UTC)
 CUTOFF = NOW - timedelta(hours=watcher.TRACE_TREND_HOURS)
 
 
+def _controller_row(job_id: str, command: str) -> dict[str, str]:
+    return {
+        "job_id": job_id,
+        "state": "3",
+        "submitted_at_ms": str(int(NOW.timestamp() * 1000)),
+        "entrypoint_json": command,
+    }
+
+
+def test_harbor_job_from_row_discovers_callable_eval_job():
+    row = _controller_row(
+        "/owner/eval-20260729-model-abcd",
+        'exec $IRIS_PYTHON -u $IRIS_WORKDIR/_callable_runner.py',
+    )
+
+    job = watcher.harbor_job_from_row(
+        watcher.Cluster("test", Path("/tmp/iris"), {}), row
+    )
+
+    assert job is not None
+    assert job.kind == "eval"
+    assert job.jobs_dir is None
+
+
+def test_harbor_job_from_row_ignores_child_eval_worker():
+    row = _controller_row(
+        "/owner/eval-20260729-model-abcd/inference-1234",
+        'exec $IRIS_PYTHON -u $IRIS_WORKDIR/_callable_runner.py',
+    )
+
+    assert (
+        watcher.harbor_job_from_row(
+            watcher.Cluster("test", Path("/tmp/iris"), {}), row
+        )
+        is None
+    )
+
+
+def test_discover_harbor_jobs_queries_only_root_jobs(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    def fake_run_iris(_cluster, args):
+        captured["args"] = args
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "job_id,state,submitted_at_ms,entrypoint_json\n"
+                "/owner/eval-20260729-model,3,1780000000000,"
+                "exec $IRIS_PYTHON -u $IRIS_WORKDIR/_callable_runner.py\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(watcher, "run_iris", fake_run_iris)
+
+    jobs, errors = watcher.discover_harbor_jobs(
+        watcher.Cluster("test", Path("/tmp/iris"), {})
+    )
+
+    assert len(jobs) == 1
+    assert errors == []
+    assert "j.root_job_id = j.job_id" in captured["args"][1]
+
+
+def test_harbor_job_from_row_does_not_guess_non_eval_callable_job():
+    row = _controller_row(
+        "/owner/train-20260729-model-abcd",
+        'exec $IRIS_PYTHON -u $IRIS_WORKDIR/_callable_runner.py',
+    )
+
+    job = watcher.harbor_job_from_row(
+        watcher.Cluster("test", Path("/tmp/iris"), {}), row
+    )
+
+    assert job is None
+
+
+def test_harbor_job_from_row_preserves_command_style_eval_detection():
+    row = _controller_row(
+        "/owner/custom-name",
+        "python -m eval.local.run_eval --model test-model",
+    )
+
+    job = watcher.harbor_job_from_row(
+        watcher.Cluster("test", Path("/tmp/iris"), {}), row
+    )
+
+    assert job is not None
+    assert job.kind == "eval"
+    assert job.model == "test-model"
+
+
+def test_progress_from_eval_finelog_recovers_terminal_trials_and_errors(tmp_path):
+    log = tmp_path / "finelog.log"
+    log.write_text(
+        "\n".join(
+            [
+                "[10:00:00] task=/owner/eval/0 | Trial alpha__a1: started",
+                "[10:01:00] task=/owner/eval/0 | Trial alpha__a1: completed",
+                "[10:02:00] task=/owner/eval/0 | Trial beta__b2: failed (AgentTimeoutError)",
+                "[10:03:00] task=/owner/eval/0 | Trial gamma__c3: failed (VerifierRuntimeError)",
+                "[10:04:00] task=/owner/eval/0 | Trial gamma__c3: started",
+            ]
+        )
+        + "\n"
+    )
+    job = _job(age_hours=1)
+    progress = watcher.progress_from_eval_finelog(
+        job, log, NOW.replace(hour=10, minute=30)
+    )
+
+    assert progress.completion_source == "finelog lifecycle fallback"
+    assert progress.completed == 2
+    assert progress.total is None
+    assert progress.error_counts == {"AgentTimeoutError": 1}
+    assert progress.recent_completed == 2
+    assert progress.recent_errored == 0
+    assert progress.recent_benign_timeouts == 1
+
+
 def _job(
     *,
     state: str = "running",
