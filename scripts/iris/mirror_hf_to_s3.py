@@ -38,21 +38,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-
-# The canonical weight + config + tokenizer + trust_remote_code set (kept in lockstep
-# with mirror_hf_to_gcs.INCLUDE_PATTERNS and the controller's stage_model allow_patterns
-# so from_pretrained resolves fully offline).
-INCLUDE_PATTERNS = (
-    ".safetensors",
-    ".json",
-    ".txt",
-    ".py",               # custom modeling / config code (trust_remote_code)
-    ".model",            # sentencepiece tokenizer
-    "tokenizer.model",
-    "tokenizer_config.json",
-    "special_tokens_map.json",
-    "generation_config.json",
-)
+from scripts.iris.hf_model_files import select_model_files, selection_policy
 
 MANIFEST_FILENAME = ".mirror_manifest.json"
 
@@ -99,14 +85,16 @@ def mirror(
 
     api = HfApi()
     files = sorted(api.list_repo_files(repo_id, repo_type="model"))
-    keep = [f for f in files if any(f.endswith(p) or f == p for p in INCLUDE_PATTERNS)]
-    # Small metadata (json/txt/model) first so a partial run leaves usable config in S3.
-    keep.sort(key=lambda f: (f.endswith(".safetensors"), f))
+    # Selection and metadata-first ordering both live in hf_model_files, shared with the
+    # GCS route so the two mirrors cannot drift.
+    keep = select_model_files(files)
 
     if verbose:
         print(f"[hf2s3] {repo_id} -> s3://{bucket}/{dst_prefix}", flush=True)
-        print(f"[hf2s3] repo has {len(files)} files; mirroring {len(keep)} "
-              f"(safetensors + config/tokenizer)", flush=True)
+        print(f"[hf2s3] repo has {len(files)} files; mirroring {len(keep)}", flush=True)
+        skipped = sorted(set(files) - set(keep))
+        if skipped:
+            print(f"[hf2s3] skipping {len(skipped)}: {', '.join(skipped)}", flush=True)
 
     files_mirrored: list[tuple[str, int]] = []
     for idx, fname in enumerate(keep, 1):
@@ -149,7 +137,9 @@ def mirror(
         "file_count": len(files_mirrored),
         "size_bytes": sum(sz for _, sz in files_mirrored),
         "files": [{"name": n, "size": sz} for n, sz in files_mirrored],
-        "patterns": list(INCLUDE_PATTERNS),
+        # The POLICY, not just the resulting file list: a manifest that records only
+        # what was copied cannot answer "why is this file missing?" later.
+        "selection_policy": selection_policy(),
         "iris_job_id": os.environ.get("IRIS_JOB_ID"),
     }
     s3.put_object(

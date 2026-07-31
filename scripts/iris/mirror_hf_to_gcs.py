@@ -35,24 +35,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-
-# File patterns we mirror. Everything else (markdown, images,
-# pytorch_model.bin if a safetensors copy exists) is skipped.
-#
-# .py files are REQUIRED for models with `trust_remote_code=true` whose
-# config.json has an `auto_map` block pointing at e.g.
-# `configuration_<arch>.py` / `modeling_<arch>.py`.
-INCLUDE_PATTERNS = (
-    ".safetensors",
-    ".json",
-    ".txt",
-    ".py",               # custom modeling / config code (trust_remote_code)
-    ".model",            # sentencepiece tokenizer
-    "tokenizer.model",
-    "tokenizer_config.json",
-    "special_tokens_map.json",
-    "generation_config.json",
-)
+from scripts.iris.hf_model_files import select_model_files, selection_policy
 
 # Filename for the per-repo manifest written to the GCS prefix at the
 # end of a successful mirror. Picked up by
@@ -114,7 +97,9 @@ def _write_manifest(
         "file_count": len(files_mirrored),
         "size_bytes": sum(sz for _, sz in files_mirrored),
         "files": [{"name": n, "size": sz} for n, sz in files_mirrored],
-        "patterns": list(INCLUDE_PATTERNS),
+        # The POLICY, not just the resulting file list: a manifest that records only
+        # what was copied cannot answer "why is this file missing?" later.
+        "selection_policy": selection_policy(),
         "iris_job_id": iris_job_id,
     }
     manifest_uri = f"{dest_prefix}/{MANIFEST_FILENAME}"
@@ -152,18 +137,17 @@ def mirror(repo_id: str, gcs_prefixes: list[str], *, verbose: bool = True,
     if verbose:
         for dest in dest_prefixes:
             print(f"[mirror] {repo_id} -> {dest}", flush=True)
-        print(f"[mirror] repo has {len(files)} files; "
-              f"filtering for {INCLUDE_PATTERNS}", flush=True)
+        print(f"[mirror] repo has {len(files)} files", flush=True)
 
-    keep = [f for f in files if any(f.endswith(p) or f == p for p in INCLUDE_PATTERNS)]
+    # Selection and metadata-first ordering both live in hf_model_files, shared with the
+    # S3 route so the two mirrors cannot drift.
+    keep = select_model_files(files)
     if verbose:
-        print(f"[mirror] mirroring {len(keep)} files "
-              f"(safetensors + config/tokenizer) to {len(dest_prefixes)} prefix(es)",
+        print(f"[mirror] mirroring {len(keep)} files to {len(dest_prefixes)} prefix(es)",
               flush=True)
-
-    # Process small files first (json/txt/model) so a partial run still
-    # leaves usable metadata in GCS.
-    keep.sort(key=lambda f: (f.endswith(".safetensors"), f))
+        skipped = sorted(set(files) - set(keep))
+        if skipped:
+            print(f"[mirror] skipping {len(skipped)}: {', '.join(skipped)}", flush=True)
 
     files_mirrored: list[tuple[str, int]] = []
 
