@@ -12,10 +12,13 @@ NOW = datetime(2026, 7, 26, 16, tzinfo=UTC)
 CUTOFF = NOW - timedelta(hours=watcher.TRACE_TREND_HOURS)
 
 
-def _controller_row(job_id: str, command: str) -> dict[str, str]:
+def _controller_row(
+    job_id: str, command: str, *, task_state: str = "3"
+) -> dict[str, str]:
     return {
         "job_id": job_id,
         "state": "3",
+        "task_state": task_state,
         "submitted_at_ms": str(int(NOW.timestamp() * 1000)),
         "entrypoint_json": command,
     }
@@ -58,9 +61,9 @@ def test_discover_harbor_jobs_queries_only_root_jobs(monkeypatch):
         return SimpleNamespace(
             returncode=0,
             stdout=(
-                "job_id,state,submitted_at_ms,entrypoint_json\n"
+                "job_id,state,submitted_at_ms,entrypoint_json,task_state\n"
                 "/owner/eval-20260729-model,3,1780000000000,"
-                "exec $IRIS_PYTHON -u $IRIS_WORKDIR/_callable_runner.py\n"
+                "exec $IRIS_PYTHON -u $IRIS_WORKDIR/_callable_runner.py,3\n"
             ),
             stderr="",
         )
@@ -74,6 +77,25 @@ def test_discover_harbor_jobs_queries_only_root_jobs(monkeypatch):
     assert len(jobs) == 1
     assert errors == []
     assert "j.root_job_id = j.job_id" in captured["args"][1]
+    assert "AS task_state" in captured["args"][1]
+
+
+def test_harbor_job_uses_task_state_while_root_job_waits_for_placement():
+    row = _controller_row(
+        "/owner/tracegen-queued",
+        "python run_tracegen.py --tasks_input_path DCAgent/tasks "
+        "--job_name tracegen-queued",
+        task_state="2",
+    )
+
+    job = watcher.harbor_job_from_row(
+        watcher.Cluster("cw-rno2a", Path("/tmp/iris"), {}), row
+    )
+
+    assert job is not None
+    assert job.state == "running"
+    assert job.task_state == "building"
+    assert watcher.effective_state(job) == "awaiting placement"
 
 
 def test_harbor_job_from_row_does_not_guess_non_eval_callable_job():
@@ -135,6 +157,7 @@ def test_progress_from_eval_finelog_recovers_terminal_trials_and_errors(tmp_path
 def _job(
     *,
     state: str = "running",
+    task_state: str | None = "running",
     age_hours: int = 4,
     job_id: str = "/owner/job",
     n_concurrent: int | None = None,
@@ -144,6 +167,7 @@ def _job(
         cluster=watcher.Cluster("test", Path("/tmp/iris"), {}),
         job_id=job_id,
         state=state,
+        task_state=task_state,
         submitted_at_ms=int((NOW - timedelta(hours=age_hours)).timestamp() * 1000),
         kind="datagen",
         jobs_dir="s3://bucket/jobs",
@@ -152,6 +176,34 @@ def _job(
         n_concurrent=n_concurrent,
         gpu_count=gpu_count,
     )
+
+
+def test_queued_harbor_job_does_not_require_a_running_worker_pod(
+    monkeypatch, tmp_path
+):
+    job = _job(task_state="building")
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("queued jobs must not be probed for running worker logs")
+
+    monkeypatch.setattr(watcher, "find_pod", fail_if_called)
+
+    assert watcher.fetch_ray_vllm_logs(job, tmp_path) == (
+        "awaiting placement",
+        None,
+    )
+
+
+def test_queued_harbor_job_health_is_not_an_output_failure():
+    progress = watcher.Progress(
+        None, None, "unavailable", error="no output while waiting for placement"
+    )
+
+    health, _ = watcher.health_label(
+        _job(task_state="building"), progress, {}, NOW, 120
+    )
+
+    assert health == "awaiting placement"
 
 
 def test_trial_artifacts_counts_recent_completed_traces_and_their_errors():

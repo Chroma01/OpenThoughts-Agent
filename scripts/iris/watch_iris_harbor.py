@@ -126,6 +126,7 @@ class HarborJob:
     jobs_dir: str | None
     harbor_job_name: str | None
     dataset: str
+    task_state: str | None = None
     model: str | None = None
     n_concurrent: int | None = None
     gpu_count: int | None = None
@@ -290,10 +291,16 @@ def harbor_job_from_row(cluster: Cluster, row: dict[str, str]) -> HarborJob | No
     model_match = MODEL_PATTERN.search(command)
     concurrency_match = CONCURRENCY_PATTERN.search(command)
     gpu_match = GPU_COUNT_PATTERN.search(command) or GPU_SHAPE_PATTERN.search(command)
+    task_state_value = row.get("task_state")
     return HarborJob(
         cluster=cluster,
         job_id=job_id,
         state=STATE_NAMES.get(int(row["state"]), f"state-{row['state']}"),
+        task_state=(
+            STATE_NAMES.get(int(task_state_value), f"state-{task_state_value}")
+            if task_state_value
+            else None
+        ),
         submitted_at_ms=int(row["submitted_at_ms"]),
         kind=kind,
         jobs_dir=jobs_dir_match.group(1).rstrip("/") if jobs_dir_match else None,
@@ -314,7 +321,12 @@ def discover_harbor_jobs(
         else f" AND j.submitted_at_ms >= {submitted_since_ms}"
     )
     sql = (
-        "SELECT j.job_id, j.state, j.submitted_at_ms, jc.entrypoint_json "
+        "SELECT j.job_id, j.state, j.submitted_at_ms, jc.entrypoint_json, "
+        "CASE "
+        "WHEN EXISTS (SELECT 1 FROM tasks t WHERE t.job_id=j.job_id AND t.state=3) THEN 3 "
+        "WHEN EXISTS (SELECT 1 FROM tasks t WHERE t.job_id=j.job_id AND t.state=2) THEN 2 "
+        "WHEN EXISTS (SELECT 1 FROM tasks t WHERE t.job_id=j.job_id AND t.state=1) THEN 1 "
+        "ELSE NULL END AS task_state "
         "FROM jobs j JOIN job_config jc ON j.job_id=jc.job_id "
         f"WHERE j.state IN (1,2,3) AND j.root_job_id = j.job_id "
         f"AND j.job_id LIKE '/{USER}/%'{submitted_clause} "
@@ -378,6 +390,8 @@ def fetch_ray_vllm_logs(job: HarborJob, bundle_root: Path) -> tuple[str, str | N
     # worker pod as an error signal.
     if job.kind == "eval":
         return "not applicable (eval)", None
+    if effective_state(job) == "awaiting placement":
+        return "awaiting placement", None
     if job.cluster.name not in COREWEAVE_CLUSTERS:
         return "not applicable", None
     cluster_config = COREWEAVE_CLUSTERS[job.cluster.name]
@@ -943,6 +957,10 @@ def health_label(
     stalled_after_minutes: int,
 ) -> tuple[str, str]:
     prior = previous.get("jobs", {}).get(job.job_id, {})
+    if effective_state(job) == "awaiting placement":
+        return "awaiting placement", prior.get(
+            "last_advanced_at", checked_at.isoformat()
+        )
     if progress.error:
         return "output-unavailable", checked_at.isoformat()
     if job.state in TERMINAL_STATES:
@@ -1032,10 +1050,19 @@ def display_state(state: str) -> str:
     return terminal_status(state) if state in TERMINAL_STATES else state
 
 
+def effective_state(job: HarborJob) -> str:
+    """Return placement state when the root task has not started running."""
+    if job.state in {"pending", "building"}:
+        return "awaiting placement"
+    if job.state == "running" and job.task_state in {"pending", "building"}:
+        return "awaiting placement"
+    return display_state(job.state)
+
+
 def _state_cell(state: str) -> StyledCell:
     if state in {"running", "succeeded"}:
         tone = "success"
-    elif state in {"pending", "building", "unspecified"}:
+    elif state in {"pending", "building", "unspecified", "awaiting placement"}:
         tone = "warning"
     else:
         tone = "error"
@@ -1106,7 +1133,7 @@ def report_row(
         f"{job.cluster.name}/{job.kind}",
         job.job_id.rsplit("/", 1)[-1],
         job.dataset,
-        _state_cell(display_state(job.state)),
+        _state_cell(effective_state(job)),
         f"{completed}/{total}",
         mean,
         StyledCell(
@@ -1226,6 +1253,7 @@ def main() -> int:
     current_jobs: dict[str, Any] = {}
     for job in sorted(jobs, key=lambda item: (item.cluster.name, item.job_id)):
         key = (job.cluster.name, job.job_id)
+        state = effective_state(job)
         try:
             artifact_dir = (
                 job_bundle(args.bundle_root, job.cluster.name, job.job_id).directory
@@ -1271,13 +1299,13 @@ def main() -> int:
             progress = Progress(
                 None, None, "unavailable", f"progress read failed: {error}"
             )
-        if progress.error:
+        if progress.error and state != "awaiting placement":
             errors.append(
                 _monitor_error(
                     f"{job.cluster.name}/{job.job_id}", "progress read", progress.error
                 )
             )
-        if progress.recent_window_error:
+        if progress.recent_window_error and state != "awaiting placement":
             errors.append(
                 _monitor_error(
                     f"{job.cluster.name}/{job.job_id}",
@@ -1313,7 +1341,7 @@ def main() -> int:
                     f"{job.cluster.name}/{job.kind}",
                     job.job_id.rsplit("/", 1)[-1],
                     job.dataset,
-                    _state_cell(display_state(job.state)),
+                    _state_cell(state),
                     "?/?",
                     "—",
                     StyledCell("—", "muted"),
@@ -1325,8 +1353,9 @@ def main() -> int:
         current_jobs[job.job_id] = {
             "cluster": job.cluster.name,
             "job_kind": job.kind,
-            "state": display_state(job.state),
+            "state": state,
             "controller_state": job.state,
+            "task_state": job.task_state,
             "completed": progress.completed,
             "total": progress.total,
             "mean_reward": progress.mean_reward,
@@ -1355,8 +1384,9 @@ def main() -> int:
                     "dataset": job.dataset,
                     "harbor_job_name": job.harbor_job_name,
                     "jobs_dir": job.jobs_dir,
-                    "state": display_state(job.state),
+                    "state": state,
                     "controller_state": job.state,
+                    "task_state": job.task_state,
                     "submitted_at_ms": job.submitted_at_ms,
                     "last_synced_at": checked_at.isoformat(),
                     "progress": {
