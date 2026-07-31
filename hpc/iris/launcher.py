@@ -96,6 +96,7 @@ class IrisLauncher:
     job_name_prefix: str = "iris"
     default_n_concurrent: int = 16
     default_tpu: str = "v6e-4"
+    default_max_task_failures: int = 0
 
     # Daytona is the only sandbox backend that works without DinD on iris.
     # Users may still pass --harbor_env docker; iris workers don't mount
@@ -219,6 +220,16 @@ class IrisLauncher:
             default=0,
             help="Max retries on failure (does NOT cover preemption — iris retries "
             "preemptions automatically up to its own limit).",
+        )
+        g.add_argument(
+            "--max-task-failures",
+            "--max_task_failures",
+            type=int,
+            default=self.default_max_task_failures,
+            help="Cumulative failed task attempts tolerated before Iris aborts the "
+            f"whole job (default {self.default_max_task_failures} for this launcher). "
+            "This is separate from per-task --max-retries and from Iris's "
+            "preemption retry budget.",
         )
         g.add_argument(
             "--timeout",
@@ -843,7 +854,11 @@ class IrisLauncher:
                 coscheduling=coscheduling,
                 replicas=replicas,
                 max_retries_failure=args.max_retries,
-                # Iris auto-retries on preemption; leave at default (1000).
+                max_task_failures=args.max_task_failures,
+                # Iris auto-retries preemptions separately (default 1000). Long
+                # datagen launchers also raise the cumulative hard-failure guard
+                # so one post-preemption application failure cannot abort an
+                # otherwise resumable campaign before --max-retries is used.
                 task_image=args.task_image,
                 priority_band=priority_band,
                 timeout=None

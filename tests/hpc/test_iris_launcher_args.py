@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from data.cloud.launch_tracegen_iris import TracegenIrisLauncher
 from eval.cloud.launch_eval_iris import EvalIrisLauncher
 from hpc.iris.bootstrap import wrap_task_command
 from hpc.iris.env import _GPU_STORAGE_CRED_KEYS, _alias_s3_credentials
@@ -124,6 +125,21 @@ def _parse_eval_args(*extra):
     return launcher, parser.parse_args(argv)
 
 
+def _parse_tracegen_args(*extra):
+    argv = [
+        "--harbor_config",
+        str(HARBOR_CONFIG),
+        "--datagen_config",
+        str(DATAGEN_CONFIG),
+        "--tasks_input_path",
+        HF_DATASET,
+        *extra,
+    ]
+    launcher = TracegenIrisLauncher(REPO_ROOT, iris_api=FakeIrisJobApi())
+    parser = launcher.create_argument_parser()
+    return parser.parse_args(argv)
+
+
 def _option_value(command, flag):
     return command[command.index(flag) + 1]
 
@@ -171,6 +187,12 @@ def test_gpu_parsing_and_accelerator_resolution_cover_iris_specs():
 
     with pytest.raises(SystemExit, match="mutually exclusive"):
         _parse_dummy_args("--gpu", "H100x8", "--tpu", "v5p-32")
+
+
+def test_tracegen_iris_tolerates_long_run_failures_without_weakening_eval_default():
+    assert _parse_tracegen_args().max_task_failures == 1000
+    assert _parse_tracegen_args("--max-task-failures", "17").max_task_failures == 17
+    assert _parse_eval_args()[1].max_task_failures == 0
 
 
 def test_eval_iris_gpu_auto_requires_durable_s3_root():

@@ -66,6 +66,11 @@ class TracegenIrisLauncher(IrisLauncher):
     task_name = "ot-tracegen-iris"
     job_name_prefix = "tracegen-iris"
     default_n_concurrent = 64
+    # Trace generation runs for days on preemptible capacity. Keep Iris's
+    # cumulative job-level failure guard from aborting after one hard failure;
+    # per-task --max-retries remains the bound for deterministic failures, and
+    # Iris separately permits 1000 infrastructure preemptions per task.
+    default_max_task_failures = 1000
     enforce_capability_token_duration = True
 
     def add_task_specific_args(self, parser: argparse.ArgumentParser) -> None:
