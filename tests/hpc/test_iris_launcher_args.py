@@ -190,7 +190,7 @@ def test_gpu_parsing_and_accelerator_resolution_cover_iris_specs():
 
 
 def test_tracegen_iris_tolerates_long_run_failures_without_weakening_eval_default():
-    assert _parse_tracegen_args().max_task_failures == 1000
+    assert _parse_tracegen_args().max_task_failures == 10
     assert _parse_tracegen_args("--max-task-failures", "17").max_task_failures == 17
     assert _parse_eval_args()[1].max_task_failures == 0
 

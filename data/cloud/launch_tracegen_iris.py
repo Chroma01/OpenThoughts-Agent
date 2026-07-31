@@ -70,7 +70,7 @@ class TracegenIrisLauncher(IrisLauncher):
     # cumulative job-level failure guard from aborting after one hard failure;
     # per-task --max-retries remains the bound for deterministic failures, and
     # Iris separately permits 1000 infrastructure preemptions per task.
-    default_max_task_failures = 1000
+    default_max_task_failures = 10
     enforce_capability_token_duration = True
 
     def add_task_specific_args(self, parser: argparse.ArgumentParser) -> None:
