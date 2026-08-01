@@ -55,8 +55,47 @@ Last verified: **2026-06-13** (versions probed live).
 - **Load:** `apptainer exec --nv <sif> python …` (the `--nv` + baked `LD_LIBRARY_PATH`/`TRITON_LIBCUDA_PATH` are required or TransformerEngine import fails on `libcuda.so` — see `reference_skyrl_megatron_container`).
 - **Predecessor SIFs `skyrl_megatron_vllm.sif` and `skyrl_megatron.sif` were DELETED 2026-06-13** — don't look for them; their active references were stale comments only.
 
-### 2d. `skyrl_megatron_vllm0202rc0_r3.sif` — NEW torch2.11 / vLLM 0.20.2rc0 ⭐
-- **Path:** `/e/scratch/jureap59/feuer1/containers/skyrl_megatron_vllm0202rc0_r3.sif` (11.6 GB, 2026-06-12). **NEWEST base SIF.**
+### 2c-bis. Rebake lineage: `r3` → `r4` → `r5` (2026-08-01) ⭐ NEWEST is `r5`
+
+Surgical sandbox rebakes off `r3`, each built alongside its predecessor; **all three still exist and
+`r3`/`r4` are untouched.** Recipes: `sif_build/recipes/rebake_r4*.sh`, `rebake_r5.sh` (on Jupiter).
+
+| SIF | size | adds |
+|---|---|---|
+| `…_r3.sif` | 11.59 GB | base (below) |
+| `…_r4.sif` | 11.62 GB | py-spy 0.4.2, torchtitan a1fdd7e + tyro/typeguard/tomli, deep_ep 1.2.1+73b6ea4, nvshmem + `libnvshmem_host.so` symlink |
+| **`…_r5.sif`** | **11.68 GB** | **flash-attn 2.6.3 → 2.8.3** (prebuilt wheel `flash_attn-2.8.3+cu130torch2.11-cp312-cp312-manylinux_2_34_aarch64.whl` from `mjun0812/flash-attention-prebuild-wheels` **v0.9.22**) |
+
+Acceptance scripts are baked in at `/opt/r4_accept.py` and `/opt/r5_accept.py`.
+
+**Three traps found during the r5 rebake:**
+
+1. **`--pwd /` or every vLLM assertion is worthless.** `/e/scratch/jureap59/feuer1/vllm` is the rsynced
+   vLLM *repo root* with no `__init__.py`. Apptainer keeps the host cwd and Python puts cwd first on
+   `sys.path`, so a check run from the login home resolves `vllm` to an empty namespace package —
+   `vllm.__file__ is None`, `vllm.__version__` raises `AttributeError`. **Always `apptainer exec --pwd /`.**
+2. **`unpad_input` returns a 5-tuple on 2.8.3** (2.6.3 returned 4). Both SkyRL call sites
+   (`model_wrapper.py:772`, `:1476`) already star the tail so no code change is needed, but the comment
+   at `:772` still claims "the SIF ships flash_attn 2.6.3 → 4-tuple" and is now wrong.
+3. **`r5` closes the door on Megatron + flash-attn.** `skyrl_train/utils/utils.py` guards
+   `if flash_attn.__version__ > "2.7.4.post1": raise ValueError(...)`. That is a **string** compare, so
+   `"2.8.3"` trips it. FSDP2 never calls `validate_megatron_cfg`, so production is unaffected — but any
+   Megatron-backend run with `trainer.flash_attn: true` will fail on r5. Note the comparison is
+   lexical and independently fragile: `"2.10.0" < "2.7.4.post1"` is *true*, so it will also wrongly
+   admit a future 2.10.
+
+**The titan PYTHONPATH shadow is still load-bearing on r5.** Verified as a delta against an r4 baseline
+in the same three modes: `expert_parallel` fails under the overlay with no prefix, **identically on r4
+and r5**. That is the §3a overlay shadow, not a regression. Do not retire
+`sif_pydeps_titan_a1fdd7e`.
+
+**OT-Agent follow-up:** PR #74 pins `FLASH_ATTN_WHEEL_RELEASE="v0.7.16"`, which has no torch-2.11
+wheels — the URL its formula builds 404s for aarch64/torch-2.11, and `setup_rl_env.sh` then falls
+through to a slow source build. Bump it to `v0.9.22`. The wheel *filename* the formula constructs is
+byte-identical to what works; only the release tag is wrong.
+
+### 2d. `skyrl_megatron_vllm0202rc0_r3.sif` — torch2.11 / vLLM 0.20.2rc0 base
+- **Path:** `/e/scratch/jureap59/feuer1/containers/skyrl_megatron_vllm0202rc0_r3.sif` (11.6 GB, 2026-06-12). **Base of the r4/r5 rebake lineage; `r5` is the newest SIF.**
 - **Versions (verified 2026-06-13):** vLLM **0.20.2rc0**, **torch 2.11.0+cu130**. `decode_context_parallel_size` field present; `get_dcp_group` imports. Source = `mlfoundations/vllm` `v0.20.2rc0-306-g3e3a1c45d` (local tree `/Users/benjaminfeuer/Documents/vllm`, branch `v2-migration`).
 - **Use for:** FSDP2 torch-native **CP** (Stage 1+ pins torch≥2.10 here), vLLM **DCP**, Mixtral-8x7B multi-node. Any DCP/CP/torch≥2.10 test MUST use this — NOT the venv or r3baked SIF.
 - **Load:** `apptainer exec --nv <sif> python …`. vLLM lives at `/opt/vllm_build/vllm/` (NOT `dist-packages/vllm`), which shadows R3 single-file binds — remove the binds when R3 is OFF. Multi-node here surfaces 3 torch-2.11 fixes the OLD SIF doesn't need (vLLM-bind-removal when R3 off, `NCCL_P2P_DISABLE=1`, `pg_options→backend_options` — see `reference_new_sif_torch211_multinode_fixes`).
@@ -97,6 +136,124 @@ Overlays stack onto a SIF at `apptainer exec --overlay <img>` (or are baked in).
 | `fla_tilelang_overlay.img` | 4 G | tilelang 0.1.8 + FlashQLA fused GatedDeltaNet kernels (FSDP2-EP Stage 8) | baked into `*r3*.sif` |
 | `skyrl_titan_overlay.img` | 4 G (2026-06-13) | torchtitan (CP **+EP** / MoE expert-parallel — CP Stage-6 TEST3) | overlay (stack when CP+EP) |
 
+### 3a. `PYTHONPATH` pydeps prefixes — the no-rebuild injection mechanism ⭐
+
+The RL config's `container.pydeps` is colon-separated and **prepended first** (`rl_launch_utils.py:202`),
+so the first entry **shadows the SIF**. For a pure-python package this is the bake-equivalent: no image
+rebuild, and — unlike an overlay — no GPFS-FUSE Ray-bootstrap timeout risk.
+
+| Prefix | Contains | Why |
+|---|---|---|
+| `sif_pydeps` | daytona / hydra / harbor / tyro / etc. | shared base, used by every RL config |
+| `sif_pydeps_longctx_titan022` | **torchtitan 0.2.2** only (+ dist-info) | shadows the SIF *up* for the longctx/CP configs |
+| `sif_pydeps_titan_a1fdd7e` | **torchtitan 0.1.0 @ a1fdd7e** only (+ dist-info) | shadows the SIF *down*; see the version trap below |
+
+**THE OVERLAY ALSO CARRIES TORCHTITAN — AND IT WINS OVER THE IMAGE (2026-08-01).** Baking the right
+torchtitan into the SIF is **not sufficient** and does not let you retire the PYTHONPATH prefix.
+`skyrl_titan_overlay.img` ships its own torchtitan at the *identical* path
+(`/usr/local/lib/python3.12/dist-packages/torchtitan`) **without `expert_parallel`**, and an overlay
+shadows the image. Proven by retiring the prefix on the r4 SIF: every MoE arm immediately reinstated
+the B11 `ImportError` below, on an image that imports the symbol fine when run bare.
+
+**Test with the overlay stacked or the test is worthless:**
+```bash
+apptainer exec --overlay $C/skyrl_titan_overlay.img:ro $C/<sif> env PYTHONPATH=$S/sif_pydeps \
+  python -c "from torchtitan.distributed.expert_parallel import expert_parallel; print('OK')"
+```
+**And do not trust `importlib.metadata.version("torchtitan")`** — under the overlay it still reports the
+*baked* version (0.1.0) while the imported module comes from the overlay. Version metadata and module
+code disagree here. Only importing the symbol, under the real overlay stack, proves anything.
+
+**TORCHTITAN VERSION TRAP (2026-07-31).** The SIF ships **torchtitan 0.2.2**. MarinSkyRL `main` pins
+**a1fdd7e (0.1.0)** and does `from torchtitan.distributed.expert_parallel import expert_parallel` —
+a symbol 0.2.2 **removed**. Without the shadow, every MoE arm dies ~10 min in, *after* weights load, at
+`model_wrapper.py:639 → moe_swap → moe.py:57` with `ImportError: cannot import name 'expert_parallel'`.
+The repo history crossed the pin twice (`cdacec77` aligned to 0.2.2, `4ba60a1f` reverted to a1fdd7e), so
+**check which torchtitan the checked-out SkyRL wants before launching**, not which branch it is on.
+Clearing `moe_grouped_gemm` is NOT a workaround — `fsdp_strategy.py:418` then rejects
+`expert_model_parallel_size > 1`.
+The image's build assert (`import ExpertParallel`) does **not** catch this: that class exists in both.
+
+### 3b. DeepEP (`ep_comm_backend: "deepep"`) — NOT present; buildable, not yet built
+
+`skyrl_train/distributed/deepep.py` needs `from deep_ep import Buffer` + `deep_ep.utils.{EventHandle,
+EventOverlap}`. Its docstring claims a verified `deep_ep 1.2.1+73b6ea4` JSC aarch64/cu13 build —
+**that build is not on this filesystem.** Verified absent 2026-07-31 from the SIF, all three overlays,
+and every `sif_pydeps*` prefix.
+
+What the container **does** have (so the gap is smaller than it looks):
+
+| | status |
+|---|---|
+| nvcc | **present**, CUDA **13.0**, `--list-gpu-arch` includes `compute_90` (GH200) |
+| torch | 2.11.0+**cu130** — matches the "cu13" build the docstring references |
+| NVSHMEM **runtime** | **present** — `libnvshmem_host.so.3` + ibrc/libfabric/ucx transports under `/usr/local/cuda/targets/sbsa-linux/lib` |
+| NVSHMEM **SDK** (headers, `libnvshmem_device.a`) | **ABSENT** — this is what blocks a build |
+| `deep_ep` on PyPI | **no** — source-only, `github.com/deepseek-ai/DeepEP` |
+
+The SDK is obtainable: **`nvidia-nvshmem-cu13` 3.7.2** has an aarch64 manylinux wheel carrying the
+headers, `libnvshmem_device.a`, **and `libnvshmem_device_sm_90.bc`** (GH200's exact arch), with a
+`libnvshmem_host.so.3` soname matching the container's runtime. DeepEP's `setup.py` explicitly supports
+this route (`find_nvshmem_root()`, and a comment that the NVIDIA wheels ship only the versioned soname
+so it links `-l:libnvshmem_host.so`).
+
+**QUEUED for the next SIF rebuild** alongside `py-spy` — spec, pins and acceptance checks in
+`sif_build/recipes/README_vllm0202rc0_r3_sif.md` §QUEUED. Gated on the in-flight MarinSkyRL fixes so
+both land in one rebuild.
+
+**Build attempted 2026-07-31. Failed at DeepEP HEAD (`dd758ca`) — and NOT on NVSHMEM.** The nvcc
+diagnostics are a **torch C++ API mismatch**, i.e. DeepEP HEAD is written against a different torch than
+this SIF's 2.11.0+cu130:
+
+```
+error: no matching function for call to 'empty(<brace-enclosed initializer list>, c10::TensorOptions)'
+error: variable or field 'launch_engram_fetch_wait' declared void
+error: expected primary-expression before '>' token
+```
+
+**So pin DeepEP, do not build HEAD.** `skyrl_train/distributed/deepep.py` names `1.2.1+73b6ea4`, and
+`73b6ea4` ("support hidden-dim 3072", #458) *is* reachable on origin — it is simply not what a
+`--depth 1` clone gives you (fetch with `--depth 200`).
+
+**At `73b6ea4` the torch API errors are gone and the build reaches a new, further blocker:**
+`fatal error: cuda/std/array: No such file or directory` — the **CCCL / libcu++ headers**, absent from
+`/usr/local/cuda/include`. `nvidia-cuda-cccl-cu13` on PyPI is a **0.0.1 stub sdist**, not the real
+headers, so the source for these is still unsettled. That is the single remaining blocker; NVSHMEM,
+nvcc, arch and torch are all satisfied.
+
+Work-in-progress at `/e/scratch/jureap59/feuer1/deepep_smoke/`: `DeepEP/` (checked out to `73b6ea4`),
+`build.sh`, `build_full.log` (HEAD failure), `build_73b6ea4.log` (pinned attempt).
+**Do not record DeepEP as unavailable-in-principle** — every prerequisite is present or one pip install
+away, and the one observed failure is a version pin, not a missing dependency.
+
+> **Two instrumentation traps this exposed, both self-inflicted — don't repeat them.**
+> Piping the build through `| tail -40` discarded the nvcc diagnostics and kept only the Python
+> traceback, which says nothing. And `grep -c "IMPORT OK"` on a `set -x` script returns **1** by
+> matching the *echoed command line*, not the output — a false pass. Log builds in full, and never
+> grep for a success string that also appears in the command that produces it.
+
+### 3c. py-spy works from the HOST against in-container ranks ⭐
+
+`py-spy` is **not** in the SIF and does not need to be. Apptainer shares the host PID namespace, so a
+host-side install attaches straight through:
+
+```bash
+/e/scratch/jureap59/feuer1/miniforge3/envs/otagent/bin/py-spy dump --pid <pid>   # 0.4.1, already installed
+srun --jobid=<J> --overlap -w <node> -N1 -n1 bash -c 'for P in $(pgrep -f "ray::FSDPPolicyWorkerBase"); do py-spy dump --pid $P; done'
+```
+
+`srun --overlap` without `-w` lands on an arbitrary node of the allocation and `--ntasks-per-node=1`
+often launches on only one — **always pass `-w <node>`** and iterate, or you will sample one rank and
+conclude the others are fine.
+
+This is the only way to diagnose a hang here: **`nvidia-smi` utilization is worthless as a liveness
+signal.** A NCCL collective busy-waits, so a fully deadlocked job reads **100 % on every GPU** while
+every Python thread is idle. Confirmed 2026-07-31 on a wedged MoE run — 11 of 12 policy ranks parked in
+`_token_dispatch (torchtitan/distributed/expert_parallel.py:192)` (the EP all-to-all) with one rank
+diverged into `all_gather_into_tensor`, i.e. a rank-order divergence that can never complete. Four hours,
+no error, SLURM still `RUNNING`, `--max_restarts` useless because nothing failed. See
+`agent_logs/2026-07-31_escalation-tasktrove-shaped-arm-async-deadlock.md`.
+
 **R3 routing-capture works on stock-0.16 (no SIF rebuild):** `vllm_http_overlay` serializes `routed_experts` over `/chat/completions`; the only blocker was `enable_return_routed_experts=False` (now true). For **Qwen3-Next**, the vLLM **Ray Compiled-DAG** backend deadlocks on the hybrid arch when capture is on → run with **mp executor backend** (`generator.inference_engine_mp_backend: true`, ran clean 12/12 rounds TP=4), plus the hybrid-kv-buffer fix + defensive clip (`gmr_fix`/`scheduler_fix`/`capturer_fix` single-file binds; SkyRL flag on branch `r3-mp-backend-qwen3next-20260608`). The FSDP2 router-replay hook EXISTS and ran a full GRPO backprop step on the 80B (do NOT repeat the "Megatron-only / no FSDP2 replay" claim).
 
 ---
@@ -113,5 +270,21 @@ from vllm.engine.arg_utils import EngineArgs; print('DCP field', 'decode_context
 ```bash
 /e/scratch/jureap59/feuer1/OpenThoughts-Agent/envs/rl/bin/python -c "import vllm,torch; print(vllm.__version__, torch.__version__)"   # → dev 2.9.0  (OLD)
 /e/scratch/jureap59/feuer1/miniforge3/envs/otagent/bin/python   -c "import torch; print(torch.__version__)"                          # → 2.11.0     (NEW)
+```
+**torchtitan — run this BEFORE any MoE launch (§3a trap):**
+```bash
+C=/e/scratch/jureap59/feuer1/containers; S=/e/scratch/jureap59/feuer1
+# what the SIF ships vs what the checked-out SkyRL needs:
+apptainer exec $C/skyrl_megatron_vllm0202rc0_r3.sif python -c "import torchtitan;print(torchtitan.__file__)"
+grep -n "from torchtitan" $S/OpenThoughts-Agent/SkyRL/skyrl-train/skyrl_train/models/layers/moe.py
+# resolve WITH the pydeps prefix the config will actually use:
+apptainer exec --env PYTHONPATH=$S/sif_pydeps_titan_a1fdd7e:$S/sif_pydeps:$S/OpenThoughts-Agent/SkyRL/skyrl-train \
+  $C/skyrl_megatron_vllm0202rc0_r3.sif python -c \
+  "from torchtitan.distributed.expert_parallel import expert_parallel; \
+   from skyrl_train.models.layers.moe_swap import swap_moe_blocks_to_grouped; print('MoE import chain OK')"
+```
+**DeepEP presence (§3b) — absence is cheap to confirm, don't assume either way:**
+```bash
+apptainer exec $C/skyrl_megatron_vllm0202rc0_r3.sif python -c "import importlib.util as u;print(u.find_spec('deep_ep'))"   # → None as of 2026-07-31
 ```
 torch 2.9 ⇒ 0.16-era (no DCP/CP); torch 2.11 ⇒ 0.20.2rc0 (has DCP/CP). If a feature requiring torch≥2.10 "isn't there" or "fails parity," confirm you're on a torch-2.11 runtime before concluding it's a real defect — and pin the parity/feature smoke to the SIF that carries the feature (§2d/§2e).
