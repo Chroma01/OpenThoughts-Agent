@@ -63,6 +63,26 @@ reloads the published train split, and removes only its worker-local temporary
 copy. It never deletes the durable S3 source. Repeat `--target` to process
 several completed jobs serially and idempotently.
 
+### Consolidate named relaunches without dropping retries
+
+When a dataset row has several independently launched `-rN` attempts, give
+their durable `trial_uri` values as a comma-separated prefix list in one
+target. The cleanup tool creates a separate local run directory for each
+prefix, retains each run's `config.json`, then exports their trials into the
+one requested Hub repository. Repeated task IDs are intentional independent
+samples and are retained; only exact copied artifacts must not be counted
+twice. Do not point the tool at only the newest retry.
+
+```bash
+python scripts/harbor/cleanup_coreweave_datagen_s3.py \
+  --target '<dataset>|s3://.../first-attempt,s3://.../retry-r2|penfever/<dataset>-traces'
+```
+
+`--no_literal_tokens`, `--single_commit`, and `--skip_register` are cleanup
+tool defaults; pass only `--target` arguments to this wrapper. Its reusable,
+git-tracked implementation is
+`scripts/harbor/cleanup_coreweave_datagen_s3.py`.
+
 Jobs launched before the shared-path fix may have the malformed rescue layout
 `<root>/<iris-job>/<harbor-job>/<trial>` with no `trace_jobs` component. The
 cleanup tool recognizes this existing layout from `result.json` parents, but
