@@ -181,6 +181,39 @@ columns. Requirements + knobs:
   reference (decoding, tokenizer provenance, re-rescue, literals→SFT): **`.agents/projects/harbor/ops.md`**
   (§ Literal-token trace datasets).
 
+### Diagnose significant score/trajectory/export gaps
+
+If numeric-result counts, `agent/trajectory.json` counts, and SFT-exported row
+counts differ materially, do not infer the cause from aggregate yield. Run the
+git-tracked analyzer against every retry prefix or local Harbor job directory:
+
+```bash
+python -m scripts.harbor.analyze_sft_export_gaps \
+  --dataset s3://.../first-attempt \
+  --dataset s3://.../retry-r2 \
+  --output /tmp/<dataset>-sft-export-gap-analysis.json
+
+# Local equivalent:
+python -m scripts.harbor.analyze_sft_export_gaps \
+  --dataset "$INNER" \
+  --output /tmp/<dataset>-sft-export-gap-analysis.json
+```
+
+For S3 inputs, run inside a `cw-rno2a` Iris worker with the normal object-store
+credentials so downloads remain in-region. The analyzer joins job-level reward
+buckets to per-trial `result.json` and trajectory artifacts, preserves retry/run
+provenance, and invokes the same conversation collection and dataset conversion
+path as the exporter. Its JSON report accounts for both boundaries separately:
+
+- numeric result identity → trial directory → `agent/trajectory.json`;
+- `agent/trajectory.json` → collected conversation → SFT-ready dataset row.
+
+Use the mutually exclusive reason counts and per-trial evidence to remediate
+recoverable failures before uploading. Preserve the report in the experiment
+artifacts or an `agent_logs/` escalation when the gap cannot be repaired. Do not
+declare the numeric gate cleared from an aggregate counter until this join is
+consistent.
+
 ## 4. Verify the HF dataset is non-empty
 The repo may exist as a 0-row shell (a prior failed/partial upload, or Harbor pre-creating it); an existing
 repo is NOT proof of success. Confirm row count:
