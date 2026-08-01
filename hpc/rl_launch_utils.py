@@ -23,10 +23,18 @@ import sys
 import time
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional
 
 from hpc.hf_utils import is_hf_dataset_path
 from hpc.launch_utils import get_daytona_api_key_override
+from hpc.rl_config_utils import get_skyrl_command_preview
+from hpc.rl_paths import (
+    LATEST_CHECKPOINT_FILE,
+    RLLaunchIntent,
+    RLPathManager,
+    RLRunPaths,
+    hydra_override_values,
+)
 
 
 # Default Apptainer bind mounts for the RL container runtime mode.
@@ -588,33 +596,9 @@ def get_tensor_parallel_size(
         return 1
 
 
-def derive_skyrl_export_path(
-    experiments_dir: str,
-    run_name: str,
-    exports_subdir: str = "exports",
-) -> str:
-    """
-    Derive the SkyRL export path from experiments directory and run name.
-
-    The export path is where SkyRL saves model checkpoints during training.
-
-    Args:
-        experiments_dir: Base experiments directory.
-        run_name: Name of the training run.
-        exports_subdir: Subdirectory name for exports (default: "exports").
-
-    Returns:
-        Full path to the SkyRL export directory.
-
-    Example:
-        >>> derive_skyrl_export_path("/scratch/experiments", "qwen3_8b_nl2bash")
-        '/scratch/experiments/qwen3_8b_nl2bash/exports'
-    """
-    return str(Path(experiments_dir) / run_name / exports_subdir)
-
-
 def build_rl_env_vars(
     exp_args: Dict[str, Any],
+    run_paths: RLRunPaths,
     hpc: Optional[Any] = None,
 ) -> Dict[str, str]:
     """
@@ -622,6 +606,7 @@ def build_rl_env_vars(
 
     Args:
         exp_args: Experiment arguments dictionary.
+        run_paths: Validated durable RL paths.
         hpc: Optional HPC configuration object.
 
     Returns:
@@ -646,11 +631,7 @@ def build_rl_env_vars(
     else:
         env_vars["POLICY_NUM_NODES"] = str(num_nodes)
 
-    # SkyRL export path
-    experiments_dir = exp_args.get("experiments_dir", "")
-    run_name = exp_args.get("run_name") or exp_args.get("job_name", "")
-    if experiments_dir and run_name:
-        env_vars["SKYRL_EXPORT_PATH"] = derive_skyrl_export_path(experiments_dir, run_name)
+    env_vars["SKYRL_EXPORT_PATH"] = str(run_paths.export_dir)
 
     # Inherit all HPC-specific environment variables (WANDB_MODE, GLOO_USE_IPV6, etc.)
     if hpc is not None and hasattr(hpc, "env_vars"):
@@ -661,18 +642,19 @@ def build_rl_env_vars(
     return env_vars
 
 
-def get_rl_env_exports(exp_args: Dict[str, Any], hpc: Optional[Any] = None) -> str:
+def get_rl_env_exports(exp_args: Dict[str, Any], run_paths: RLRunPaths, hpc: Optional[Any] = None) -> str:
     """
     Generate shell export statements for RL environment variables.
 
     Args:
         exp_args: Experiment arguments dictionary.
+        run_paths: Validated durable RL paths.
         hpc: Optional HPC configuration object.
 
     Returns:
         Multi-line string of export statements.
     """
-    env_vars = build_rl_env_vars(exp_args, hpc)
+    env_vars = build_rl_env_vars(exp_args, run_paths, hpc)
 
     if not env_vars:
         return "# No RL-specific environment variables"
@@ -800,6 +782,7 @@ class RLJobConfig:
 
     # SkyRL settings
     skyrl_entrypoint: str
+    trials_dir: str
     skyrl_hydra_args: List[str] = field(default_factory=list)
 
     # Model and data
@@ -860,6 +843,16 @@ class RLJobConfig:
     trace_upload_episodes: str = "last"
     trace_upload_dataset_type: str = "SFT"
     trace_upload_cleanup: bool = True
+
+
+@dataclass(frozen=True)
+class RLLaunchArtifacts:
+    """Resolved launch script and the exact SkyRL command it contains."""
+
+    sbatch_path: Path
+    skyrl_entrypoint: str
+    hydra_args: tuple[str, ...]
+
 
 def build_skyrl_command_string(config: RLJobConfig) -> str:
     """Build the full SkyRL command string for the sbatch template.
@@ -943,7 +936,7 @@ def _build_rl_container_env(container: Mapping[str, Any], exp_args: dict) -> str
     return "\n".join(lines)
 
 
-def construct_rl_sbatch_script(exp_args: dict, hpc) -> str:
+def construct_rl_sbatch_script(exp_args: dict, hpc) -> RLLaunchArtifacts:
     """Construct RL sbatch script using the universal template system.
 
     This follows the same pattern as construct_sft_sbatch_script() but for RL jobs.
@@ -953,7 +946,7 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> str:
         hpc: HPC cluster configuration.
 
     Returns:
-        Path to the generated sbatch script.
+        Generated sbatch path and the exact SkyRL command.
     """
     from hpc.launch_utils import (
         resolve_job_and_paths,
@@ -1079,15 +1072,9 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> str:
     elif model_path:
         exp_args["model_path"] = model_path
 
-    # Resolve job_name and paths (job_name already set by get_job_name() in launch.py)
-    # IMPORTANT: this must run BEFORE build_skyrl_hydra_args, because the
-    # collision-rename logic inside setup_experiments_dir updates
-    # exp_args["experiments_dir"] in place. build_skyrl_hydra_args reads
-    # that value to derive trainer.trials_dir, trainer.ckpt_path, and
-    # trainer.export_path; if it ran first it would use the un-suffixed
-    # canonical path while the sbatch/configs/logs went to the renamed dir
-    # — that's the bug in
-    # ``notes/ot-agent/agent_logs/2026-05-26_launcher_trials_dir_collision_bug.md``.
+    # Resolve launcher artifact paths before the durable RL paths. A collision
+    # may rename the artifact directory, while RLPathManager must still inspect
+    # the canonical directory and its numbered siblings.
     job_setup = resolve_job_and_paths(
         exp_args,
         job_type_label="RL",
@@ -1097,69 +1084,31 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> str:
     experiments_subdir = str(exp_paths.root)
 
     skyrl_overrides = exp_args.get("skyrl_override") or []
-    parsed, passthrough_overrides = apply_context_budget_overrides(parsed, skyrl_overrides)
+    parsed, passthrough_overrides = apply_context_budget_overrides(
+        parsed, skyrl_overrides
+    )
     print(f"Resolved context budget: {parsed.context_budget.as_dict()}")
 
-    # Build Hydra args from YAML + permitted CLI overrides.
-    hydra_args = build_skyrl_hydra_args(parsed, exp_args, hpc)
+    run_paths = RLPathManager(
+        job_name,
+        exp_paths.canonical_root or exp_paths.root,
+        exp_paths.root,
+    ).resolve(
+        trainer_config=parsed.trainer,
+        terminal_bench_config=parsed.terminal_bench or {},
+        skyrl_overrides=passthrough_overrides,
+        launch_intent=(
+            RLLaunchIntent.FRESH
+            if exp_args.get("overwrite_output_dir") or exp_args.get("allow_overwrite")
+            else RLLaunchIntent.AUTO
+        ),
+    )
+    print(run_paths.describe())
+
+    hydra_args = build_skyrl_hydra_args(parsed, exp_args, hpc, run_paths=run_paths)
     if passthrough_overrides:
         hydra_args.extend(passthrough_overrides)
         print(f"Applied {len(passthrough_overrides)} non-context CLI overrides")
-
-    # --- Auto-resume guard: defeat the dedup-fork -> step-0 trap -------------
-    # When the run dir collides with a prior run, setup_experiments_dir forks it
-    # to <name>_N (and --dry_run redirects it to <name>__dryrun).
-    # build_skyrl_hydra_args then derives trainer.ckpt_path / trainer.export_path
-    # from that redirected dir -- which is empty -- so SkyRL silently restarts
-    # from global_step_0, discarding all prior progress. If the ORIGINAL
-    # (canonical) run dir already holds checkpoints and the user did NOT request
-    # a fresh start (--overwrite_output_dir / --allow_overwrite), pin ckpt_path,
-    # export_path, and resume_mode at the canonical dir so this launch resumes
-    # the real run. Hydra is last-wins: these append AFTER both the
-    # build-derived args and the user's --skyrl_override, so they override the
-    # (empty) derived ckpt_path. We skip any key the user pinned explicitly via
-    # --skyrl_override so manual overrides still win.
-    _fresh_start_requested = bool(
-        exp_args.get("overwrite_output_dir") or exp_args.get("allow_overwrite")
-    )
-    canonical_root = getattr(exp_paths, "canonical_root", None)
-    if canonical_root is not None and not _fresh_start_requested:
-        canonical_ckpt = Path(canonical_root) / job_name / "checkpoints"
-        derived_ckpt = Path(experiments_subdir) / job_name / "checkpoints"
-        try:
-            has_ckpts = canonical_ckpt.is_dir() and any(
-                p.is_dir() and p.name.startswith("global_step")
-                for p in canonical_ckpt.iterdir()
-            )
-        except OSError:
-            has_ckpts = False
-        if has_ckpts and canonical_ckpt.resolve() != derived_ckpt.resolve():
-            def _user_pinned(key: str) -> bool:
-                return any(
-                    a.split("=", 1)[0].lstrip("+").strip() == key
-                    for a in skyrl_overrides
-                )
-
-            canonical_export = Path(canonical_root) / job_name / "exports"
-            injected = []
-            if not _user_pinned("trainer.ckpt_path"):
-                hydra_args.append(f"trainer.ckpt_path={canonical_ckpt}")
-                injected.append("ckpt_path")
-            if not _user_pinned("trainer.export_path"):
-                hydra_args.append(f"trainer.export_path={canonical_export}")
-                injected.append("export_path")
-            if not _user_pinned("trainer.resume_mode"):
-                hydra_args.append("trainer.resume_mode=latest")
-                injected.append("resume_mode")
-            if injected:
-                print(
-                    "[rl_launch] AUTO-RESUME: canonical run dir "
-                    f"{canonical_ckpt} has checkpoints and this launch was "
-                    f"redirected to {experiments_subdir}. Pinned "
-                    f"{', '.join(injected)} to the canonical dir so training "
-                    "resumes instead of restarting from global_step_0. "
-                    "Pass --overwrite_output_dir true to force a fresh run."
-                )
 
     # Extract config values
     num_nodes = int(exp_args.get("num_nodes") or 1)
@@ -1182,7 +1131,8 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> str:
         tensor_parallel_size=parsed.tensor_parallel_size,
         ray_port=int(exp_args.get("ray_port") or 6379),
         master_port=int(exp_args.get("master_port") or 12345),
-        export_path=derive_skyrl_export_path(experiments_subdir, job_name),
+        export_path=str(run_paths.export_dir),
+        trials_dir=str(run_paths.trials_dir),
         needs_ssh_tunnel=hpc.needs_ssh_tunnel,
         needs_cuda_detection=getattr(hpc, "needs_cuda_detection", False),
         # Pinggy tunnel settings (for cloud backends with installed agents)
@@ -1225,7 +1175,7 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> str:
     sbatch_directives = build_sbatch_directives(hpc, exp_args)
 
     # Generate RL environment exports
-    rl_env_exports = get_rl_env_exports(exp_args, hpc)
+    rl_env_exports = get_rl_env_exports(exp_args, run_paths, hpc)
 
     # Generate CUDA setup code
     cuda_setup = ""
@@ -1294,7 +1244,11 @@ fi"""
     os.chmod(sbatch_output, 0o750)
     print(f"Wrote RL sbatch script to {sbatch_output}")
 
-    return str(sbatch_output)
+    return RLLaunchArtifacts(
+        sbatch_path=sbatch_output,
+        skyrl_entrypoint=parsed.entrypoint,
+        hydra_args=tuple(hydra_args),
+    )
 
 
 def check_rl_environment() -> Optional[Path]:
@@ -1341,12 +1295,6 @@ def launch_rl_job(exp_args: dict, hpc) -> Optional[str]:
         Job ID if submitted, None if dry_run.
     """
     from hpc.launch_utils import launch_sbatch
-    from hpc.rl_config_utils import (
-        apply_context_budget_overrides,
-        build_skyrl_hydra_args,
-        get_skyrl_command_preview,
-        parse_rl_config,
-    )
 
     # Check for RL environment
     rl_env_path = check_rl_environment()
@@ -1361,7 +1309,8 @@ def launch_rl_job(exp_args: dict, hpc) -> Optional[str]:
         print("=" * 60 + "\n")
 
     # Construct the sbatch script
-    sbatch_path = construct_rl_sbatch_script(exp_args, hpc)
+    artifacts = construct_rl_sbatch_script(exp_args, hpc)
+    sbatch_path = str(artifacts.sbatch_path)
 
     # Get dependency if specified
     dependency = exp_args.get("dependency")
@@ -1372,17 +1321,12 @@ def launch_rl_job(exp_args: dict, hpc) -> Optional[str]:
         if dependency:
             print(f"  Would submit with dependency: {dependency}")
 
-        # Show command preview
-        rl_config_path = exp_args.get("rl_config")
-        if rl_config_path:
-            parsed = parse_rl_config(rl_config_path)
-            parsed, passthrough_overrides = apply_context_budget_overrides(
-                parsed, exp_args.get("skyrl_override") or []
+        print("\nSkyRL command preview:")
+        print(
+            get_skyrl_command_preview(
+                artifacts.skyrl_entrypoint, list(artifacts.hydra_args)
             )
-            hydra_args = build_skyrl_hydra_args(parsed, exp_args, hpc)
-            hydra_args.extend(passthrough_overrides)
-            print("\nSkyRL command preview:")
-            print(get_skyrl_command_preview(parsed.entrypoint, hydra_args))
+        )
 
         return None
 
@@ -1442,28 +1386,6 @@ class RLJobRunner:
                 self._hpc = detect_hpc()
         return self._hpc
 
-    @staticmethod
-    def _hydra_arg_value(hydra_args: Sequence[str], key: str) -> Optional[str]:
-        """Last-wins lookup of a dotted Hydra ``key`` in ``trainer.*=value`` args.
-
-        Hydra is last-wins, so we scan in order and keep the final match. Strips
-        the leading ``+``/``++`` override markers Hydra allows. Returns None if the
-        key is absent.
-        """
-        found: Optional[str] = None
-        for arg in hydra_args:
-            if "=" not in arg:
-                continue
-            k, v = arg.split("=", 1)
-            if k.lstrip("+").strip() == key:
-                v = v.strip()
-                # Strip a single layer of surrounding quotes that _format_hydra_arg
-                # may add for paths/values containing Hydra special chars.
-                if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
-                    v = v[1:-1]
-                found = v
-        return found
-
     def _already_complete_on_disk(self) -> bool:
         """True iff the canonical checkpoint already reached max_steps.
 
@@ -1477,8 +1399,9 @@ class RLJobRunner:
         guard keys off, so the two guards agree on what "complete" means.
         """
         hydra_args = list(getattr(self.config, "skyrl_hydra_args", []) or [])
-        max_steps_raw = self._hydra_arg_value(hydra_args, "trainer.max_steps")
-        ckpt_path = self._hydra_arg_value(hydra_args, "trainer.ckpt_path")
+        hydra_values = hydra_override_values(hydra_args)
+        max_steps_raw = hydra_values.get("trainer.max_steps")
+        ckpt_path = hydra_values.get("trainer.ckpt_path")
         if not max_steps_raw or not ckpt_path:
             return False
         try:
@@ -1488,7 +1411,7 @@ class RLJobRunner:
         if max_steps <= 0:
             return False
 
-        marker = Path(ckpt_path) / "latest_ckpt_global_step.txt"
+        marker = Path(ckpt_path) / LATEST_CHECKPOINT_FILE
         try:
             completed = int(marker.read_text().strip())
         except (OSError, ValueError):
@@ -1561,11 +1484,11 @@ class RLJobRunner:
             if upload_exit_code == 0:
                 print("[RLJobRunner] Trace upload completed successfully.", flush=True)
                 if self.config.trace_upload_cleanup:
-                    trace_jobs_dir = Path(self.config.experiments_dir) / self.config.job_name / "trace_jobs"
-                    if trace_jobs_dir.exists():
+                    trials_dir = Path(self.config.trials_dir)
+                    if trials_dir.exists():
                         import shutil
-                        print(f"[RLJobRunner] Cleaning up traces directory: {trace_jobs_dir}", flush=True)
-                        shutil.rmtree(trace_jobs_dir, ignore_errors=True)
+                        print(f"[RLJobRunner] Cleaning up traces directory: {trials_dir}", flush=True)
+                        shutil.rmtree(trials_dir, ignore_errors=True)
                         print("[RLJobRunner] Traces directory removed.", flush=True)
             else:
                 print(f"[RLJobRunner] Trace upload failed with exit code {upload_exit_code}.", flush=True)
@@ -1645,11 +1568,9 @@ class RLJobRunner:
             print("[RLJobRunner] Trace upload disabled, skipping.", flush=True)
             return None
 
-        # The trace jobs directory is where Harbor stores trial artifacts
-        job_dir = Path(self.config.experiments_dir) / self.config.job_name
-        trace_jobs_dir = job_dir / "trace_jobs"
-        if not trace_jobs_dir.exists():
-            print(f"[RLJobRunner] No trace_jobs directory found at {trace_jobs_dir}, skipping upload.", flush=True)
+        trials_dir = Path(self.config.trials_dir)
+        if not trials_dir.exists():
+            print(f"[RLJobRunner] No trials directory found at {trials_dir}, skipping upload.", flush=True)
             return None
 
         repo_id = f"{self.config.trace_upload_repo_org}/{self.config.job_name}"
@@ -1661,7 +1582,7 @@ class RLJobRunner:
 
         cmd = [
             sys.executable, "-m", "scripts.harbor.make_and_upload_trace_dataset",
-            "--job_dir", str(job_dir),
+            "--job_dir", str(trials_dir),
             "--repo_id", repo_id,
             "--episodes", self.config.trace_upload_episodes,
             "--dataset_type", self.config.trace_upload_dataset_type,
@@ -1669,7 +1590,7 @@ class RLJobRunner:
 
         print(f"[RLJobRunner] Launching trace upload (training exit code: {training_exit_code}):", flush=True)
         print(f"  repo_id: {repo_id}", flush=True)
-        print(f"  job_dir: {job_dir}", flush=True)
+        print(f"  trials_dir: {trials_dir}", flush=True)
         print(f"  episodes: {self.config.trace_upload_episodes}", flush=True)
         print(f"  log: {log_path}", flush=True)
 
