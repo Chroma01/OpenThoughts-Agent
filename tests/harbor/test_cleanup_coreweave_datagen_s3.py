@@ -8,6 +8,8 @@ from scripts.harbor.cleanup_coreweave_datagen_s3 import (
     direct_trial_directory,
     download_prefix,
     local_object_path,
+    merge_trial_directories,
+    parse_target,
     realness_summary,
 )
 
@@ -98,7 +100,7 @@ def test_download_prefix_materializes_relative_s3_tree(
         "scripts.harbor.cleanup_coreweave_datagen_s3.coreweave_s3_client",
         lambda: fake_client,
     )
-    target = CleanupTarget("job", "s3://bucket/iris/runs/job", "penfever/job")
+    target = CleanupTarget("job", ("s3://bucket/iris/runs/job",), "penfever/job")
 
     copied = download_prefix(target, tmp_path)
 
@@ -121,3 +123,39 @@ def test_realness_summary_reports_trials_turns_and_exceptions(tmp_path: Path) ->
     write_trial(tmp_path, "task__def", turns=4, exception_type="AgentTimeoutError")
 
     assert realness_summary(tmp_path) == (2, 3.0, 1)
+
+
+def test_parse_target_accepts_multiple_retry_prefixes() -> None:
+    target = parse_target(
+        "job|s3://bucket/iris/first,s3://bucket/iris/retry|penfever/job"
+    )
+
+    assert target == CleanupTarget(
+        "job",
+        ("s3://bucket/iris/first", "s3://bucket/iris/retry"),
+        "penfever/job",
+    )
+
+
+def test_merge_trial_directories_keeps_all_retry_trials_and_run_metadata(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first-run"
+    second = tmp_path / "second-run"
+    first.mkdir()
+    second.mkdir()
+    (first / "config.json").write_text('{"run": "first"}')
+    (second / "config.json").write_text('{"run": "second"}')
+    write_trial(first, "same-task__attempt", turns=2)
+    write_trial(second, "same-task__attempt", turns=4)
+
+    merged = merge_trial_directories([first, second], tmp_path / "merged")
+
+    assert realness_summary(merged) == (2, 3.0, 0)
+    merged_runs = sorted(merged.iterdir())
+    assert len(merged_runs) == 2
+    assert [json.loads(run.joinpath("config.json").read_text())["run"] for run in merged_runs] == [
+        "first",
+        "second",
+    ]
+    assert all((run / "same-task__attempt" / "result.json").is_file() for run in merged_runs)

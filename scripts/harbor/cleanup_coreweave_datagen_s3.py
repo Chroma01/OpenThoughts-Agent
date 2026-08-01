@@ -37,18 +37,27 @@ class CleanupTarget:
     """One completed datagen bundle and its public trace dataset."""
 
     job_name: str
-    source_prefix: str
+    source_prefixes: tuple[str, ...]
     repo_id: str
 
 
 def parse_target(value: str) -> CleanupTarget:
-    """Parse ``job_name|s3_prefix|repo_id`` supplied at the command line."""
+    """Parse ``job_name|s3_prefix[,s3_prefix...]|repo_id`` from the CLI."""
     fields = value.split("|", maxsplit=2)
     if len(fields) != 3 or any(not field for field in fields):
         raise argparse.ArgumentTypeError(
-            "--target must be job_name|s3://bucket/prefix|penfever/repo"
+            "--target must be job_name|s3://bucket/prefix[,s3://bucket/prefix...]|penfever/repo"
         )
-    return CleanupTarget(*fields)
+    job_name, prefixes_field, repo_id = fields
+    source_prefixes = tuple(prefix for prefix in prefixes_field.split(",") if prefix)
+    if not source_prefixes:
+        raise argparse.ArgumentTypeError("--target must include at least one S3 prefix")
+    for source_prefix in source_prefixes:
+        try:
+            parse_s3_uri(source_prefix)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(str(exc)) from exc
+    return CleanupTarget(job_name, source_prefixes, repo_id)
 
 
 def parse_s3_uri(uri: str) -> tuple[str, str]:
@@ -84,7 +93,10 @@ def local_object_path(destination: Path, relative_key: str) -> Path:
 
 def download_prefix(target: CleanupTarget, destination: Path) -> int:
     """Copy every object in a durable source prefix to temporary worker disk."""
-    bucket, prefix = parse_s3_uri(target.source_prefix)
+    if len(target.source_prefixes) != 1:
+        raise ValueError("download_prefix accepts exactly one source prefix")
+    source_prefix = target.source_prefixes[0]
+    bucket, prefix = parse_s3_uri(source_prefix)
     client = coreweave_s3_client()
     objects = []
     for page in client.get_paginator("list_objects_v2").paginate(
@@ -97,7 +109,7 @@ def download_prefix(target: CleanupTarget, destination: Path) -> int:
                 continue
             objects.append((key, relative))
     if not objects:
-        raise RuntimeError(f"No source objects found under {target.source_prefix}")
+        raise RuntimeError(f"No source objects found under {source_prefix}")
 
     def download_object(item: tuple[str, str]) -> None:
         key, relative = item
@@ -121,6 +133,38 @@ def download_prefix(target: CleanupTarget, destination: Path) -> int:
                     flush=True,
                 )
     return copied
+
+
+def merge_trial_directories(source_job_dirs: list[Path], destination: Path) -> Path:
+    """Move retry run directories below one root without losing duplicate trial names.
+
+    The exporter recursively finds trial directories and resolves run metadata from
+    each trial's ancestors. Keeping every source run as its own child therefore
+    preserves its config while making all independently generated retries export
+    into one dataset.
+    """
+    if not source_job_dirs:
+        raise ValueError("Expected at least one Harbor run directory to merge")
+    destination.mkdir(parents=True, exist_ok=False)
+    for index, source_job_dir in enumerate(source_job_dirs):
+        target_dir = destination / f"run-{index:02d}-{source_job_dir.name}"
+        shutil.move(str(source_job_dir), str(target_dir))
+    return destination
+
+
+def materialize_target_trials(target: CleanupTarget, temporary_root: Path) -> tuple[Path, int]:
+    """Download all retry prefixes and combine their Harbor runs for one export."""
+    source_job_dirs = []
+    copied = 0
+    for index, source_prefix in enumerate(target.source_prefixes):
+        source_root = temporary_root / f"source-{index:02d}"
+        source_target = CleanupTarget(target.job_name, (source_prefix,), target.repo_id)
+        copied += download_prefix(source_target, source_root)
+        source_job_dirs.append(direct_trial_directory(source_root))
+    return (
+        merge_trial_directories(source_job_dirs, temporary_root / "merged-trace-jobs"),
+        copied,
+    )
 
 
 def direct_trial_directory(bundle_root: Path) -> Path:
@@ -194,8 +238,7 @@ def publish_target(target: CleanupTarget) -> None:
 
     temporary_root = Path(tempfile.mkdtemp(prefix=f"{target.job_name}-"))
     try:
-        copied = download_prefix(target, temporary_root)
-        job_dir = direct_trial_directory(temporary_root)
+        job_dir, copied = materialize_target_trials(target, temporary_root)
         trial_count, average_turns, exceptions = realness_summary(job_dir)
         print(
             f"[cleanup] {target.job_name}: copied={copied} trials={trial_count} "
@@ -244,7 +287,7 @@ def main() -> None:
         action="append",
         required=True,
         type=parse_target,
-        help="job_name|s3://bucket/prefix|penfever/repo; repeatable",
+        help="job_name|s3://bucket/prefix[,s3://bucket/prefix...]|penfever/repo; repeatable",
     )
     args = parser.parse_args()
     for target in args.target:
