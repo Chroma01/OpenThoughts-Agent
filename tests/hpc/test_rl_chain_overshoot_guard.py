@@ -20,63 +20,39 @@ from __future__ import annotations
 
 import types
 
+import pytest
+
 
 from hpc.rl_launch_utils import RLJobRunner
+from hpc.rl_paths import hydra_override_values
 
 
 # ---------------------------------------------------------------------------
-# _hydra_arg_value: last-wins dotted lookup with +/++ marker + quote handling
+# Hydra override parsing: last-wins dotted lookup with marker and quote handling
 # ---------------------------------------------------------------------------
 
 
-def test_hydra_arg_value_basic():
-    args = ["trainer.max_steps=80", "trainer.epochs=2"]
-    assert RLJobRunner._hydra_arg_value(args, "trainer.max_steps") == "80"
-
-
-def test_hydra_arg_value_missing_returns_none():
-    assert (
-        RLJobRunner._hydra_arg_value(["trainer.epochs=2"], "trainer.max_steps") is None
-    )
-
-
-def test_hydra_arg_value_last_wins():
-    # The launcher's auto-resume guard appends a second trainer.ckpt_path pinned
-    # to the canonical dir; last-wins must pick the canonical one.
-    args = [
-        "trainer.ckpt_path=/redirected/_dryrun/checkpoints",
-        "trainer.ckpt_path=/canonical/checkpoints",
-    ]
-    assert (
-        RLJobRunner._hydra_arg_value(args, "trainer.ckpt_path")
-        == "/canonical/checkpoints"
-    )
-
-
-def test_hydra_arg_value_strips_override_markers():
-    assert (
-        RLJobRunner._hydra_arg_value(["++trainer.max_steps=80"], "trainer.max_steps")
-        == "80"
-    )
-    assert (
-        RLJobRunner._hydra_arg_value(["+trainer.max_steps=80"], "trainer.max_steps")
-        == "80"
-    )
-
-
-def test_hydra_arg_value_strips_surrounding_quotes():
-    assert (
-        RLJobRunner._hydra_arg_value(
-            ["trainer.ckpt_path='/a path/ckpts'"], "trainer.ckpt_path"
-        )
-        == "/a path/ckpts"
-    )
-    assert (
-        RLJobRunner._hydra_arg_value(
-            ['trainer.ckpt_path="/a:b/ckpts"'], "trainer.ckpt_path"
-        )
-        == "/a:b/ckpts"
-    )
+@pytest.mark.parametrize(
+    ("arguments", "key", "expected"),
+    [
+        (["trainer.max_steps=80", "trainer.epochs=2"], "trainer.max_steps", "80"),
+        (["trainer.epochs=2"], "trainer.max_steps", None),
+        (
+            [
+                "trainer.ckpt_path=/first/checkpoints",
+                "trainer.ckpt_path=/latest/checkpoints",
+            ],
+            "trainer.ckpt_path",
+            "/latest/checkpoints",
+        ),
+        (["++trainer.max_steps=80"], "trainer.max_steps", "80"),
+        (["+trainer.max_steps=80"], "trainer.max_steps", "80"),
+        (["trainer.ckpt_path='/a path/ckpts'"], "trainer.ckpt_path", "/a path/ckpts"),
+        (['trainer.ckpt_path="/a:b/ckpts"'], "trainer.ckpt_path", "/a:b/ckpts"),
+    ],
+)
+def test_hydra_override_values_normalize_and_use_last_value(arguments, key, expected):
+    assert hydra_override_values(arguments).get(key) == expected
 
 
 # ---------------------------------------------------------------------------
