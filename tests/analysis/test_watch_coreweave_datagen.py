@@ -7,6 +7,14 @@ from scripts.iris import watch_iris_harbor as monitor
 from scripts.iris import iris_ops
 
 
+def test_bundle_root_is_the_repository_sibling_bundle_directory():
+    repository_root = iris_ops.Path("/workspace/OpenThoughts-Agent")
+
+    assert iris_ops.bundle_root_for_repository(repository_root) == iris_ops.Path(
+        "/workspace/iris-job-bundles"
+    )
+
+
 def test_run_iris_retries_transient_dns_failure(monkeypatch):
     results = iter(
         [

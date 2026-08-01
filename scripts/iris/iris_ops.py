@@ -81,9 +81,14 @@ IRIS_BIN = os.environ.get(
     "IRIS_BIN", "/Users/benjaminfeuer/miniconda3/envs/otagent/bin/iris"
 )
 DEFAULT_CLUSTER = "cw-us-east-02a"  # the GPU RL cluster; use "marin" for TPU jobs
-DEFAULT_BUNDLE_ROOT = Path(
-    "/Users/benjaminfeuer/Documents/iris-job-bundles"
-)
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
+def bundle_root_for_repository(repository_root: Path) -> Path:
+    return repository_root.parent / "iris-job-bundles"
+
+
+DEFAULT_BUNDLE_ROOT = bundle_root_for_repository(REPOSITORY_ROOT)
 
 # JobState int -> friendly name (lib/iris/src/iris/rpc/job.proto).
 STATE_NAMES = {
