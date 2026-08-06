@@ -507,6 +507,10 @@ eval/lists/resume_*.txt
 # Local throwaway working space (never commit; excluded from the iris workspace bundle)
 scratchpad/
 
+# Live MarinSkyRL checkout used by the HPC RL launcher. It is an independent repository;
+# SKYRL_HOME resolves this path, while OpenThoughts-Agent must not treat its contents as local changes.
+/SkyRL/
+
 # tokviz test-fixture repos: 5 tiny locally-generated git repos (scripts/analysis/tokviz/make_repos.py).
 # They were accidentally committed as bare gitlinks (mode 160000) with no .gitmodules entry, which
 # wedged the Nightly Submodule Update workflow (`git submodule update --init --recursive` aborts on the
