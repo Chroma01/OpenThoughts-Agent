@@ -16,7 +16,11 @@ from __future__ import annotations
 
 import pytest
 
-from hpc.rl_launch_utils import resolve_rl_repo_dir, _resolve_skyrl_home
+from hpc.rl_launch_utils import (
+    _build_container_pythonpath,
+    _resolve_skyrl_home,
+    resolve_rl_repo_dir,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +28,11 @@ def _clean_env(monkeypatch):
     """Ensure overrides don't leak between cases."""
     monkeypatch.delenv("RL_REPO_DIR", raising=False)
     monkeypatch.delenv("SKYRL_HOME", raising=False)
+    monkeypatch.delenv("RL_CONTAINER_PYDEPS", raising=False)
+    monkeypatch.delenv("HARBOR_HOME", raising=False)
+    monkeypatch.delenv("DCFT", raising=False)
+    monkeypatch.delenv("WORKDIR", raising=False)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     yield
 
 
@@ -90,3 +99,16 @@ def test_skyrl_home_missing_probes_parent_for_alternate(tmp_path, monkeypatch):
 def test_skyrl_home_unset_returns_none(monkeypatch):
     """SKYRL_HOME unset -> None (callers skip adding the path, as before)."""
     assert _resolve_skyrl_home() is None
+
+
+def test_container_pythonpath_exposes_root_and_trainer_packages(tmp_path, monkeypatch):
+    """The live checkout exposes both root ``cloud`` and bundled ``skyrl_train`` packages."""
+    skyrl_home = tmp_path / "SkyRL"
+    (skyrl_home / "cloud").mkdir(parents=True)
+    (skyrl_home / "skyrl-train" / "skyrl_train").mkdir(parents=True)
+    monkeypatch.setenv("SKYRL_HOME", str(skyrl_home))
+
+    assert _build_container_pythonpath().split(":") == [
+        str(skyrl_home),
+        str(skyrl_home / "skyrl-train"),
+    ]

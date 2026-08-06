@@ -206,11 +206,13 @@ def build_apptainer_prefix(
 def _build_container_pythonpath() -> str:
     """Build the in-container PYTHONPATH for the Apptainer RL runtime mode.
 
-    Prepends the live host SkyRL (skyrl-train), harbor, and workdir paths so the
-    bind-mounted host source wins over the install baked into the SIF (the SIF
-    installed our SkyRL fork ``--no-deps``). Resolved at runtime inside the
-    sbatch job from environment set by the dotenv + sbatch (SKYRL_HOME, DCFT,
-    WORKDIR), so it reflects the actual cluster paths. Mirrors
+    Prepends the live host MarinSkyRL root, its bundled skyrl-train package,
+    harbor, and workdir paths so the bind-mounted host source wins over the
+    install baked into the SIF (the SIF installed our SkyRL fork ``--no-deps``).
+    The root is required for launcher-owned packages such as ``cloud``; the
+    skyrl-train child is required for ``skyrl_train``. Resolved at runtime
+    inside the sbatch job from environment set by the dotenv + sbatch
+    (SKYRL_HOME, DCFT, WORKDIR), so it reflects the actual cluster paths. Mirrors
     ``universal_rl.sbatch:143`` (``PYTHONPATH="$WORKDIR:..."``).
 
     Returns:
@@ -232,6 +234,7 @@ def _build_container_pythonpath() -> str:
     # explicit SKYRL_HOME / RL_REPO_DIR override first; see resolve_rl_repo_dir).
     skyrl_home = _resolve_skyrl_home()
     if skyrl_home:
+        parts.append(skyrl_home)
         parts.append(os.path.join(skyrl_home, "skyrl-train"))
 
     # Harbor lives as a sibling of OpenThoughts-Agent ($DCFT/../harbor on
@@ -269,7 +272,7 @@ def _build_container_pythonpath() -> str:
     # the value tail as the SIF image path and dies with
     #   FATAL: could not open image .../OpenThoughts-Agent/"...")/skyrl-train:...
     # → the ray head exits 255 before producing output (80B step-4 651533-651541
-    # / 651960). The real importable roots (sif_pydeps, SkyRL/skyrl-train,
+    # / 651960). The real importable roots (sif_pydeps, SkyRL, SkyRL/skyrl-train,
     # harbor/src, harbor, OTA) are all added above and never contain shell
     # syntax, so dropping the dirty entries is safe and keeps imports intact.
     _SHELL_META = set(" \t$()`\"'{}")
