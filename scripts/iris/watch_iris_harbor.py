@@ -121,6 +121,18 @@ RETRYABLE_TERMINAL_STATES = {"worker_failed", "unschedulable"}
 CALLABLE_RUNNER = "_callable_runner.py"
 EVAL_JOB_ID_PATTERN = re.compile(r"^/[^/]+/eval(?:-|$)")
 DEFAULT_S3_CREDENTIAL_CLUSTER = "cw-rno2a"
+# Non-agentic evalchemy / lm-eval-harness eval child job (launched from the marin
+# repo as `marinbase-eval-...`). The eval child's recorded command runs
+# `run_evalchemy_client.py`; its durable output lands per-task under
+# `s3://marin-us-east-02a/iris/marinbase-eval/<model-slug>/tier<N>-<runid>/`.
+EVALCHEMY_RUNNER = "run_evalchemy_client.py"
+EVALCHEMY_PATH_MARKER = "experiments/evals/evalchemy/"
+EVALCHEMY_OUT_PATH_PATTERN = re.compile(
+    r"s3://[\w.-]+/iris/marinbase-eval/(?P<slug>[\w.-]+)/(?P<tier>tier\d+)-[\w.-]+"
+)
+# Expected task counts per tier (lm-eval-harness tier1 = 14, evalchemy chat tier2 = 5).
+# AIME (aime24_seeds) reuses the tier2 prefix with 3 seeds; total stays an estimate.
+EVALCHEMY_TIER_TOTALS = {"tier1": 14, "tier2": 5}
 
 
 @dataclass(frozen=True)
@@ -272,6 +284,10 @@ def harbor_job_kind(command: str, job_id: str) -> str | None:
     """Classify a baked command, including opaque current callable evals."""
     if "run_tracegen.py" in command:
         return "datagen"
+    # Non-agentic evalchemy / lm-eval-harness eval child (launched from the marin
+    # repo as marinbase-eval). Runs run_evalchemy_client.py; no Harbor aggregate.
+    if EVALCHEMY_RUNNER in command or EVALCHEMY_PATH_MARKER in command:
+        return "evalchemy"
     if "eval.local.run_eval" in command or "eval/local/run_eval.py" in command:
         return "eval"
     if CALLABLE_RUNNER in command and EVAL_JOB_ID_PATTERN.match(job_id):
@@ -457,8 +473,9 @@ def fetch_ray_vllm_logs(job: HarborJob, bundle_root: Path) -> tuple[str, str | N
     """Collect bounded live Ray worker and vLLM logs for a CoreWeave Harbor pod."""
     # An eval may use an external endpoint and has no local Ray/vLLM workload to
     # inspect. Its Finelog is still collected above; avoid treating an absent
-    # worker pod as an error signal.
-    if job.kind == "eval":
+    # worker pod as an error signal. The non-agentic evalchemy eval child likewise
+    # runs no server (a sibling serve pod does), so it is also not applicable.
+    if job.kind in {"eval", "evalchemy"}:
         return "not applicable (eval)", None
     state = effective_state(job)
     if state in {"awaiting placement", "preempted"}:
@@ -613,47 +630,73 @@ def read_gcs_progress(
         timeout=120,
     )
     total: int | None = None
+    aggregate_data: dict[str, Any] | None = None
     if aggregate.returncode == 0:
         try:
             aggregate_path = artifact_dir / "result.json"
             aggregate_path.write_text(aggregate.stdout)
+            aggregate_data = json.loads(aggregate_path.read_text())
             total = (
-                int(json.loads(aggregate_path.read_text()).get("n_total_trials") or 0)
-                or None
+                int(aggregate_data.get("n_total_trials") or 0) or None
             )
         except json.JSONDecodeError:
             pass
 
-    if aggregate.returncode:
-        message = (aggregate.stderr or aggregate.stdout).strip().replace("\n", " ")
-        return Progress(
-            None,
-            total,
-            "Harbor aggregate",
-            f"GCS aggregate fetch failed: {message[-180:]}",
-        )
-    aggregate_data = json.loads((artifact_dir / "result.json").read_text())
-    progress = progress_from_harbor_aggregate(aggregate_data, "Harbor aggregate")
+    # The per-trial result.json listing is ALWAYS useful (recent-window counts),
+    # and when the aggregate is absent it is the only source of the completed
+    # count — so compute it up front regardless of whether the aggregate fetched.
     artifacts: TrialArtifacts | None = None
     window_error: str | None = None
     try:
         artifacts = gcs_trial_artifacts(client, root, cutoff)
     except Exception as error:
         window_error = str(error)
-    (artifact_dir / "completion-source.txt").write_text(
-        "completed comes from Harbor stats.n_completed_trials in the local aggregate result.json\n"
-    )
+
+    if aggregate_data is not None:
+        progress = progress_from_harbor_aggregate(aggregate_data, "Harbor aggregate")
+        (artifact_dir / "completion-source.txt").write_text(
+            "completed comes from Harbor stats.n_completed_trials in the local aggregate result.json\n"
+        )
+        return Progress(
+            progress.completed,
+            total,
+            progress.completion_source,
+            mean_reward=progress.mean_reward,
+            error_counts=progress.error_counts,
+            exception_file_count=artifacts.exception_file_count if artifacts else None,
+            recent_completed=artifacts.recent_completed if artifacts else None,
+            recent_errored=artifacts.recent_errored if artifacts else None,
+            recent_benign_timeouts=artifacts.recent_benign_timeouts if artifacts else None,
+            recent_window_error=window_error,
+        )
+
+    # Aggregate result.json is absent. For a RUNNING job this is normal — Harbor
+    # writes the aggregate periodically and a freshly-submitted or -resumed job
+    # may not have produced it yet, even though its per-trial result.json files
+    # exist. The per-trial listing is authoritative for the completed count, so
+    # fall back to it instead of raising a monitor error. Only surface an error
+    # if the listing itself failed (genuine storage / auth fault).
+    if artifacts is not None:
+        (artifact_dir / "completion-source.txt").write_text(
+            "completed counted from per-trial result.json objects (aggregate not yet written)\n"
+        )
+        return Progress(
+            len(artifacts.completed_names),
+            total,
+            "per-trial result.json (aggregate pending)",
+            exception_file_count=artifacts.exception_file_count,
+            recent_completed=artifacts.recent_completed,
+            recent_errored=artifacts.recent_errored,
+            recent_benign_timeouts=artifacts.recent_benign_timeouts,
+            recent_window_error=window_error,
+        )
+
+    message = (aggregate.stderr or aggregate.stdout).strip().replace("\n", " ")
     return Progress(
-        progress.completed,
+        None,
         total,
-        progress.completion_source,
-        mean_reward=progress.mean_reward,
-        error_counts=progress.error_counts,
-        exception_file_count=artifacts.exception_file_count if artifacts else None,
-        recent_completed=artifacts.recent_completed if artifacts else None,
-        recent_errored=artifacts.recent_errored if artifacts else None,
-        recent_benign_timeouts=artifacts.recent_benign_timeouts if artifacts else None,
-        recent_window_error=window_error,
+        "Harbor aggregate",
+        f"GCS aggregate fetch failed: {message[-180:]}",
     )
 
 
@@ -753,7 +796,11 @@ def read_s3_progress(
         # first task.  Object storage returns NoSuchKey in that normal startup
         # window; reserve monitor errors for a missing aggregate after output
         # has begun or for a real storage failure.
-        if completed == 0 and "NoSuchKey" in str(error):
+        text = str(error)
+        not_found = any(
+            token in text for token in ("NoSuchKey", "NotFound", "404", "Not Found")
+        )
+        if completed == 0 and not_found:
             return Progress(
                 None,
                 None,
@@ -761,6 +808,24 @@ def read_s3_progress(
                 recent_completed=0,
                 recent_errored=0,
                 recent_benign_timeouts=0,
+            )
+        # Aggregate lagging behind per-trial writes is normal on a running job:
+        # the per-trial listing already gave the authoritative completed count,
+        # so don't nag with a monitor error — total/mean_reward are simply
+        # unavailable until Harbor writes the aggregate. Only real storage /
+        # auth faults become a monitor error.
+        if not_found:
+            return Progress(
+                completed,
+                None,
+                "direct result.json (aggregate pending)",
+                error_counts={"exception.txt": exception_file_count}
+                if exception_file_count
+                else {},
+                exception_file_count=exception_file_count,
+                recent_completed=artifacts.recent_completed,
+                recent_errored=artifacts.recent_errored,
+                recent_benign_timeouts=artifacts.recent_benign_timeouts,
             )
         return Progress(
             completed,
@@ -837,6 +902,129 @@ def read_pod_local_eval_progress(job: HarborJob, bundle_root: Path) -> Progress:
         f"pod-local Harbor aggregate from {pod} at {datetime.now(UTC).isoformat()}\n"
     )
     return progress_from_harbor_aggregate(aggregate, "pod-local Harbor aggregate")
+
+
+def evalchemy_out_path_from_finelog(local_log: Path | None) -> tuple[str, str, str] | None:
+    """Recover the (out_path_uri, model_slug, tier) for an evalchemy eval child.
+
+    The eval child's recorded command carries no identity (its config lives in an
+    env var the controller query does not expose). Its Finelog, however, prints
+    ``uploaded <N> path(s) to <out_path>/<task_dir>`` per completed task, and the
+    parent prints ``out_path=<s3 uri>`` — so scan the synced Finelog for the
+    marinbase-eval S3 prefix. Returns the last match (latest run for a resumed job).
+    """
+    if local_log is None or not local_log.exists():
+        return None
+    with local_log.open("rb") as handle:
+        handle.seek(max(0, local_log.stat().st_size - MEAN_PARSE_TAIL_BYTES))
+        text = handle.read().decode(errors="replace")
+    matches = list(EVALCHEMY_OUT_PATH_PATTERN.finditer(text))
+    if not matches:
+        return None
+    match = matches[-1]
+    return match.group(0), match.group("slug"), match.group("tier")
+
+
+def _evalchemy_results_nonempty(client: Any, bucket: str, key: str) -> bool:
+    """True if a results_*.json has a non-empty ``results`` dict (a scored task).
+
+    Mirrors the marin-side ``scored_results`` gate: a task that exited 0 but wrote
+    an empty/``{"results": {}}`` file is a failure, not a completion.
+    """
+    try:
+        body = client.get_object(Bucket=bucket, Key=key)["Body"].read().decode(
+            errors="replace"
+        )
+        results = json.loads(body).get("results")
+        return bool(results)
+    except Exception:
+        return False
+
+
+def read_evalchemy_progress(
+    job: HarborJob,
+    local_log: Path | None,
+    s3_clients: dict[str, Any],
+    artifact_dir: Path,
+) -> Progress:
+    """Read progress for a non-agentic evalchemy / lm-eval-harness eval child.
+
+    There is no Harbor aggregate here. Each task in the suite writes its own
+    ``<out_path>/<task_dir>/<model>/results_<ts>.json`` atomically on completion,
+    so the completed count = number of task_dirs with at least one non-empty
+    results_*.json. The total is the per-tier task count (14 / 5). Before the
+    first task lands there is no out_path yet — report "awaiting first task"
+    rather than an error (normal startup).
+    """
+    identity = evalchemy_out_path_from_finelog(local_log)
+    if identity is None:
+        return Progress(
+            None,
+            None,
+            "evalchemy: awaiting first task (no out_path in Finelog yet)",
+            recent_completed=0,
+            recent_errored=0,
+            recent_benign_timeouts=0,
+        )
+    out_path, slug, tier = identity
+    total = EVALCHEMY_TIER_TOTALS.get(tier)
+    bucket, prefix = split_s3_uri(out_path)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    client = s3_clients.get(job.cluster.name)
+    if client is None:
+        client = coreweave_client(job.cluster)
+        s3_clients[job.cluster.name] = client
+
+    try:
+        objects = iter_objects(client, bucket, f"{prefix.rstrip('/')}/")
+    except Exception as error:
+        return Progress(
+            None,
+            total,
+            f"evalchemy {slug} {tier}",
+            f"results listing failed: {error}",
+        )
+
+    # group results_*.json keys by their task_dir (the path component directly
+    # under out_path); a task_dir counts as completed once any of its results
+    # files is non-empty.
+    task_results: dict[str, list[str]] = {}
+    root = prefix.rstrip("/") + "/"
+    for item in objects:
+        key = item["Key"]
+        relative = key.removeprefix(root)
+        parts = relative.split("/")
+        if len(parts) < 2 or not parts[1]:
+            continue
+        task_dir = parts[0]
+        if parts[-1].startswith("results_") and parts[-1].endswith(".json"):
+            task_results.setdefault(task_dir, []).append(key)
+
+    completed = 0
+    scored_tasks: list[str] = []
+    for task_dir, keys in task_results.items():
+        if any(_evalchemy_results_nonempty(client, bucket, key) for key in keys):
+            completed += 1
+            scored_tasks.append(task_dir)
+
+    (artifact_dir / "evalchemy-tasks.txt").write_text(
+        "\n".join(scored_tasks) + "\n"
+    )
+    (artifact_dir / "completion-source.txt").write_text(
+        f"evalchemy completed counted from non-empty results_*.json under {out_path}\n"
+    )
+    label = f"evalchemy {slug} {tier}"
+    if total and completed >= total:
+        label += f" (complete: {', '.join(sorted(scored_tasks))})"
+    return Progress(
+        completed,
+        total,
+        label,
+        recent_completed=completed,
+        recent_errored=0,
+        recent_benign_timeouts=0,
+    )
 
 
 def mean_reward(local_log: Path | None) -> str:
@@ -1452,6 +1640,12 @@ def main() -> int:
         key = (job.cluster.name, job.job_id)
         local_log, _log_error, _synced_at = local_logs[key]
         job = eval_job_with_finelog_harbor_identity(job, local_log)
+        # An evalchemy eval child's command carries no dataset identity; label its
+        # row from the marinbase-eval out_path recovered above from Finelog.
+        if job.kind == "evalchemy":
+            identity = evalchemy_out_path_from_finelog(local_log)
+            if identity is not None:
+                job = replace(job, dataset=f"{identity[1]} {identity[2]}")
         try:
             job = eval_job_with_manifest_harbor_identity(job, args.bundle_root)
         except Exception as error:
@@ -1468,7 +1662,11 @@ def main() -> int:
                 job_bundle(args.bundle_root, job.cluster.name, job.job_id).directory
                 / "harbor"
             )
-            if job.jobs_dir is None or job.harbor_job_name is None:
+            if job.kind == "evalchemy":
+                progress = read_evalchemy_progress(
+                    job, local_log, s3_clients, artifact_dir
+                )
+            elif job.jobs_dir is None or job.harbor_job_name is None:
                 if job.kind == "eval":
                     try:
                         progress = read_pod_local_eval_progress(job, args.bundle_root)

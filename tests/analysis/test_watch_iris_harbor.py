@@ -657,3 +657,150 @@ def test_glm52_capacity_floor_keeps_normal_single_node_progress_healthy():
         "healthy (+55/2h; 10 errors; FLOPS floor 41/2h)"
     )
     assert watcher.recent_trend_cell(job, progress).tone == "success"
+
+
+def test_harbor_job_kind_classifies_evalchemy_and_keeps_existing_kinds():
+    assert (
+        watcher.harbor_job_kind(
+            'bash -c \'exec /opt/eval/evalchemy/.venv/bin/python '
+            '"$IRIS_WORKDIR/experiments/evals/evalchemy/run_evalchemy_client.py"\'',
+            "/owner/eval-eval-abcd1234",
+        )
+        == "evalchemy"
+    )
+    assert watcher.harbor_job_kind("python run_tracegen.py", "/owner/t-1") == "datagen"
+    assert (
+        watcher.harbor_job_kind("python eval/local/run_eval.py", "/owner/eval-1")
+        == "eval"
+    )
+    assert watcher.harbor_job_kind("python train.py", "/owner/train-1") is None
+
+
+def test_evalchemy_out_path_from_finelog_parses_marinbase_prefix(tmp_path):
+    log = tmp_path / "finelog.log"
+    log.write_text(
+        "noise\n"
+        "uploaded 2 path(s) to "
+        "s3://marin-us-east-02a/iris/marinbase-eval/qwen-qwen3-5-35b-a3b/"
+        "tier1-z123/gsm8k_0shot/qwen\n"
+        "uploaded 3 path(s) to "
+        "s3://marin-us-east-02a/iris/marinbase-eval/qwen-qwen3-5-35b-a3b/"
+        "tier1-z123/mmlu_5shot/qwen\n"
+    )
+
+    identity = watcher.evalchemy_out_path_from_finelog(log)
+
+    assert identity == (
+        "s3://marin-us-east-02a/iris/marinbase-eval/qwen-qwen3-5-35b-a3b/tier1-z123",
+        "qwen-qwen3-5-35b-a3b",
+        "tier1",
+    )
+    assert watcher.EVALCHEMY_TIER_TOTALS["tier1"] == 14
+
+
+def test_read_gcs_progress_falls_back_to_per_trial_when_aggregate_missing(
+    monkeypatch, tmp_path
+):
+    # A running datagen job whose Harbor aggregate result.json is not on GCS yet.
+    job = _job(jobs_dir="gs://marin-us-central1/ot-agent/run-xyz", harbor_job_name="run-xyz")
+
+    def fake_cat(*_args, **_kwargs):
+        return SimpleNamespace(
+            returncode=1, stdout="", stderr="AccessDeniedException: 404"
+        )
+
+    monkeypatch.setattr(watcher.subprocess, "run", fake_cat)
+
+    artifacts = watcher.TrialArtifacts(
+        completed_names=["trial-a", "trial-b", "trial-c"],
+        exception_file_count=0,
+        recent_completed=3,
+        recent_errored=0,
+        recent_benign_timeouts=0,
+    )
+    monkeypatch.setattr(watcher, "gcs_trial_artifacts", lambda *_a, **_k: artifacts)
+
+    progress = watcher.read_gcs_progress(job, object(), tmp_path, CUTOFF)
+
+    # Per-trial listing is authoritative: completed is reported, no monitor error.
+    assert progress.completed == 3
+    assert progress.error is None
+    assert "aggregate pending" in progress.completion_source
+
+
+def test_read_s3_progress_no_error_when_aggregate_lags_behind_trials(
+    monkeypatch, tmp_path
+):
+    job = _job(jobs_dir="s3://bucket/results", harbor_job_name="run-abc")
+
+    artifacts = watcher.TrialArtifacts(
+        completed_names=["trial-1", "trial-2"],
+        exception_file_count=0,
+        recent_completed=2,
+        recent_errored=0,
+        recent_benign_timeouts=0,
+    )
+    monkeypatch.setattr(watcher, "s3_trial_artifacts", lambda *_a, **_k: artifacts)
+
+    class Client:
+        def get_object(self, *, Bucket, Key):  # noqa: N803
+            raise Exception("NoSuchKey: aggregate result.json not written yet")
+
+    progress = watcher.read_s3_progress(job, Client(), tmp_path, CUTOFF)
+
+    assert progress.completed == 2
+    assert progress.error is None
+    assert "aggregate pending" in progress.completion_source
+
+
+def test_read_evalchemy_progress_counts_non_empty_results(monkeypatch, tmp_path):
+    job = _job(
+        kind="evalchemy",
+        jobs_dir=None,
+        harbor_job_name=None,
+        job_id="/owner/eval-eval-abcd1234",
+    )
+    out_path = (
+        "s3://marin-us-east-02a/iris/marinbase-eval/qwen-qwen3-30b-a3b/tier2-run1"
+    )
+    log = tmp_path / "finelog.log"
+    log.write_text(f"uploaded 1 path(s) to {out_path}/MATH500_0shot/qwen\n")
+
+    monkeypatch.setattr(
+        watcher,
+        "iter_objects",
+        lambda *_a, **_k: [
+            {"Key": "iris/marinbase-eval/qwen-qwen3-30b-a3b/tier2-run1/MATH500_0shot/qwen/results_1.json"},
+            {"Key": "iris/marinbase-eval/qwen-qwen3-30b-a3b/tier2-run1/HumanEvalPlus_0shot/qwen/results_2.json"},
+            {"Key": "iris/marinbase-eval/qwen-qwen3-30b-a3b/tier2-run1/MBPPPlus_0shot/qwen/empty_results.json"},
+            {"Key": "iris/marinbase-eval/qwen-qwen3-30b-a3b/tier2-run1/MATH500_0shot/qwen/samples_MATH500.jsonl"},
+        ],
+    )
+
+    class Client:
+        def __init__(self):
+            self.scores = {
+                "results_1.json": {"results": {"MATH500": {"accuracy": 0.61}}},
+                "results_2.json": {"results": {"HumanEvalPlus": {"pass@1": 0.53}}},
+                "empty_results.json": {"results": {}},
+            }
+
+        def get_object(self, *, Bucket, Key):  # noqa: N803
+            name = Key.rsplit("/", 1)[-1]
+            return {"Body": io.BytesIO(json.dumps(self.scores[name]).encode())}
+
+    progress = watcher.read_evalchemy_progress(job, log, {"test": Client()}, tmp_path)
+
+    assert progress.completed == 2  # MATH500 + HumanEvalPlus scored; MBPPPlus empty
+    assert progress.total == 5  # tier2
+    assert progress.error is None
+    assert "evalchemy" in progress.completion_source
+
+
+def test_read_evalchemy_progress_awaits_first_task(tmp_path):
+    job = _job(kind="evalchemy", jobs_dir=None, harbor_job_name=None)
+    progress = watcher.read_evalchemy_progress(job, None, {}, tmp_path)
+
+    assert progress.completed is None
+    assert progress.error is None
+    assert "awaiting first task" in progress.completion_source
