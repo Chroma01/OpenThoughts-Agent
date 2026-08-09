@@ -121,17 +121,26 @@ RETRYABLE_TERMINAL_STATES = {"worker_failed", "unschedulable"}
 CALLABLE_RUNNER = "_callable_runner.py"
 EVAL_JOB_ID_PATTERN = re.compile(r"^/[^/]+/eval(?:-|$)")
 DEFAULT_S3_CREDENTIAL_CLUSTER = "cw-rno2a"
-# Non-agentic evalchemy / lm-eval-harness eval child job (launched from the marin
-# repo as `marinbase-eval-...`). The eval child's recorded command runs
-# `run_evalchemy_client.py`; its durable output lands per-task under
-# `s3://marin-us-east-02a/iris/marinbase-eval/<model-slug>/tier<N>-<runid>/`.
+# Non-agentic evalchemy / lm-eval-harness evals. Two launch layouts both write
+# per-task `results_*.json` (a non-empty `results` dict == a scored task) to the
+# CoreWeave LOTA store (`marin-us-east-02a`):
+#   (1) marin TPU callable eval (`eval-<ts>-<model>-<hash>`, kind=eval): one S3
+#       prefix per benchmark run-tag, `<prefix>/marin/evals/<runtag>/results/`,
+#       each expected to yield one scored task_dir.
+#   (2) CoreWeave GPU marinbase-eval child (`run_evalchemy_client.py`,
+#       kind=evalchemy): one prefix per tier,
+#       `<prefix>/iris/marinbase-eval/<slug>/tier<N>-<runid>/`, with many
+#       task_dirs under it (14 for tier1, 5 for tier2).
+# Recognition is Finelog-driven (callable entrypoints hide the command), so the
+# watcher recovers the out-paths from the synced Finelog rather than the command.
 EVALCHEMY_RUNNER = "run_evalchemy_client.py"
 EVALCHEMY_PATH_MARKER = "experiments/evals/evalchemy/"
-EVALCHEMY_OUT_PATH_PATTERN = re.compile(
-    r"s3://[\w.-]+/iris/marinbase-eval/(?P<slug>[\w.-]+)/(?P<tier>tier\d+)-[\w.-]+"
+EVALCHEMY_MARIN_EVALS_PATTERN = re.compile(
+    r"s3://[\w.-]+/marin/evals/(?P<runtag>[A-Za-z0-9._-]+)/results"
 )
-# Expected task counts per tier (lm-eval-harness tier1 = 14, evalchemy chat tier2 = 5).
-# AIME (aime24_seeds) reuses the tier2 prefix with 3 seeds; total stays an estimate.
+EVALCHEMY_MARINBASE_PATTERN = re.compile(
+    r"s3://[\w.-]+/iris/marinbase-eval/(?P<slug>[A-Za-z0-9._-]+)/(?P<tier>tier\d+)-[A-Za-z0-9._-]+"
+)
 EVALCHEMY_TIER_TOTALS = {"tier1": 14, "tier2": 5}
 
 
@@ -904,25 +913,58 @@ def read_pod_local_eval_progress(job: HarborJob, bundle_root: Path) -> Progress:
     return progress_from_harbor_aggregate(aggregate, "pod-local Harbor aggregate")
 
 
-def evalchemy_out_path_from_finelog(local_log: Path | None) -> tuple[str, str, str] | None:
-    """Recover the (out_path_uri, model_slug, tier) for an evalchemy eval child.
+@dataclass(frozen=True)
+class EvalchemyIdentity:
+    """Out-paths + expected total + label for an evalchemy / lm-eval-harness run."""
 
-    The eval child's recorded command carries no identity (its config lives in an
-    env var the controller query does not expose). Its Finelog, however, prints
-    ``uploaded <N> path(s) to <out_path>/<task_dir>`` per completed task, and the
-    parent prints ``out_path=<s3 uri>`` — so scan the synced Finelog for the
-    marinbase-eval S3 prefix. Returns the last match (latest run for a resumed job).
+    prefixes: list[str]  # full s3:// URIs to list (each an out_path root)
+    total: int | None
+    label: str
+
+
+def evalchemy_identity_from_finelog(
+    local_log: Path | None,
+) -> EvalchemyIdentity | None:
+    """Recover the evalchemy out-paths from a job's synced Finelog.
+
+    Recognition is Finelog-driven because both layouts can hide behind a callable
+    entrypoint (the marin TPU parent) or an env-var-configured child (the
+    CoreWeave marinbase-eval child) — neither exposes its output path in the
+    controller-visible command. The Finelog prints each benchmark's S3 prefix as
+    it is set up / uploaded, so scan it for either layout's S3 URI. Returns None
+    for a non-evalchemy job (no such URIs) so the caller can fall back.
     """
     if local_log is None or not local_log.exists():
         return None
-    with local_log.open("rb") as handle:
-        handle.seek(max(0, local_log.stat().st_size - MEAN_PARSE_TAIL_BYTES))
-        text = handle.read().decode(errors="replace")
-    matches = list(EVALCHEMY_OUT_PATH_PATTERN.finditer(text))
-    if not matches:
-        return None
-    match = matches[-1]
-    return match.group(0), match.group("slug"), match.group("tier")
+    # Scan the WHOLE Finelog (not just the tail): each benchmark's out-path is
+    # printed once at setup time, so a tail-only scan misses early benchmarks and
+    # understates the suite total. Eval/evalchemy Finelogs are bounded and this
+    # is only called for those kinds, so the full read is cheap.
+    text = local_log.read_text(errors="replace")
+
+    # marin TPU layout: one prefix per benchmark run-tag (each yields 1 task_dir).
+    marin_runtags = sorted(
+        {m.group(0) for m in EVALCHEMY_MARIN_EVALS_PATTERN.finditer(text)}
+    )
+    if marin_runtags:
+        # total = number of distinct benchmark run-tags seen so far (grows as the
+        # job sets up each benchmark; a reasonable running estimate of the suite).
+        return EvalchemyIdentity(marin_runtags, len(marin_runtags), "evalchemy-lm-eval")
+
+    # CoreWeave marinbase-eval layout: one prefix per tier run (many task_dirs).
+    marinbase = sorted(
+        {m.group(0) for m in EVALCHEMY_MARINBASE_PATTERN.finditer(text)}
+    )
+    if marinbase:
+        tiers = {
+            EVALCHEMY_MARINBASE_PATTERN.search(p).group("tier") for p in marinbase
+        }
+        total = sum(EVALCHEMY_TIER_TOTALS.get(t, 0) for t in tiers) or None
+        slug = EVALCHEMY_MARINBASE_PATTERN.search(marinbase[0]).group("slug")
+        label = f"{slug} {'/'.join(sorted(tiers))}".strip()
+        return EvalchemyIdentity(marinbase, total, label)
+
+    return None
 
 
 def _evalchemy_results_nonempty(client: Any, bucket: str, key: str) -> bool:
@@ -947,16 +989,17 @@ def read_evalchemy_progress(
     s3_clients: dict[str, Any],
     artifact_dir: Path,
 ) -> Progress:
-    """Read progress for a non-agentic evalchemy / lm-eval-harness eval child.
+    """Read progress for a non-agentic evalchemy / lm-eval-harness eval.
 
-    There is no Harbor aggregate here. Each task in the suite writes its own
-    ``<out_path>/<task_dir>/<model>/results_<ts>.json`` atomically on completion,
-    so the completed count = number of task_dirs with at least one non-empty
-    results_*.json. The total is the per-tier task count (14 / 5). Before the
-    first task lands there is no out_path yet — report "awaiting first task"
-    rather than an error (normal startup).
+    Works for both layouts (marin TPU `marin/evals/` and CoreWeave
+    `iris/marinbase-eval/`): each scored task writes a non-empty
+    ``results_*.json`` under ``<out_path>/<task_dir>/<model>/``, so the completed
+    count is the number of distinct task_dirs (across all out-paths) with at
+    least one non-empty results file. Before any out-path appears in the Finelog
+    the job has simply not started scoring yet — report "awaiting first task"
+    rather than an error.
     """
-    identity = evalchemy_out_path_from_finelog(local_log)
+    identity = evalchemy_identity_from_finelog(local_log)
     if identity is None:
         return Progress(
             None,
@@ -966,61 +1009,57 @@ def read_evalchemy_progress(
             recent_errored=0,
             recent_benign_timeouts=0,
         )
-    out_path, slug, tier = identity
-    total = EVALCHEMY_TIER_TOTALS.get(tier)
-    bucket, prefix = split_s3_uri(out_path)
-    artifact_dir.mkdir(parents=True, exist_ok=True)
 
     client = s3_clients.get(job.cluster.name)
     if client is None:
         client = coreweave_client(job.cluster)
         s3_clients[job.cluster.name] = client
 
-    try:
-        objects = iter_objects(client, bucket, f"{prefix.rstrip('/')}/")
-    except Exception as error:
-        return Progress(
-            None,
-            total,
-            f"evalchemy {slug} {tier}",
-            f"results listing failed: {error}",
-        )
-
-    # group results_*.json keys by their task_dir (the path component directly
-    # under out_path); a task_dir counts as completed once any of its results
-    # files is non-empty.
-    task_results: dict[str, list[str]] = {}
-    root = prefix.rstrip("/") + "/"
-    for item in objects:
-        key = item["Key"]
-        relative = key.removeprefix(root)
-        parts = relative.split("/")
-        if len(parts) < 2 or not parts[1]:
-            continue
-        task_dir = parts[0]
-        if parts[-1].startswith("results_") and parts[-1].endswith(".json"):
-            task_results.setdefault(task_dir, []).append(key)
-
-    completed = 0
+    artifact_dir.mkdir(parents=True, exist_ok=True)
     scored_tasks: list[str] = []
-    for task_dir, keys in task_results.items():
-        if any(_evalchemy_results_nonempty(client, bucket, key) for key in keys):
-            completed += 1
-            scored_tasks.append(task_dir)
+    listing_errors: list[str] = []
+    for out_path in identity.prefixes:
+        bucket, prefix = split_s3_uri(out_path)
+        root = prefix.rstrip("/") + "/"
+        try:
+            objects = iter_objects(client, bucket, root)
+        except Exception as error:
+            listing_errors.append(f"{out_path}: {error}")
+            continue
+        # group results_*.json keys by their task_dir (the path component
+        # directly under out_path); a task_dir is completed once any of its
+        # results files is non-empty.
+        task_results: dict[str, list[str]] = {}
+        for item in objects:
+            key = item["Key"]
+            relative = key.removeprefix(root)
+            parts = relative.split("/")
+            if len(parts) < 2 or not parts[1]:
+                continue
+            if parts[-1].startswith("results_") and parts[-1].endswith(".json"):
+                task_results.setdefault(parts[0], []).append(key)
+        for task_dir, keys in task_results.items():
+            if any(_evalchemy_results_nonempty(client, bucket, key) for key in keys):
+                scored_tasks.append(task_dir)
 
+    completed = len(scored_tasks)
     (artifact_dir / "evalchemy-tasks.txt").write_text(
-        "\n".join(scored_tasks) + "\n"
+        "\n".join(sorted(scored_tasks)) + "\n"
     )
     (artifact_dir / "completion-source.txt").write_text(
-        f"evalchemy completed counted from non-empty results_*.json under {out_path}\n"
+        "evalchemy completed counted from non-empty results_*.json under "
+        + ", ".join(identity.prefixes[:4])
+        + "\n"
     )
-    label = f"evalchemy {slug} {tier}"
-    if total and completed >= total:
+    label = identity.label
+    if identity.total and completed >= identity.total:
         label += f" (complete: {', '.join(sorted(scored_tasks))})"
+    error = f"results listing failed: {'; '.join(listing_errors)}" if listing_errors else None
     return Progress(
         completed,
-        total,
+        identity.total,
         label,
+        error=error,
         recent_completed=completed,
         recent_errored=0,
         recent_benign_timeouts=0,
@@ -1642,10 +1681,19 @@ def main() -> int:
         job = eval_job_with_finelog_harbor_identity(job, local_log)
         # An evalchemy eval child's command carries no dataset identity; label its
         # row from the marinbase-eval out_path recovered above from Finelog.
-        if job.kind == "evalchemy":
-            identity = evalchemy_out_path_from_finelog(local_log)
-            if identity is not None:
-                job = replace(job, dataset=f"{identity[1]} {identity[2]}")
+        # Non-agentic evalchemy / lm-eval-harness evals hide their output path
+        # behind a callable entrypoint (marin TPU `eval-...` parent) or an
+        # env-var-configured child (CoreWeave marinbase-eval), so detect them
+        # from the Finelog rather than the command. Computed once here and reused
+        # for dataset labelling + progress routing below. None for agentic
+        # Harbor evals (no evalchemy S3 paths in their Finelog).
+        evalchemy_identity = (
+            evalchemy_identity_from_finelog(local_log)
+            if job.kind in {"eval", "evalchemy"}
+            else None
+        )
+        if evalchemy_identity is not None:
+            job = replace(job, dataset=evalchemy_identity.label)
         try:
             job = eval_job_with_manifest_harbor_identity(job, args.bundle_root)
         except Exception as error:
@@ -1662,7 +1710,7 @@ def main() -> int:
                 job_bundle(args.bundle_root, job.cluster.name, job.job_id).directory
                 / "harbor"
             )
-            if job.kind == "evalchemy":
+            if job.kind == "evalchemy" or evalchemy_identity is not None:
                 progress = read_evalchemy_progress(
                     job, local_log, s3_clients, artifact_dir
                 )

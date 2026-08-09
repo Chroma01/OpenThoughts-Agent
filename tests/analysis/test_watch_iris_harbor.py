@@ -676,7 +676,7 @@ def test_harbor_job_kind_classifies_evalchemy_and_keeps_existing_kinds():
     assert watcher.harbor_job_kind("python train.py", "/owner/train-1") is None
 
 
-def test_evalchemy_out_path_from_finelog_parses_marinbase_prefix(tmp_path):
+def test_evalchemy_identity_from_finelog_marinbase_layout(tmp_path):
     log = tmp_path / "finelog.log"
     log.write_text(
         "noise\n"
@@ -688,14 +688,40 @@ def test_evalchemy_out_path_from_finelog_parses_marinbase_prefix(tmp_path):
         "tier1-z123/mmlu_5shot/qwen\n"
     )
 
-    identity = watcher.evalchemy_out_path_from_finelog(log)
+    identity = watcher.evalchemy_identity_from_finelog(log)
 
-    assert identity == (
-        "s3://marin-us-east-02a/iris/marinbase-eval/qwen-qwen3-5-35b-a3b/tier1-z123",
-        "qwen-qwen3-5-35b-a3b",
-        "tier1",
+    assert identity is not None
+    assert identity.prefixes == [
+        "s3://marin-us-east-02a/iris/marinbase-eval/qwen-qwen3-5-35b-a3b/tier1-z123"
+    ]
+    assert identity.total == 14  # tier1
+    assert "qwen-qwen3-5-35b-a3b" in identity.label
+
+
+def test_evalchemy_identity_from_finelog_marin_evals_layout(tmp_path):
+    # The marin TPU callable-eval layout: one S3 prefix per benchmark run-tag.
+    log = tmp_path / "finelog.log"
+    log.write_text(
+        "setup\n"
+        "s3://marin-us-east-02a/marin/evals/20260806-091512-qwen3-32b-arc-challenge-13af/results\n"
+        "s3://marin-us-east-02a/marin/evals/20260806-091512-qwen3-32b-boolq-9ab1/results\n"
+        "s3://marin-us-east-02a/marin/evals/20260806-091512-qwen3-32b-gsm8k-0shot-5f1c/results\n"
     )
-    assert watcher.EVALCHEMY_TIER_TOTALS["tier1"] == 14
+
+    identity = watcher.evalchemy_identity_from_finelog(log)
+
+    assert identity is not None
+    assert len(identity.prefixes) == 3
+    assert identity.total == 3  # one expected scored task per benchmark run-tag
+    assert all("/marin/evals/" in p for p in identity.prefixes)
+
+
+def test_evalchemy_identity_from_finelog_returns_none_for_non_evalchemy(tmp_path):
+    log = tmp_path / "finelog.log"
+    log.write_text("[12:00] task=t/0 | Trial alpha__a1: completed\n")
+
+    assert watcher.evalchemy_identity_from_finelog(log) is None
+    assert watcher.evalchemy_identity_from_finelog(None) is None
 
 
 def test_read_gcs_progress_falls_back_to_per_trial_when_aggregate_missing(
@@ -794,7 +820,47 @@ def test_read_evalchemy_progress_counts_non_empty_results(monkeypatch, tmp_path)
     assert progress.completed == 2  # MATH500 + HumanEvalPlus scored; MBPPPlus empty
     assert progress.total == 5  # tier2
     assert progress.error is None
-    assert "evalchemy" in progress.completion_source
+    assert "qwen-qwen3-30b-a3b" in progress.completion_source
+
+
+def test_read_evalchemy_progress_counts_marin_evals_benchmarks(monkeypatch, tmp_path):
+    # The real failing case: a marin TPU callable eval (kind=eval) running many
+    # benchmarks, each writing to its own marin/evals/<runtag>/results/ prefix.
+    job = _job(
+        kind="eval",
+        jobs_dir=None,
+        harbor_job_name=None,
+        job_id="/owner/eval-20260806-091512-qwen3-32b-7db5",
+    )
+    log = tmp_path / "finelog.log"
+    log.write_text(
+        "s3://marin-us-east-02a/marin/evals/20260806-091512-qwen3-32b-arc-challenge-13af/results\n"
+        "s3://marin-us-east-02a/marin/evals/20260806-091512-qwen3-32b-boolq-9ab1/results\n"
+        "s3://marin-us-east-02a/marin/evals/20260806-091512-qwen3-32b-gsm8k-0shot-5f1c/results\n"
+    )
+
+    def fake_iter_objects(_client, _bucket, prefix):
+        # prefix ends with "/results/"; two benchmarks have scored, one has not.
+        if prefix.endswith("arc-challenge-13af/results/"):
+            return [{"Key": prefix + "arc_challenge_25shot/qwen/results_1.json"}]
+        if prefix.endswith("boolq-9ab1/results/"):
+            return [{"Key": prefix + "boolq_0shot/qwen/results_2.json"}]
+        return []  # gsm8k not done yet
+
+    monkeypatch.setattr(watcher, "iter_objects", fake_iter_objects)
+
+    class Client:
+        def get_object(self, *, Bucket, Key):  # noqa: N803
+            return {
+                "Body": io.BytesIO(json.dumps({"results": {"x": {"acc": 0.5}}}).encode())
+            }
+
+    progress = watcher.read_evalchemy_progress(job, log, {"test": Client()}, tmp_path)
+
+    assert progress.completed == 2  # arc_challenge + boolq scored; gsm8k pending
+    assert progress.total == 3  # three benchmark run-tags seen in Finelog
+    assert progress.error is None
+    assert "evalchemy-lm-eval" in progress.completion_source
 
 
 def test_read_evalchemy_progress_awaits_first_task(tmp_path):
