@@ -32,6 +32,7 @@ from hpc.rl_paths import (
     LATEST_CHECKPOINT_FILE,
     RLLaunchIntent,
     RLPathManager,
+    RLResumePolicy,
     RLRunPaths,
     hydra_override_values,
 )
@@ -780,6 +781,7 @@ class RLJobConfig:
     skyrl_entrypoint: str
     trials_dir: str
     skyrl_hydra_args: List[str] = field(default_factory=list)
+    resume_policy: str = RLResumePolicy.FIXED.value
 
     # Model and data
     model_path: str = ""
@@ -932,6 +934,24 @@ def _build_rl_container_env(container: Mapping[str, Any], exp_args: dict) -> str
     return "\n".join(lines)
 
 
+def validate_trace_upload_environment(
+    terminal_bench: Mapping[str, Any], container: Mapping[str, Any]
+) -> None:
+    """Reject trace uploads from a runtime configured for offline Hub access."""
+    trace_upload = terminal_bench.get("trace_upload") or {}
+    if not trace_upload.get("enabled"):
+        return
+
+    extra_env = container.get("extra_env") or {}
+    offline_keys = ("HF_HUB_OFFLINE", "APPTAINERENV_HF_HUB_OFFLINE")
+    enabled = [key for key in offline_keys if str(extra_env.get(key, "")).lower() in {"1", "true", "yes"}]
+    if enabled:
+        raise ValueError(
+            "terminal_bench.trace_upload.enabled=true conflicts with "
+            f"container.extra_env {', '.join(enabled)}; disable trace upload or remove offline Hub mode"
+        )
+
+
 def construct_rl_sbatch_script(exp_args: dict, hpc) -> RLLaunchArtifacts:
     """Construct RL sbatch script using the universal template system.
 
@@ -966,6 +986,8 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> RLLaunchArtifacts:
 
     parsed = parse_rl_config(rl_config_path, model_override=exp_args.get("model_path"))
     print(f"Loaded RL config from: {parsed.config_path}")
+    container = parsed.raw.get("container") or {}
+    validate_trace_upload_environment(parsed.terminal_bench or {}, container)
 
     # --- RL container section (Apptainer SIF + overlays + pydeps + extra env) ---
     # Optional top-level `container:` block in the RL yaml. When present it lets a
@@ -984,9 +1006,7 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> RLLaunchArtifacts:
     #
     # An explicit --rl_container_sif CLI flag still wins (only fills if unset), so
     # nothing changes for configs without a `container:` section.
-    rl_container_env_block = _build_rl_container_env(
-        parsed.raw.get("container") or {}, exp_args
-    )
+    rl_container_env_block = _build_rl_container_env(container, exp_args)
 
     # Extract agent name and harbor_env from terminal_bench config
     yaml_agent_name, yaml_harbor_env = extract_terminal_bench_agent_env(parsed)
@@ -1118,6 +1138,7 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> RLLaunchArtifacts:
         cluster_name=hpc.name,
         skyrl_entrypoint=parsed.entrypoint,
         skyrl_hydra_args=hydra_args,
+        resume_policy=run_paths.resume_policy.value,
         model_path=exp_args.get("model_path", ""),
         train_data=exp_args.get("train_data", []),
         val_data=exp_args.get("val_data", []),
@@ -1444,6 +1465,7 @@ class RLJobRunner:
         # short-circuits the whole remaining chain at ~zero cost. afterany fires
         # the successor regardless of the predecessor's exit status, so the marker
         # check — not the exit code — is what actually terminates the chain.
+        self._resolve_resume_for_link()
         if self._already_complete_on_disk():
             print(
                 "[RLJobRunner] Canonical checkpoint already at/past max_steps — "
@@ -1490,6 +1512,35 @@ class RLJobRunner:
                 print(f"[RLJobRunner] Trace upload failed with exit code {upload_exit_code}.", flush=True)
 
         return training_exit_code
+
+    def _resolve_resume_for_link(self) -> None:
+        """Re-evaluate automatic resume after a dependency-chain link starts."""
+        if self.config.resume_policy != RLResumePolicy.AT_LINK_START.value:
+            return
+
+        values = hydra_override_values(self.config.skyrl_hydra_args)
+        checkpoint_dir = Path(values["trainer.ckpt_path"])
+        state_root = checkpoint_dir.parent.parent
+        resolved = RLPathManager(self.config.job_name, state_root, state_root).resolve(
+            trainer_config={
+                "ckpt_path": str(checkpoint_dir),
+                "export_path": values["trainer.export_path"],
+            },
+            terminal_bench_config={"trials_dir": self.config.trials_dir},
+        )
+        replacements = {
+            "trainer.resume_mode": resolved.resume_mode.value,
+            "trainer.resume_path": str(resolved.resume_path) if resolved.resume_path is not None else "null",
+        }
+        retained = [
+            argument
+            for argument in self.config.skyrl_hydra_args
+            if argument.lstrip("+").partition("=")[0] not in replacements
+        ]
+        self.config.skyrl_hydra_args = [
+            *retained,
+            *(f"{key}={value}" for key, value in replacements.items()),
+        ]
 
     def _preserve_ray_logs_on_crash(self) -> None:
         """Best-effort: preserve Ray logs immediately after a training crash,
