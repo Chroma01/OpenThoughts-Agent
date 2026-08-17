@@ -755,7 +755,10 @@ class IrisLauncher:
             )
 
         # Defer the heavy iris imports so --dry-run / --help stay snappy.
-        from iris.client import IrisClient
+        # Iris no longer re-exports IrisClient from ``iris.client``.  Import
+        # from its defining module so both the current editable Marin client
+        # and older packaged clients can submit a job.
+        from iris.client.client import IrisClient
         from iris.cluster.config import load_config
         from iris.cluster.composer import provider_bundle
         from iris.cluster.local_cluster import LocalCluster
