@@ -5,6 +5,7 @@ import pytest
 from hpc.rl_paths import (
     AmbiguousCheckpointError,
     CheckpointLayoutError,
+    CheckpointWorldSizeError,
     RLLaunchIntent,
     RLPathManager,
     RLResumePolicy,
@@ -307,3 +308,87 @@ def test_trace_upload_consumes_the_manager_resolved_trials_directory(
     assert process is not None
     command = captured["command"]
     assert command[command.index("--job_dir") + 1] == str(trials_dir)
+
+
+def _write_shards(checkpoint_path: Path, component: str, world_size: int) -> None:
+    component_dir = checkpoint_path / component
+    component_dir.mkdir(parents=True)
+    for rank in range(world_size):
+        (component_dir / f"model_world_size_{world_size}_rank_{rank}.pt").touch()
+
+
+def test_latest_rejects_checkpoint_written_at_a_smaller_world_size(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / JOB_NAME
+    checkpoint_path = _write_checkpoint(root, 15)
+    _write_shards(checkpoint_path, "policy", 16)
+
+    with pytest.raises(CheckpointWorldSizeError) as excinfo:
+        RLPathManager(JOB_NAME, root, root).resolve(
+            expected_world_sizes={"policy": 32, "ref": 32},
+        )
+
+    message = str(excinfo.value)
+    assert "policy" in message
+    assert "16" in message and "32" in message
+    assert "resume_mode=none" in message
+
+
+def test_latest_accepts_checkpoint_at_the_implied_world_size(tmp_path: Path) -> None:
+    root = tmp_path / JOB_NAME
+    checkpoint_path = _write_checkpoint(root, 15)
+    _write_shards(checkpoint_path, "policy", 16)
+    _write_shards(checkpoint_path, "ref", 16)
+
+    resolved = RLPathManager(JOB_NAME, root, root).resolve(
+        expected_world_sizes={"policy": 16, "ref": 16},
+    )
+
+    assert resolved.resume_mode is RLResumeMode.LATEST
+    assert resolved.resume_path == checkpoint_path
+
+
+def test_from_path_rejects_checkpoint_written_at_a_different_world_size(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / JOB_NAME
+    checkpoint_path = _write_checkpoint(root, 15)
+    _write_shards(checkpoint_path, "policy", 16)
+
+    with pytest.raises(CheckpointWorldSizeError):
+        RLPathManager(JOB_NAME, root, root).resolve(
+            trainer_config={
+                "resume_mode": "from_path",
+                "resume_path": str(checkpoint_path),
+                "export_path": str(root / JOB_NAME / "exports"),
+            },
+            terminal_bench_config={"trials_dir": str(root / JOB_NAME / "trials")},
+            expected_world_sizes={"policy": 32, "ref": 32},
+        )
+
+
+def test_component_world_sizes_are_validated_per_component(tmp_path: Path) -> None:
+    root = tmp_path / JOB_NAME
+    checkpoint_path = _write_checkpoint(root, 15)
+    _write_shards(checkpoint_path, "policy", 32)
+    _write_shards(checkpoint_path, "ref", 16)
+
+    with pytest.raises(CheckpointWorldSizeError, match="ref"):
+        RLPathManager(JOB_NAME, root, root).resolve(
+            expected_world_sizes={"policy": 32, "ref": 32},
+        )
+
+
+def test_unsharded_checkpoints_skip_the_world_size_validation(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / JOB_NAME
+    checkpoint_path = _write_checkpoint(root, 15)
+
+    resolved = RLPathManager(JOB_NAME, root, root).resolve(
+        expected_world_sizes={"policy": 32, "ref": 32},
+    )
+
+    assert resolved.resume_mode is RLResumeMode.LATEST
+    assert resolved.resume_path == checkpoint_path

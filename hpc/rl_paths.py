@@ -17,6 +17,9 @@ TRACE_JOBS_SUBDIR = "trace_jobs"
 LATEST_CHECKPOINT_FILE = "latest_ckpt_global_step.txt"
 GLOBAL_STEP_PREFIX = "global_step_"
 GLOBAL_STEP_PATTERN = re.compile(rf"{GLOBAL_STEP_PREFIX}(\d+)$")
+SHARD_WORLD_SIZE_PATTERN = re.compile(
+    r"(?:^|_)(?:model|optim|extra_state)_world_size_(\d+)_rank_\d+\.pt$"
+)
 HYDRA_NULL_VALUES = frozenset({"", "null", "None", "~"})
 CKPT_PATH_KEY = "trainer.ckpt_path"
 EXPORT_PATH_KEY = "trainer.export_path"
@@ -31,6 +34,33 @@ class CheckpointLayoutError(ValueError):
 
 class AmbiguousCheckpointError(CheckpointLayoutError):
     """Multiple run roots contain the same highest checkpoint step."""
+
+
+class CheckpointWorldSizeError(CheckpointLayoutError):
+    """A selected checkpoint's sharded world size cannot satisfy the resolved placement."""
+
+
+def checkpoint_component_world_sizes(checkpoint_path: Path) -> dict[str, int]:
+    """Read the per-component world sizes recorded in FSDP2 shard file names.
+
+    FSDP2 writes one shard per rank (``model_world_size_<W>_rank_<R>.pt``) under
+    each component directory (``policy/``, ``ref/``, ``critic/``). The loader
+    reads the shard for its own rank at the CURRENT world size and does not
+    reshard, so the recorded world size is a hard resume constraint.
+    """
+
+    sizes: dict[str, int] = {}
+    if not checkpoint_path.is_dir():
+        return sizes
+    for component_dir in checkpoint_path.iterdir():
+        if not component_dir.is_dir():
+            continue
+        for shard in component_dir.iterdir():
+            match = SHARD_WORLD_SIZE_PATTERN.search(shard.name)
+            if match is not None:
+                sizes[component_dir.name] = int(match.group(1))
+                break
+    return sizes
 
 
 class RLResumeMode(StrEnum):
@@ -120,6 +150,34 @@ def _absolute_path(value: str) -> Path:
     return Path(value).expanduser().resolve()
 
 
+def _validate_checkpoint_world_size(
+    checkpoint_path: Path,
+    expected_world_sizes: Mapping[str, int] | None,
+) -> None:
+    """Fail at submit when a selected checkpoint cannot load at the resolved world size.
+
+    FSDP2 writes one shard file per rank and the loader does not reshard, so a
+    bank written at 16 ranks can never load into a 32-rank placement. Detecting
+    the mismatch here turns a ~15-minute multi-node failure into a submit-time
+    error that costs seconds.
+    """
+
+    if not expected_world_sizes:
+        return
+    recorded = checkpoint_component_world_sizes(checkpoint_path)
+    for component, expected in expected_world_sizes.items():
+        found = recorded.get(component)
+        if found is None or found == expected:
+            continue
+        raise CheckpointWorldSizeError(
+            f"Checkpoint {checkpoint_path} was written with {component} world size "
+            f"{found}, but the resolved placement implies world size {expected}. "
+            "FSDP2 loads one shard per rank and does not reshard. Run at the "
+            f"original world size ({found}) or start fresh (set trainer.resume_mode=none "
+            "or move the checkpoint bank aside)."
+        )
+
+
 class RLPathManager:
     """Own checkpoint discovery and all durable RL path resolution."""
 
@@ -135,6 +193,7 @@ class RLPathManager:
         terminal_bench_config: Mapping[str, object] | None = None,
         skyrl_overrides: Sequence[str] = (),
         launch_intent: RLLaunchIntent = RLLaunchIntent.AUTO,
+        expected_world_sizes: Mapping[str, int] | None = None,
     ) -> RLRunPaths:
         cli_values = hydra_override_values(skyrl_overrides)
         overrides = _configured_path_values(trainer_config or {}, terminal_bench_config or {})
@@ -158,6 +217,7 @@ class RLPathManager:
             checkpoint_dir,
             overrides,
             resume_policy,
+            expected_world_sizes,
         )
         if explicit is not None:
             return explicit
@@ -188,6 +248,7 @@ class RLPathManager:
             )
 
         selected = highest[0]
+        _validate_checkpoint_world_size(selected.checkpoint_path, expected_world_sizes)
         return self._resolved_paths(
             selected.state_root,
             selected.checkpoint_path.parent,
@@ -225,6 +286,7 @@ class RLPathManager:
         checkpoint_dir: Path,
         overrides: dict[str, str],
         resume_policy: RLResumePolicy,
+        expected_world_sizes: Mapping[str, int] | None = None,
     ) -> RLRunPaths | None:
         """Resolve a user-selected mode, or return None for automatic discovery."""
 
@@ -239,6 +301,7 @@ class RLPathManager:
             )
         if requested_mode == RLResumeMode.LATEST.value:
             candidate = self._required_checkpoint_candidate(state_root, checkpoint_dir)
+            _validate_checkpoint_world_size(candidate.checkpoint_path, expected_world_sizes)
             return self._resolved_paths(
                 state_root,
                 checkpoint_dir,
@@ -253,6 +316,7 @@ class RLPathManager:
         if not requested_resume_path:
             raise CheckpointLayoutError("trainer.resume_mode=from_path requires trainer.resume_path")
         resume_path = self._validate_explicit_resume_path(_absolute_path(requested_resume_path))
+        _validate_checkpoint_world_size(resume_path, expected_world_sizes)
         if CKPT_PATH_KEY in overrides and checkpoint_dir != resume_path.parent:
             raise CheckpointLayoutError(
                 f"trainer.resume_path {resume_path} is not under trainer.ckpt_path {checkpoint_dir}"

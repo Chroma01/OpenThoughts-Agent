@@ -17,7 +17,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 import yaml
 
@@ -643,6 +643,88 @@ def _format_hydra_arg(key: str, value: Any, prefix: str = "") -> str:
         return f"{prefix}{key}={value}"
 
 
+def resolve_placement(
+    trainer_config: Mapping[str, Any],
+    exp_args: Mapping[str, Any],
+    hpc: Any,
+) -> Dict[str, int]:
+    """Resolve the policy/ref placement (nodes x GPUs per node) for an RL launch.
+
+    Derives from num_nodes/gpus_per_node with these rules:
+    - ``policy_num_nodes``/``ref_num_nodes`` default to exp_args ``policy_num_nodes``
+      (if set) or the job's ``num_nodes`` unless the YAML placement pins them.
+    - ``*_num_gpus_per_node`` comes from the CLI (cluster-specific, not hardcoded in
+      YAML). EXCEPTION (rank-spread lever): honor an EXPLICIT YAML value when it is
+      <= the node's gpus_per_node. This lets policy/ref use FEWER GPUs per
+      (reserved whole) node than the node physically has — e.g. 4 policy ranks on a
+      reserved 8-GPU CoreWeave node — which spreads a fixed policy-rank count over
+      MORE nodes (fewer concurrent GDN scans / less cpu_offload host RAM per node).
+      Without this, the CLI gpus_per_node unconditionally clobbered the YAML to 8,
+      so sub-node policy placement was inexpressible (the 80B host-RAM-OOM lever).
+      Byte-identical for every existing config: those leave it None (-> clobber to
+      gpus_per_node, unchanged) or set it == gpus_per_node (8 <= 8 -> honored == 8).
+    """
+
+    num_nodes = int(exp_args.get("num_nodes", 1))
+    gpus_per_node = int(exp_args.get("gpus_per_node", getattr(hpc, "gpus_per_node", 4)))
+    placement = dict(trainer_config.get("placement") or {})
+
+    policy_num_nodes = exp_args.get("policy_num_nodes")
+    if placement.get("policy_num_nodes") is None:
+        placement["policy_num_nodes"] = (
+            policy_num_nodes if policy_num_nodes is not None else num_nodes
+        )
+    if placement.get("ref_num_nodes") is None:
+        placement["ref_num_nodes"] = (
+            policy_num_nodes if policy_num_nodes is not None else num_nodes
+        )
+
+    def _resolve_gpus_per_node(key: str) -> int:
+        yaml_val = placement.get(key)
+        if yaml_val is None:
+            return gpus_per_node
+        if exp_args.get("gpus_per_node") and int(yaml_val) > gpus_per_node:
+            # A YAML value LARGER than the node has is a mis-size; clamp to CLI.
+            return gpus_per_node
+        return int(yaml_val)
+
+    placement["policy_num_gpus_per_node"] = _resolve_gpus_per_node(
+        "policy_num_gpus_per_node"
+    )
+    placement["ref_num_gpus_per_node"] = _resolve_gpus_per_node("ref_num_gpus_per_node")
+    return placement
+
+
+def expected_rl_world_sizes(
+    placement: Mapping[str, Any],
+    overrides: Sequence[str] = (),
+) -> Dict[str, int]:
+    """Map a resolved placement to the per-component world sizes a resume must match.
+
+    Hydra CLI overrides (``trainer.placement.<component>_<dimension>=N``) win over
+    the placement mapping, mirroring how they override the built hydra args.
+    Components with incomplete placement information are omitted.
+    """
+
+    from hpc.rl_paths import hydra_override_values
+
+    values = hydra_override_values(overrides)
+    resolved = dict(placement)
+    for component in ("policy", "ref"):
+        for dimension in ("num_nodes", "num_gpus_per_node"):
+            key = f"trainer.placement.{component}_{dimension}"
+            if key in values and values[key] not in ("null", "None", "~", ""):
+                resolved[f"{component}_{dimension}"] = int(values[key])
+
+    world_sizes: Dict[str, int] = {}
+    for component in ("policy", "ref"):
+        nodes = resolved.get(f"{component}_num_nodes")
+        gpus = resolved.get(f"{component}_num_gpus_per_node")
+        if nodes is not None and gpus is not None:
+            world_sizes[component] = int(nodes) * int(gpus)
+    return world_sizes
+
+
 def build_skyrl_hydra_args(
     parsed: ParsedRLConfig,
     exp_args: Dict[str, Any],
@@ -689,45 +771,9 @@ def build_skyrl_hydra_args(
         str(run_paths.resume_path) if run_paths.resume_path is not None else None
     )
 
-    # Derive placement from num_nodes
     num_nodes = int(exp_args.get("num_nodes", 1))
     gpus_per_node = int(exp_args.get("gpus_per_node", getattr(hpc, "gpus_per_node", 4)))
-    placement = dict(trainer.get("placement", {}))
-
-    policy_num_nodes = exp_args.get("policy_num_nodes")
-    if placement.get("policy_num_nodes") is None:
-        placement["policy_num_nodes"] = (
-            policy_num_nodes if policy_num_nodes is not None else num_nodes
-        )
-    if placement.get("ref_num_nodes") is None:
-        placement["ref_num_nodes"] = (
-            policy_num_nodes if policy_num_nodes is not None else num_nodes
-        )
-
-    # Derive gpus_per_node from CLI (cluster-specific, not hardcoded in YAML).
-    # EXCEPTION (rank-spread lever): honor an EXPLICIT YAML *_num_gpus_per_node when
-    # it is <= the node's gpus_per_node. This lets policy/ref use FEWER GPUs per
-    # (reserved whole) node than the node physically has — e.g. 4 policy ranks on a
-    # reserved 8-GPU CoreWeave node — which spreads a fixed policy-rank count over
-    # MORE nodes (fewer concurrent GDN scans / less cpu_offload host RAM per node).
-    # Without this, the CLI gpus_per_node unconditionally clobbered the YAML to 8,
-    # so sub-node policy placement was inexpressible (the 80B host-RAM-OOM lever).
-    # Byte-identical for every existing config: those leave it None (-> clobber to
-    # gpus_per_node, unchanged) or set it == gpus_per_node (8 <= 8 -> honored == 8).
-    def _resolve_gpus_per_node(key: str) -> int:
-        yaml_val = placement.get(key)
-        if yaml_val is None:
-            return gpus_per_node
-        if exp_args.get("gpus_per_node") and int(yaml_val) > gpus_per_node:
-            # A YAML value LARGER than the node has is a mis-size; clamp to CLI.
-            return gpus_per_node
-        return int(yaml_val)
-
-    placement["policy_num_gpus_per_node"] = _resolve_gpus_per_node(
-        "policy_num_gpus_per_node"
-    )
-    placement["ref_num_gpus_per_node"] = _resolve_gpus_per_node("ref_num_gpus_per_node")
-    trainer["placement"] = placement
+    trainer["placement"] = resolve_placement(parsed.trainer, exp_args, hpc)
 
     # Compute num_inference_engines
     tp_size = parsed.tensor_parallel_size

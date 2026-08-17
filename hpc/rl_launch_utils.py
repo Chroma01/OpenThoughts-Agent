@@ -28,7 +28,11 @@ from typing import Any, Dict, List, Mapping, Optional
 from hpc.checkpoint_utils import is_huggingface_repo, pre_download_model
 from hpc.hf_utils import is_hf_dataset_path
 from hpc.launch_utils import get_daytona_api_key_override
-from hpc.rl_config_utils import get_skyrl_command_preview
+from hpc.rl_config_utils import (
+    expected_rl_world_sizes,
+    get_skyrl_command_preview,
+    resolve_placement,
+)
 from hpc.rl_paths import (
     LATEST_CHECKPOINT_FILE,
     RLLaunchIntent,
@@ -1151,6 +1155,13 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> RLLaunchArtifacts:
     )
     print(f"Resolved context budget: {parsed.context_budget.as_dict()}")
 
+    # Validate the resume checkpoint's sharded world size at submit: FSDP2 loads
+    # one shard per rank and does not reshard, so a bank written at 16 ranks can
+    # never load into a 32-rank placement. Without this check the mismatch only
+    # surfaces ~15 minutes into the run, after node allocation and engine start.
+    placement = resolve_placement(parsed.trainer, exp_args, hpc)
+    expected_world_sizes = expected_rl_world_sizes(placement, passthrough_overrides)
+
     run_paths = RLPathManager(
         job_name,
         exp_paths.canonical_root or exp_paths.root,
@@ -1164,6 +1175,7 @@ def construct_rl_sbatch_script(exp_args: dict, hpc) -> RLLaunchArtifacts:
             if exp_args.get("overwrite_output_dir") or exp_args.get("allow_overwrite")
             else RLLaunchIntent.AUTO
         ),
+        expected_world_sizes=expected_world_sizes,
     )
     print(run_paths.describe())
 
@@ -1579,12 +1591,27 @@ class RLJobRunner:
         values = hydra_override_values(self.config.skyrl_hydra_args)
         checkpoint_dir = Path(values["trainer.ckpt_path"])
         state_root = checkpoint_dir.parent.parent
+        # Recover the resolved placement from the built hydra args so a link-start
+        # resume re-checks the checkpoint world size at the same geometry.
+        placement = {
+            f"{component}_{dimension}": int(values[key])
+            for component in ("policy", "ref")
+            for dimension, key in (
+                ("num_nodes", f"trainer.placement.{component}_num_nodes"),
+                (
+                    "num_gpus_per_node",
+                    f"trainer.placement.{component}_num_gpus_per_node",
+                ),
+            )
+            if key in values
+        }
         resolved = RLPathManager(self.config.job_name, state_root, state_root).resolve(
             trainer_config={
                 "ckpt_path": str(checkpoint_dir),
                 "export_path": values["trainer.export_path"],
             },
             terminal_bench_config={"trials_dir": self.config.trials_dir},
+            expected_world_sizes=expected_rl_world_sizes(placement),
         )
         replacements = {
             "trainer.resume_mode": resolved.resume_mode.value,
