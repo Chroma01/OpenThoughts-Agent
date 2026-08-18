@@ -127,6 +127,24 @@ def test_helper_region_selects_eu_bucket(monkeypatch, no_hf):
     assert result.model_serve_uri.startswith("s3://marin-models-eu/")
 
 
+def test_helper_rejects_incomplete_sharded_model(monkeypatch):
+    _use_layout(
+        monkeypatch,
+        {
+            "gs://marin-models-us/ot-agent/models/Qwen/Qwen3-8B": [
+                "config.json",
+                "model-00001-of-00002.safetensors",
+            ],
+        },
+    )
+
+    result = precache.precache_for_eval(
+        "Qwen/Qwen3-8B", [], region=None, mode="auto", verbose=False
+    )
+
+    assert result.offline_ok is False
+
+
 # ---------------------------------------------------------------------------
 # (c) helper: cache-MISS behavior (auto = online fallback; strict = fail loud)
 # ---------------------------------------------------------------------------

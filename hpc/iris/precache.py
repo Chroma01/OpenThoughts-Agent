@@ -42,6 +42,7 @@ the ``MARIN_HMAC_*`` creds onto ``AWS_*`` for the streamer.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -158,12 +159,24 @@ def _ls(fs, gs_dir: str) -> List[str]:
 
 
 def _model_present(fs, gs_dir: str) -> bool:
-    """A model mirror is usable iff config.json + >=1 .safetensors are present."""
+    """Return whether a model mirror has config and a complete weight set."""
     names = _ls(fs, gs_dir)
     if not names:
         return False
     has_config = "config.json" in names
-    has_weights = any(n.endswith(".safetensors") for n in names)
+    shard_matches = [
+        match
+        for name in names
+        if (match := re.fullmatch(r"model-(\d+)-of-(\d+)\.safetensors", name))
+    ]
+    if shard_matches:
+        totals = {int(match.group(2)) for match in shard_matches}
+        if len(totals) != 1:
+            return False
+        total = totals.pop()
+        has_weights = {int(match.group(1)) for match in shard_matches} == set(range(1, total + 1))
+    else:
+        has_weights = any(name.endswith(".safetensors") for name in names)
     return has_config and has_weights
 
 
