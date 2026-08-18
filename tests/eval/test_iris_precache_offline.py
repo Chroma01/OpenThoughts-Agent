@@ -16,9 +16,11 @@ Run:
 from __future__ import annotations
 
 import argparse
+import os
 
 import pytest
 
+from eval.local.run_eval import _configure_gcs_model_credentials
 from hpc.iris import precache
 from hpc.iris.outputs import IrisOutputPaths
 from hpc.launch_utils import PROJECT_ROOT
@@ -238,6 +240,24 @@ def test_launcher_hit_emits_offline_and_mirror_uris(monkeypatch, no_hf):
     assert cmd[i + 1] == "s3://marin-models-us/ot-agent/models/Qwen/Qwen3-8B/"
     assert "--model" in cmd and cmd[cmd.index("--model") + 1] == "Qwen/Qwen3-8B"
     assert "gs://marin-models-us/ot-agent/datasets/DCAgent/foo" in cmd
+
+
+def test_gcs_model_credentials_are_scoped_to_vllm(monkeypatch):
+    monkeypatch.setenv("MARIN_HMAC_ACCESS_ID", "gcs-access")
+    monkeypatch.setenv("MARIN_HMAC_SECRET", "gcs-secret")
+    monkeypatch.setenv("AWS_ENDPOINT_URL", "https://cwobject.com")
+    args = argparse.Namespace(
+        vllm_model_uri="s3://marin-models-us/ot-agent/models/Qwen/Qwen3-8B/",
+        _vllm_env_vars={"KEEP": "value"},
+    )
+
+    _configure_gcs_model_credentials(args)
+
+    assert os.environ["AWS_ENDPOINT_URL"] == "https://cwobject.com"
+    assert args._vllm_env_vars["AWS_ENDPOINT_URL"] == "https://storage.googleapis.com"
+    assert args._vllm_env_vars["AWS_ACCESS_KEY_ID"] == "gcs-access"
+    assert args._vllm_env_vars["AWS_SECRET_ACCESS_KEY"] == "gcs-secret"
+    assert args._vllm_env_vars["KEEP"] == "value"
 
 
 def test_launcher_selector_keeps_dataset_online_while_serving_cached_model(monkeypatch, no_hf):

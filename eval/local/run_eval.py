@@ -10,6 +10,7 @@ where we have exclusive access to the box.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -17,6 +18,32 @@ from hpc.launch_utils import PROJECT_ROOT
 from hpc.local_runner_utils import LocalHarborRunner
 from hpc.arg_groups import add_harbor_env_arg, add_hf_upload_args, add_database_upload_args
 from hpc.hf_utils import resolve_hf_repo_id
+
+
+GCS_MODEL_S3_PREFIX = "s3://marin-models-"
+GCS_MODEL_ENV_KEYS = {
+    "AWS_ENDPOINT_URL": "https://storage.googleapis.com",
+    "RUNAI_STREAMER_S3_USE_VIRTUAL_ADDRESSING": "False",
+    "VLLM_RAY_EXTRA_ENV_VARS_TO_COPY": (
+        "AWS_ENDPOINT_URL,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,"
+        "RUNAI_STREAMER_S3_USE_VIRTUAL_ADDRESSING"
+    ),
+}
+
+
+def _configure_gcs_model_credentials(args: argparse.Namespace) -> None:
+    model_uri = getattr(args, "vllm_model_uri", None)
+    if not model_uri or not model_uri.startswith(GCS_MODEL_S3_PREFIX):
+        return
+    access_key = os.environ.get("MARIN_HMAC_ACCESS_ID")
+    secret_key = os.environ.get("MARIN_HMAC_SECRET")
+    if not access_key or not secret_key:
+        raise ValueError("GCS model streaming requires MARIN_HMAC_ACCESS_ID and MARIN_HMAC_SECRET")
+    env = dict(getattr(args, "_vllm_env_vars", None) or {})
+    env.update(GCS_MODEL_ENV_KEYS)
+    env["AWS_ACCESS_KEY_ID"] = access_key
+    env["AWS_SECRET_ACCESS_KEY"] = secret_key
+    args._vllm_env_vars = env
 
 
 class EvalRunner(LocalHarborRunner):
@@ -34,6 +61,10 @@ class EvalRunner(LocalHarborRunner):
     # 0.23.0 is unconfirmed — see the CAVEAT at the call site in
     # hpc/local_runner_utils.py (validate n_cache_tokens>0 on the next eval leg).
     TPU_SERVE_DEFAULT_CLI_ARGS = ["--enable-prefix-caching"]
+
+    def setup(self) -> None:
+        super().setup()
+        _configure_gcs_model_credentials(self.args)
 
     @classmethod
     def create_parser(cls) -> argparse.ArgumentParser:

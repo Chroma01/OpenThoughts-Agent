@@ -261,7 +261,7 @@ def test_gpu_storage_creds_withheld_and_tpu_aliasing_preserved():
         "LAION_ACCESS_KEY",
         "LAION_SECRET_KEY",
     } <= _GPU_STORAGE_CRED_KEYS
-    assert {"MARIN_HMAC_ACCESS_ID", "MARIN_HMAC_SECRET"} <= _GPU_STORAGE_CRED_KEYS
+    assert not {"MARIN_HMAC_ACCESS_ID", "MARIN_HMAC_SECRET"} & _GPU_STORAGE_CRED_KEYS
 
     # TPU path keeps the marin HMAC → AWS aliasing precedence.
     tpu_env = {
