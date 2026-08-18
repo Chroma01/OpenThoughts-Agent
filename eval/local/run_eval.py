@@ -55,6 +55,12 @@ class EvalRunner(LocalHarborRunner):
             help="Path to a Harbor task directory. Mutually exclusive with --dataset.",
         )
         parser.add_argument("--dataset-path", dest="dataset_path", help=argparse.SUPPRESS)
+        parser.add_argument(
+            "--cohort_size",
+            type=int,
+            help="Materialize exactly this many tasks from a parquet dataset.",
+        )
+        parser.add_argument("--cohort-size", dest="cohort_size", type=int, help=argparse.SUPPRESS)
 
         # Harbor environment backend (unified --harbor_env, with legacy aliases)
         # Default=None to allow inference from harbor config's environment.type field
@@ -146,7 +152,9 @@ class EvalRunner(LocalHarborRunner):
             # Auto-detect parquet datasets and convert to task directories
             if not is_raw_tasks_directory(self.args.dataset_path):
                 self.args.dataset_path = convert_parquet_to_tasks(
-                    self.args.dataset_path, original_identifier
+                    self.args.dataset_path,
+                    original_identifier,
+                    cohort_size=self.args.cohort_size,
                 )
 
     def print_banner(self) -> None:

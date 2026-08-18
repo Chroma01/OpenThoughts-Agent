@@ -240,6 +240,32 @@ def test_launcher_hit_emits_offline_and_mirror_uris(monkeypatch, no_hf):
     assert "gs://marin-models-us/ot-agent/datasets/DCAgent/foo" in cmd
 
 
+def test_launcher_selector_keeps_dataset_online_while_serving_cached_model(monkeypatch, no_hf):
+    from eval.cloud.launch_eval_iris import EvalIrisLauncher
+
+    model_only = {
+        "gs://marin-models-us/ot-agent/models/Qwen/Qwen3-8B": [
+            "config.json",
+            "model.safetensors",
+        ],
+    }
+    _use_layout(monkeypatch, model_only)
+    launcher = EvalIrisLauncher(PROJECT_ROOT)
+    selector = "open-thoughts/TaskTrove@abc123::DCAgent__foo"
+    args = _eval_args(
+        dataset_path=selector,
+        _orig_dataset_repo=None,
+        _dataset_uses_online_selector=True,
+    )
+
+    env = launcher.pre_submit_precache(args, remote_output_dir="gs://x/y")
+
+    assert "HF_HUB_OFFLINE" not in env
+    assert "TRANSFORMERS_OFFLINE" not in env
+    assert args._vllm_model_uri == "s3://marin-models-us/ot-agent/models/Qwen/Qwen3-8B/"
+    assert args.dataset_path == selector
+
+
 def test_launcher_miss_auto_no_offline_no_serve_uri(monkeypatch):
     from eval.cloud.launch_eval_iris import EvalIrisLauncher
 

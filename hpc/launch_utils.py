@@ -10,6 +10,7 @@ import math
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -1829,6 +1830,7 @@ def convert_parquet_to_tasks(
     snapshot_dir: str,
     dataset_identifier: str,
     datasets_dir: Optional[str] = None,
+    cohort_size: int | None = None,
 ) -> str:
     """Convert a parquet-based HF dataset to Harbor task directories.
 
@@ -1842,6 +1844,8 @@ def convert_parquet_to_tasks(
             used to derive the output directory name.
         datasets_dir: Base directory for converted tasks. Defaults to
             ``$DATASETS_DIR`` or ``<cwd>/datasets``.
+        cohort_size: Extract exactly this many task directories. If the source has
+            fewer rows, repeat its tasks deterministically to reach the requested size.
 
     Returns:
         Path to the directory containing the extracted task folders.
@@ -1871,8 +1875,30 @@ def convert_parquet_to_tasks(
 
     print(f"[convert_parquet_to_tasks] Converting parquet to tasks folder at {tasks_output_dir}")
     # Lazy import to avoid torch dependency at module load time
-    from scripts.harbor.tasks_parquet_converter import from_parquet
-    from_parquet(parquet_file_path, tasks_output_dir, on_exist="skip")
+    from scripts.harbor.tasks_parquet_converter import find_tasks, from_parquet
+    from_parquet(
+        parquet_file_path,
+        tasks_output_dir,
+        on_exist="skip",
+        max_tasks=cohort_size,
+    )
+    if cohort_size is not None:
+        tasks = find_tasks(Path(tasks_output_dir), recursive=True)
+        if not tasks:
+            raise ValueError(f"Dataset {dataset_identifier} contains no tasks")
+        original_tasks = list(tasks)
+        repeat_index = 0
+        while len(tasks) < cohort_size:
+            source = original_tasks[repeat_index % len(original_tasks)]
+            target = source.parent / f"{source.name}__cohort_repeat_{repeat_index:04d}"
+            if not target.exists():
+                shutil.copytree(source, target, copy_function=os.link)
+            tasks.append(target)
+            repeat_index += 1
+        if len(find_tasks(Path(tasks_output_dir), recursive=True)) != cohort_size:
+            raise ValueError(
+                f"Dataset {dataset_identifier} did not materialize exactly {cohort_size} tasks"
+            )
     print(f"[convert_parquet_to_tasks] Converted parquet to tasks folder: {tasks_output_dir}")
     return tasks_output_dir
 

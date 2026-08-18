@@ -568,6 +568,7 @@ def from_parquet(
     on_exist: str = "error",
     max_workers: int = 10,
     batch_size: int = 256,
+    max_tasks: int | None = None,
 ) -> list[Path]:
     """Extract tasks from parquet file to directory in parallel batches.
 
@@ -580,6 +581,7 @@ def from_parquet(
         on_exist: What to do if target exists ('skip', 'error', 'overwrite')
         max_workers: Number of parallel workers (10 by default)
         batch_size: Rows to process per batch (default 256)
+        max_tasks: Extract at most this many rows, preserving parquet row order.
 
     Returns:
         List of extracted task directories
@@ -588,6 +590,9 @@ def from_parquet(
 
     pf = pq_mod.ParquetFile(parquet_path)
     total_rows = pf.metadata.num_rows
+    if max_tasks is not None and max_tasks <= 0:
+        raise ValueError("max_tasks must be positive")
+    extraction_rows = min(total_rows, max_tasks) if max_tasks is not None else total_rows
 
     # Validate schema on first row group
     schema_names = [f.name for f in pf.schema_arrow]
@@ -598,12 +603,15 @@ def from_parquet(
     written: list[Path] = []
     row_offset = 0
 
-    with tqdm(total=total_rows, desc="Extracting tasks") as pbar:
+    with tqdm(total=extraction_rows, desc="Extracting tasks") as pbar:
         for batch in pf.iter_batches(
             batch_size=batch_size, columns=["path", "task_binary"]
         ):
             path_col = batch.column("path").to_pylist()
             data_col = batch.column("task_binary").to_pylist()
+            remaining = extraction_rows - row_offset
+            path_col = path_col[:remaining]
+            data_col = data_col[:remaining]
 
             tasks_args = [
                 (row_offset + i, rel_path, data, base, on_exist)
@@ -623,6 +631,8 @@ def from_parquet(
             row_offset += len(path_col)
             # Let GC reclaim batch memory
             del path_col, data_col, tasks_args
+            if row_offset >= extraction_rows:
+                break
 
     return written
 

@@ -41,7 +41,7 @@ from hpc.arg_groups import (  # noqa: E402
 )
 from hpc.harbor_utils import load_harbor_config  # noqa: E402
 from hpc.datagen_config_utils import parse_datagen_config  # noqa: E402
-from hpc.hf_utils import is_hf_dataset_path  # noqa: E402
+from hpc.hf_utils import is_hf_dataset_path, parse_hf_dataset_selector  # noqa: E402
 from hpc.launch_utils import PROJECT_ROOT  # noqa: E402
 from eval.presets import load_presets  # noqa: E402
 from database.unified_db.infra_errors import INFRA_ERROR_TYPES  # noqa: E402
@@ -158,6 +158,14 @@ class EvalIrisLauncher(IrisLauncher):
         )
         parser.add_argument(
             "--dataset-path", dest="dataset_path", help=argparse.SUPPRESS
+        )
+        parser.add_argument(
+            "--cohort_size",
+            type=int,
+            help="Materialize exactly this many tasks from a parquet dataset.",
+        )
+        parser.add_argument(
+            "--cohort-size", dest="cohort_size", type=int, help=argparse.SUPPRESS
         )
 
         parser.add_argument(
@@ -361,8 +369,14 @@ class EvalIrisLauncher(IrisLauncher):
         # untouched (the GPU-path HF-dataset guard) and a remote gs://|s3:// URI
         # also passes through (the worker's resolve_dataset_path handles those).
         args._orig_dataset_repo = None
+        args._dataset_uses_online_selector = False
         if args.dataset_path and is_hf_dataset_path(args.dataset_path):
-            args._orig_dataset_repo = args.dataset_path
+            selector = parse_hf_dataset_selector(args.dataset_path)
+            assert selector is not None
+            if selector.subdir:
+                args._dataset_uses_online_selector = True
+            else:
+                args._orig_dataset_repo = selector.repo_id
         elif (
             args.dataset_path
             and not args.dataset_path.startswith("/")
@@ -518,7 +532,11 @@ class EvalIrisLauncher(IrisLauncher):
             "(runai_streamer); HF_HUB_OFFLINE=1",
             flush=True,
         )
-        return result.env
+        env = dict(result.env)
+        if getattr(args, "_dataset_uses_online_selector", False):
+            env.pop("HF_HUB_OFFLINE", None)
+            env.pop("TRANSFORMERS_OFFLINE", None)
+        return env
 
     def build_task_command(
         self, args: argparse.Namespace, output_paths: IrisOutputPaths
@@ -545,6 +563,9 @@ class EvalIrisLauncher(IrisLauncher):
             cmd.extend(["--dataset", args.dataset])
         elif args.dataset_path:
             cmd.extend(["--dataset_path", args.dataset_path])
+        cohort_size = getattr(args, "cohort_size", None)
+        if cohort_size is not None:
+            cmd.extend(["--cohort_size", str(cohort_size)])
 
         cmd.extend(
             [

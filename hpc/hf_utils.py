@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from dataclasses import dataclass
 from typing import Optional
 
 # Default HuggingFace org for auto-derived repo IDs (override with env var)
@@ -18,11 +19,41 @@ DEFAULT_HF_ORG = "DCAgent"
 HF_ORG_ENV_VAR = "DCAGENT_HF_ORG"
 
 
+@dataclass(frozen=True)
+class HfDatasetSelector:
+    """A Hugging Face dataset repo with an optional revision and subdirectory."""
+
+    repo_id: str
+    revision: str | None = None
+    subdir: str | None = None
+
+
+def parse_hf_dataset_selector(value: str) -> HfDatasetSelector | None:
+    """Parse ``org/repo[@revision][::subdir]`` dataset selectors."""
+    if not value or value.startswith(("./", "../", "/", "~")) or "\\" in value:
+        return None
+
+    repo_revision, separator, subdir = value.partition("::")
+    repo_id, revision_separator, revision = repo_revision.partition("@")
+    if repo_id.count("/") != 1 or not all(part.strip() for part in repo_id.split("/")):
+        return None
+    if separator and (not subdir or subdir.startswith("/") or ".." in subdir.split("/")):
+        return None
+    if revision_separator and not revision:
+        return None
+
+    return HfDatasetSelector(
+        repo_id=repo_id,
+        revision=revision if revision_separator else None,
+        subdir=subdir if separator else None,
+    )
+
+
 def is_hf_dataset_path(path: str) -> bool:
     """Check if path looks like a HuggingFace dataset identifier.
 
-    HF identifiers have format: org/repo-name or username/repo-name
-    They contain exactly one "/" and no path separators like "./" or "../"
+    Supports bare ``org/repo`` identifiers and pinned subdirectory selectors in
+    the form ``org/repo@revision::subdir``.
 
     Args:
         path: Path string to check
@@ -30,27 +61,7 @@ def is_hf_dataset_path(path: str) -> bool:
     Returns:
         True if path appears to be an HF dataset identifier
     """
-    if not path:
-        return False
-
-    # Must contain exactly one "/"
-    if path.count("/") != 1:
-        return False
-
-    # Must not look like a filesystem path
-    if path.startswith(("./", "../", "/", "~")):
-        return False
-
-    # Must not contain backslashes (Windows paths)
-    if "\\" in path:
-        return False
-
-    # Both parts must be non-empty
-    parts = path.split("/")
-    if not all(p.strip() for p in parts):
-        return False
-
-    return True
+    return parse_hf_dataset_selector(path) is not None
 
 
 def sanitize_hf_repo_id(repo_id: str, max_length: int = 96) -> str:
@@ -173,9 +184,24 @@ def resolve_dataset_path(
         # It's an HF dataset identifier - download it
         from huggingface_hub import snapshot_download
 
+        selector = parse_hf_dataset_selector(path_or_repo)
+        assert selector is not None
+
         if verbose:
             print(f"[hf_utils] Downloading HF dataset: {path_or_repo}")
-        local_path = snapshot_download(repo_id=path_or_repo, repo_type="dataset")
+        allow_patterns = [f"{selector.subdir}/**"] if selector.subdir else None
+        local_path = snapshot_download(
+            repo_id=selector.repo_id,
+            repo_type="dataset",
+            revision=selector.revision,
+            allow_patterns=allow_patterns,
+        )
+        if selector.subdir:
+            local_path = os.path.join(local_path, selector.subdir)
+            if not os.path.isdir(local_path):
+                raise FileNotFoundError(
+                    f"Dataset selector {path_or_repo} did not resolve a subdirectory"
+                )
         if verbose:
             print(f"[hf_utils] Downloaded to: {local_path}")
         return local_path
