@@ -38,6 +38,7 @@ datagen-cpu = [
 ]
 datagen = [
     "boto3",
+    "gcsfs",
     "ray[default]>=2.50.0",
     "torch-c-dlpack-ext==0.1.4",
     "google-cloud-aiplatform>=1.67.0",

@@ -5349,6 +5349,7 @@ cloud-vast = [
 datagen = [
     { name = "accelerate" },
     { name = "boto3" },
+    { name = "gcsfs", version = "2026.2.0", source = { registry = "https://pypi.org/simple" } },
     { name = "google-cloud-aiplatform" },
     { name = "google-genai" },
     { name = "ray", extra = ["default"], marker = "extra == 'extra-18-openthoughts-agent-datagen' or (extra == 'extra-18-openthoughts-agent-datagen-tpu' and extra == 'extra-18-openthoughts-agent-rl') or (extra == 'extra-18-openthoughts-agent-datagen-tpu' and extra == 'extra-18-openthoughts-agent-sft-qwen35') or (extra == 'extra-18-openthoughts-agent-rl' and extra == 'extra-18-openthoughts-agent-sft-qwen35')" },
@@ -5441,6 +5442,7 @@ requires-dist = [
     { name = "docker", marker = "extra == 'harbor-docker'", specifier = ">=7.0.0" },
     { name = "dynamic-semaphore", git = "https://github.com/penfever/dynamic-semaphore" },
     { name = "flash-attn", marker = "sys_platform != 'darwin' and extra == 'sft-qwen35'", specifier = ">=2.7.0" },
+    { name = "gcsfs", marker = "extra == 'datagen'" },
     { name = "google-api-python-client", marker = "extra == 'cloud'" },
     { name = "google-api-python-client", marker = "extra == 'cloud-all'" },
     { name = "google-cloud-aiplatform", marker = "extra == 'datagen'", specifier = ">=1.67.0" },
