@@ -293,3 +293,14 @@ def test_iris_bootstrap_uses_synced_venv_and_gates_tpu_patch():
         needs_tpu_runtime_patch=True,
     )[2]
     assert "python scripts/iris/patch_tpu_inference.py" in tpu_script
+
+
+def test_iris_bootstrap_runs_python_modules_as_modules():
+    wrapped = wrap_task_command(
+        ["python", "-m", "scripts.iris.mirror_models", "hf-to-gcs"],
+        extras=["datagen"],
+        needs_tpu_runtime_patch=False,
+    )
+
+    assert "runpy.run_module" in wrapped[2]
+    assert "scripts.iris.mirror_models" in wrapped[2]

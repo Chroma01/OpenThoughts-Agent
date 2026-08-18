@@ -16,14 +16,22 @@ def wrap_task_command(
     if not (command and command[0] == "python" and len(command) >= 2):
         return command
 
-    script_path = command[1]
-    script_argv = command[2:]
+    is_module = command[1] == "-m"
+    if is_module and len(command) < 3:
+        raise ValueError("python -m requires a module name")
+    target = command[2] if is_module else command[1]
+    target_argv = command[3:] if is_module else command[2:]
+    run_target = (
+        "runpy.run_module(sys.argv[0], run_name='__main__', alter_sys=True)"
+        if is_module
+        else "runpy.run_path(sys.argv[0], run_name='__main__')"
+    )
     py_bootstrap = (
         "import sys; "
         "sys.path.append('/app'); "
         "sys.argv = sys.argv[1:]; "
         "import runpy; "
-        "runpy.run_path(sys.argv[0], run_name='__main__')"
+        f"{run_target}"
     )
     extras_flags = " ".join(
         f"--extra {shlex.quote(e.split(':', 1)[-1])}" for e in extras
@@ -40,7 +48,7 @@ def wrap_task_command(
         else "true"
     )
     py_invoke = shlex.join(
-        ["python", "-c", py_bootstrap, script_path, *script_argv]
+        ["python", "-c", py_bootstrap, target, *target_argv]
     )
     bash_cmd = (
         f"set -e; {resync_cmd}; "
