@@ -16,7 +16,12 @@ from typing import Optional, Tuple
 
 from hpc.launch_utils import PROJECT_ROOT
 from hpc.local_runner_utils import LocalHarborRunner
-from hpc.arg_groups import add_harbor_env_arg, add_hf_upload_args, add_database_upload_args
+from hpc.arg_groups import (
+    add_database_upload_args,
+    add_harbor_env_arg,
+    add_hf_upload_args,
+    add_ingress_literal_args,
+)
 from hpc.hf_utils import resolve_hf_repo_id
 
 
@@ -118,6 +123,8 @@ class EvalRunner(LocalHarborRunner):
             help="Directory for logs + endpoint JSON.",
         )
         parser.add_argument("--experiments-dir", dest="experiments_dir", help=argparse.SUPPRESS)
+
+        add_ingress_literal_args(parser)
 
         # Re-fire errored-trial pruning. On a warm-dir re-fire (an existing run
         # dir), delete trials whose exception_info.exception_type is one of these
