@@ -286,6 +286,19 @@ models:
     agent_kwargs:
     - extra_body={"chat_template_kwargs":{"enable_thinking":true}}
     extra_args: --enforce-eager --disable-cascade-attn --seed 42
+  google/gemma-4-26B-A4B:
+    max_model_len: 32768
+    trust_remote_code: false
+    limit_mm_per_prompt: '{"image":0,"video":0}'
+    tool_call_parser: hermes
+    reasoning_parser: gemma4
+    conda_env: eval-qwen35
+    tensor_parallel_size: 1
+    data_parallel_size: 1
+    swap_space: 32
+    agent_kwargs:
+    - extra_body={"chat_template_kwargs":{"enable_thinking":true}}
+    extra_args: --enable-prefix-caching
   laion/CoderForge-Preview-v2-10000__Qwen3-8B:
     tool_call_parser: hermes
     agent_kwargs:
