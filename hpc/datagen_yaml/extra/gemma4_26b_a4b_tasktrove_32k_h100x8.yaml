@@ -24,7 +24,6 @@ vllm_server:
   tool_call_parser: hermes
   reasoning_parser: gemma4
   extra_args:
-  - --language-model-only
   - --dtype
   - bfloat16
   - --block-size

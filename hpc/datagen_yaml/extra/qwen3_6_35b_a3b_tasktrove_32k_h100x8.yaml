@@ -24,7 +24,6 @@ vllm_server:
   tool_call_parser: qwen3_coder
   reasoning_parser: qwen3
   extra_args:
-  - --language-model-only
   - --dtype
   - bfloat16
   - --block-size
