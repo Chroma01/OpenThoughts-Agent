@@ -86,7 +86,7 @@ RUN . /opt/openthoughts/.venv/bin/activate && \
 # reach the worker deterministically. Bump HARBOR_COMMIT for every harbor change
 # that must ship in the image. Keep this aligned with the Harbor pin in uv.lock;
 # the worker's frozen sync is the runtime authority.
-ENV HARBOR_COMMIT=772e20f7a76bec749e634a054ff4546a3468f5cb
+ENV HARBOR_COMMIT=41f4320c0471ea3362a6d3160df8b6c75f0126f7
 RUN . /opt/openthoughts/.venv/bin/activate && \
     uv pip install --no-deps --force-reinstall \
         "harbor[daytona] @ git+https://github.com/marin-community/harbor.git@${HARBOR_COMMIT}" && \
