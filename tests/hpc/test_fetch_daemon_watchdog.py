@@ -61,6 +61,11 @@ def test_parse_harbor_iso_offset():
     assert dt == datetime(2026, 6, 4, 2, 8, 24, tzinfo=timezone.utc)
 
 
+def test_parse_harbor_iso_without_offset_assumes_utc():
+    dt = _parse_harbor_iso("2026-06-04T02:08:24.015424")
+    assert dt == datetime(2026, 6, 4, 2, 8, 24, 15424, tzinfo=timezone.utc)
+
+
 @pytest.mark.parametrize("bad", ["", "not-a-date", None])
 def test_parse_harbor_iso_garbage_returns_none(bad):
     assert _parse_harbor_iso(bad) is None

@@ -336,11 +336,14 @@ def fetch_record(record: JobRecord) -> bool:
 # ---------------------------------------------------------------------
 
 def _parse_harbor_iso(ts: str) -> Optional[datetime]:
-    """Parse harbor's result.json ``updated_at`` (ISO-8601 UTC, trailing Z)."""
+    """Parse harbor's result.json ``updated_at`` as an aware UTC timestamp."""
     try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _is_hung(updated_at: Optional[datetime], n_completed: Optional[int],
