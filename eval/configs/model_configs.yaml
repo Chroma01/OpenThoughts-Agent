@@ -296,7 +296,7 @@ models:
     data_parallel_size: 1
     agent_kwargs:
     - extra_body={"chat_template_kwargs":{"enable_thinking":true}}
-    extra_args: --enable-prefix-caching
+    extra_args: --chat-template ${DCFT}/eval/configs/gemma4_chat_template.jinja --enable-prefix-caching
   laion/CoderForge-Preview-v2-10000__Qwen3-8B:
     tool_call_parser: hermes
     agent_kwargs:
