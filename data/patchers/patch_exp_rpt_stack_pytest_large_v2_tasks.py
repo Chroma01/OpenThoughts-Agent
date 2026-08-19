@@ -13,6 +13,7 @@ unresolvable fixtures are removed rather than silently shipping a broken or
 leaky verifier.  The supported dependency map deliberately excludes large ML
 frameworks and packages whose import name cannot be resolved unambiguously.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,7 +30,16 @@ from pathlib import Path
 MARKER = "# --- laion stack-pytest-large v2 dependency bootstrap ---"
 INSTRUCTION_MARKER = "<!-- laion stack-pytest-large v2 dependency bootstrap -->"
 STDLIB = frozenset(sys.stdlib_module_names) | frozenset(
-    {"pytest", "_pytest", "py", "pluggy", "iniconfig", "packaging", "tomli", "exceptiongroup"}
+    {
+        "pytest",
+        "_pytest",
+        "py",
+        "pluggy",
+        "iniconfig",
+        "packaging",
+        "tomli",
+        "exceptiongroup",
+    }
 )
 PIP_BY_IMPORT = {
     "aiohttp": "aiohttp",
@@ -97,10 +107,28 @@ PIP_BY_IMPORT = {
 }
 PYTEST_BUILTIN_FIXTURES = frozenset(
     {
-        "cache", "capfd", "capfdbinary", "caplog", "capsys", "capsysbinary", "capteesys",
-        "doctest_namespace", "monkeypatch", "pytestconfig", "record_property",
-        "record_testsuite_property", "record_xml_attribute", "recwarn", "request", "subtests",
-        "testdir", "tmp_path", "tmp_path_factory", "tmpdir", "tmpdir_factory", "pytester",
+        "cache",
+        "capfd",
+        "capfdbinary",
+        "caplog",
+        "capsys",
+        "capsysbinary",
+        "capteesys",
+        "doctest_namespace",
+        "monkeypatch",
+        "pytestconfig",
+        "record_property",
+        "record_testsuite_property",
+        "record_xml_attribute",
+        "recwarn",
+        "request",
+        "subtests",
+        "testdir",
+        "tmp_path",
+        "tmp_path_factory",
+        "tmpdir",
+        "tmpdir_factory",
+        "pytester",
     }
 )
 BAD_LOCAL_IMPORTS = frozenset({"app", "src", "test", "tests"})
@@ -108,7 +136,9 @@ BAD_LOCAL_IMPORTS = frozenset({"app", "src", "test", "tests"})
 
 def test_imports(test_path: Path) -> set[str]:
     """Return all non-relative imports in a test module."""
-    tree = ast.parse(test_path.read_text(encoding="utf-8", errors="replace"), filename=str(test_path))
+    tree = ast.parse(
+        test_path.read_text(encoding="utf-8", errors="replace"), filename=str(test_path)
+    )
     imports: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -120,7 +150,9 @@ def test_imports(test_path: Path) -> set[str]:
 
 def imported_modules(test_path: Path) -> set[str]:
     """Return full non-relative module paths needed at test collection time."""
-    tree = ast.parse(test_path.read_text(encoding="utf-8", errors="replace"), filename=str(test_path))
+    tree = ast.parse(
+        test_path.read_text(encoding="utf-8", errors="replace"), filename=str(test_path)
+    )
     modules: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -134,7 +166,9 @@ def fixtures_in_file(path: Path) -> set[str]:
     """Return fixture names declared directly in one Python file."""
     if not path.is_file():
         return set()
-    tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
+    tree = ast.parse(
+        path.read_text(encoding="utf-8", errors="replace"), filename=str(path)
+    )
     fixtures: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -149,14 +183,18 @@ def fixtures_in_file(path: Path) -> set[str]:
 
 
 def fixture_error(test_path: Path) -> str | None:
-    tree = ast.parse(test_path.read_text(encoding="utf-8", errors="replace"), filename=str(test_path))
+    tree = ast.parse(
+        test_path.read_text(encoding="utf-8", errors="replace"), filename=str(test_path)
+    )
     known = (
         PYTEST_BUILTIN_FIXTURES
         | fixtures_in_file(test_path)
         | fixtures_in_file(test_path.parent / "conftest.py")
     )
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or not node.name.startswith("test_"):
+        if not isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef)
+        ) or not node.name.startswith("test_"):
             continue
         for argument in node.args.posonlyargs + node.args.args + node.args.kwonlyargs:
             if argument.arg not in {"self", "cls"} and argument.arg not in known:
@@ -166,7 +204,9 @@ def fixture_error(test_path: Path) -> str | None:
 
 def missing_test_asset(test_path: Path) -> str | None:
     """Reject a test that names an absent file under Harbor's mounted /tests."""
-    tree = ast.parse(test_path.read_text(encoding="utf-8", errors="replace"), filename=str(test_path))
+    tree = ast.parse(
+        test_path.read_text(encoding="utf-8", errors="replace"), filename=str(test_path)
+    )
     for node in ast.walk(tree):
         if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
             continue
@@ -203,7 +243,11 @@ def task_requirements(task_dir: Path) -> tuple[list[str] | None, str | None]:
         return None, "invalid-test-or-metadata"
     if target not in imports:
         return None, "target-not-imported"
-    instruction = (task_dir / "instruction.md").read_text(encoding="utf-8", errors="replace").lower()
+    instruction = (
+        (task_dir / "instruction.md")
+        .read_text(encoding="utf-8", errors="replace")
+        .lower()
+    )
     for module in modules:
         if module.startswith(f"{target}.") and module.lower() not in instruction:
             return None, f"unexplained-target-submodule:{module}"
@@ -221,7 +265,9 @@ def task_requirements(task_dir: Path) -> tuple[list[str] | None, str | None]:
         return None, absent_asset
     requirements = {PIP_BY_IMPORT[name] for name in external}
     for import_name, package in PIP_BY_IMPORT.items():
-        if re.search(rf"(?<![a-z0-9_]){re.escape(import_name.lower())}(?![a-z0-9_])", instruction):
+        if re.search(
+            rf"(?<![a-z0-9_]){re.escape(import_name.lower())}(?![a-z0-9_])", instruction
+        ):
             requirements.add(package)
     return sorted(requirements, key=str.lower), None
 
@@ -233,10 +279,7 @@ def patch_dockerfile(dockerfile: Path) -> None:
         return
     text = text.replace("python3-venv bsdutils", "python3-venv bsdutils git")
     text = text.rstrip() + (
-        "\n\n"
-        f"{MARKER}\n"
-        "RUN python3 -m venv /app/.venv\n"
-        "ENV PATH=/app/.venv/bin:$PATH\n"
+        f"\n\n{MARKER}\nRUN python3 -m venv /app/.venv\nENV PATH=/app/.venv/bin:$PATH\n"
     )
     dockerfile.write_text(text, encoding="utf-8")
 
@@ -255,14 +298,19 @@ def patch_test_script(test_script: Path) -> None:
         "    pip install --quiet -r /tests/requirements.txt\n"
         "fi"
     )
-    test_script.write_text(text.replace(needle, f"{needle}\n\n{bootstrap}", 1), encoding="utf-8")
+    test_script.write_text(
+        text.replace(needle, f"{needle}\n\n{bootstrap}", 1), encoding="utf-8"
+    )
 
 
 def patch_instruction(instruction: Path, requirements: list[str]) -> None:
     text = instruction.read_text(encoding="utf-8", errors="replace")
     if INSTRUCTION_MARKER in text:
         return
-    requirement_text = "\n".join(f"- `{requirement}`" for requirement in requirements) or "- No third-party packages beyond pytest."
+    requirement_text = (
+        "\n".join(f"- `{requirement}`" for requirement in requirements)
+        or "- No third-party packages beyond pytest."
+    )
     block = (
         f"\n\n{INSTRUCTION_MARKER}\n"
         "## Runtime dependencies\n\n"
@@ -312,10 +360,17 @@ def main() -> int:
             if not args.dry_run:
                 shutil.rmtree(task_dir)
         if index % 500 == 0 or index == len(task_dirs):
-            print(f"[{index}/{len(task_dirs)}] kept={counts['keep']} dropped={index - counts['keep']}", flush=True)
+            print(
+                f"[{index}/{len(task_dirs)}] kept={counts['keep']} dropped={index - counts['keep']}",
+                flush=True,
+            )
     if args.drop_log:
-        args.drop_log.write_text("\n".join(dropped) + ("\n" if dropped else ""), encoding="utf-8")
-    print(f"total={len(task_dirs)} kept={counts['keep']} dropped={len(task_dirs) - counts['keep']} dry_run={args.dry_run}")
+        args.drop_log.write_text(
+            "\n".join(dropped) + ("\n" if dropped else ""), encoding="utf-8"
+        )
+    print(
+        f"total={len(task_dirs)} kept={counts['keep']} dropped={len(task_dirs) - counts['keep']} dry_run={args.dry_run}"
+    )
     for reason, count in sorted(counts.items()):
         print(f"{reason}\t{count}")
     return 0

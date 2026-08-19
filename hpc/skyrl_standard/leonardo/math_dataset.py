@@ -19,7 +19,8 @@ import datasets
 # __init__ which pulls heavy tool deps not installed in this prep env).
 _UPATH = "/leonardo_work/AIFAC_5C0_290/bfeuer00/code/MarinSkyRL/skyrl-gym/skyrl_gym/envs/aime/utils.py"
 _spec = importlib.util.spec_from_file_location("aime_utils", _UPATH)
-U = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(U)  # noqa: E702
+U = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(U)  # noqa: E702
 
 INSTRUCTION = (
     " Please reason step by step. At the very end, output your final answer on its "
@@ -36,7 +37,9 @@ def gt_from_solution(solution_str):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--output_dir", default="/leonardo_work/AIFAC_5C0_290/bfeuer00/data/math")
+    ap.add_argument(
+        "--output_dir", default="/leonardo_work/AIFAC_5C0_290/bfeuer00/data/math"
+    )
     ap.add_argument("--min_level", type=int, default=3)
     args = ap.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
@@ -51,8 +54,12 @@ def main():
             "prompt": [{"role": "user", "content": ex["problem"] + INSTRUCTION}],
             "env_class": "aime",
             "reward_model": {"ground_truth": gt if gt is not None else ""},
-            "extra_info": {"split": "train", "index": idx,
-                           "level": ex.get("level", ""), "type": ex.get("type", "")},
+            "extra_info": {
+                "split": "train",
+                "index": idx,
+                "level": ex.get("level", ""),
+                "type": ex.get("type", ""),
+            },
         }
 
     train = train.map(train_map, with_indices=True, remove_columns=train.column_names)
@@ -78,8 +85,12 @@ def main():
             "prompt": [{"role": "user", "content": ex["problem"] + INSTRUCTION}],
             "env_class": "aime",
             "reward_model": {"ground_truth": gt},
-            "extra_info": {"split": "test", "index": idx,
-                           "level": ex.get("level", ""), "subject": ex.get("subject", "")},
+            "extra_info": {
+                "split": "test",
+                "index": idx,
+                "level": ex.get("level", ""),
+                "subject": ex.get("subject", ""),
+            },
         }
 
     val = val.map(val_map, with_indices=True, remove_columns=val.column_names)

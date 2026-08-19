@@ -155,7 +155,9 @@ def _setup_xla_cache(model: Optional[str]) -> None:
     # Also surface for vLLM-TPU's lowering passes which look at this env
     # name in some code paths.
     os.environ.setdefault("XLA_PERSISTENT_CACHE_PATH", cache_dir)
-    _log(f"XLA cache: {cache_dir} (cpu_tag={_cpu_tag()}, model_tag={_model_tag(model)})")
+    _log(
+        f"XLA cache: {cache_dir} (cpu_tag={_cpu_tag()}, model_tag={_model_tag(model)})"
+    )
 
 
 def _own_ip() -> str:
@@ -231,7 +233,9 @@ def poll_rendezvous(
     uri = _rendezvous_uri(rendezvous_dir)
     fs = _gcs_fs()
     deadline = time.time() + timeout
-    threshold = (min_written_at - RENDEZVOUS_FRESHNESS_SLACK) if min_written_at else None
+    threshold = (
+        (min_written_at - RENDEZVOUS_FRESHNESS_SLACK) if min_written_at else None
+    )
     if threshold is not None:
         _log(
             f"Polling for rendezvous {uri} (timeout {timeout}s, "
@@ -316,7 +320,9 @@ def wait_for_nodes(ray_address: str, expected_nodes: int, timeout: int) -> None:
     import ray
 
     deadline = time.time() + timeout
-    _log(f"Waiting for {expected_nodes} Ray node(s) at {ray_address} (timeout {timeout}s)...")
+    _log(
+        f"Waiting for {expected_nodes} Ray node(s) at {ray_address} (timeout {timeout}s)..."
+    )
     ray.init(address=ray_address, ignore_reinit_error=True)
     try:
         last_count = -1
@@ -327,7 +333,9 @@ def wait_for_nodes(ray_address: str, expected_nodes: int, timeout: int) -> None:
                 _log(f"Ray nodes alive: {count}/{expected_nodes}")
                 last_count = count
             if count >= expected_nodes:
-                _log(f"All {expected_nodes} Ray node(s) joined. Resources: {ray.cluster_resources()}")
+                _log(
+                    f"All {expected_nodes} Ray node(s) joined. Resources: {ray.cluster_resources()}"
+                )
                 return
             time.sleep(POLL_INTERVAL)
         raise TimeoutError(
@@ -420,14 +428,23 @@ def parse_args() -> tuple[argparse.Namespace, List[str]]:
         description="Launch a multi-host vLLM-TPU OpenAI endpoint on an iris slice "
         "by bootstrapping one cross-host Ray cluster. Unknown args pass through to vLLM.",
     )
-    parser.add_argument("--host", default="0.0.0.0", help="Bind interface for the API server.")
+    parser.add_argument(
+        "--host", default="0.0.0.0", help="Bind interface for the API server."
+    )
     parser.add_argument("--port", type=int, default=8000, help="API server port.")
-    parser.add_argument("--model", type=str, help="Model path (defaults to VLLM_MODEL_PATH).")
+    parser.add_argument(
+        "--model", type=str, help="Model path (defaults to VLLM_MODEL_PATH)."
+    )
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--pipeline-parallel-size", type=int, default=1)
     parser.add_argument("--data-parallel-size", type=int, default=1)
     parser.add_argument("--served-model-name", type=str, default=None)
-    parser.add_argument("--endpoint-json", type=Path, default=None, help="Path to write endpoint metadata JSON.")
+    parser.add_argument(
+        "--endpoint-json",
+        type=Path,
+        default=None,
+        help="Path to write endpoint metadata JSON.",
+    )
     parser.add_argument(
         "--ray-port",
         type=int,
@@ -540,7 +557,11 @@ def run_head(args: argparse.Namespace, extra_args: List[str]) -> int:
                 sys.stdout.write(line)
                 sys.stdout.flush()
         except Exception as exc:  # pragma: no cover
-            print(f"[start_vllm_iris_controller] tee error: {exc}", file=sys.stderr, flush=True)
+            print(
+                f"[start_vllm_iris_controller] tee error: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     threading.Thread(target=_tee_child_output, daemon=True).start()
 
@@ -561,7 +582,9 @@ def run_head(args: argparse.Namespace, extra_args: List[str]) -> int:
         if shutting_down.is_set():
             return
         shutting_down.set()
-        _log(f"Received signal {signum}; terminating api_server process group and stopping Ray...")
+        _log(
+            f"Received signal {signum}; terminating api_server process group and stopping Ray..."
+        )
         try:
             os.killpg(os.getpgid(process.pid), signal.SIGTERM)
             process.wait(timeout=30)
@@ -583,7 +606,9 @@ def run_head(args: argparse.Namespace, extra_args: List[str]) -> int:
     # then waits for the HTTP endpoint to actually serve).
     if args.endpoint_json:
         model = args.model or os.environ.get("VLLM_MODEL_PATH", "unknown")
-        write_endpoint_json(args.endpoint_json, args.host, args.port, model, ray_address, args)
+        write_endpoint_json(
+            args.endpoint_json, args.host, args.port, model, ray_address, args
+        )
 
     exit_code = process.wait()
     if args.rendezvous_dir and num_tasks > 1:
@@ -621,7 +646,9 @@ def run_worker(args: argparse.Namespace) -> int:
     # Verify this node actually joined before parking. This connects as a
     # driver to the local raylet, which is up after ray_start_worker returns.
     wait_for_nodes(ray_address, num_tasks, args.cluster_join_timeout)
-    _log(f"Worker rank {rank} joined Ray cluster at {ray_address}; parking until SIGTERM.")
+    _log(
+        f"Worker rank {rank} joined Ray cluster at {ray_address}; parking until SIGTERM."
+    )
 
     stop = threading.Event()
 

@@ -83,7 +83,11 @@ def convert_freeform_formatting(row: dict, row_idx: int) -> HarborTask | None:
         san_regexes.append(
             sanitize_text(pat, field_name=f"verify_regex[{i}]", max_len=_MAX_REGEX_LEN)
         )
-    if not isinstance(min_matches, int) or isinstance(min_matches, bool) or min_matches < 1:
+    if (
+        not isinstance(min_matches, int)
+        or isinstance(min_matches, bool)
+        or min_matches < 1
+    ):
         return None
 
     prompt = extract_prompt(row)
@@ -92,7 +96,12 @@ def convert_freeform_formatting(row: dict, row_idx: int) -> HarborTask | None:
 
     task_id = task_id_for(
         "if-freeform",
-        prompt[:256] + "|" + pattern_id + "|" + "".join(san_regexes) + f"|{min_matches}",
+        prompt[:256]
+        + "|"
+        + pattern_id
+        + "|"
+        + "".join(san_regexes)
+        + f"|{min_matches}",
     )
     return HarborTask(
         task_id=task_id,

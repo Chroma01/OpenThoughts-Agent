@@ -5,6 +5,7 @@ import argparse
 import sys
 from enum import Enum
 
+
 class JobType(str, Enum):
     """Enumerates supported HPC launcher job categories."""
 
@@ -26,8 +27,13 @@ class JobType(str, Enum):
         return cls.SFT.value
 
 
-from hpc.cli_utils import parse_bool_flag, coerce_str_bool_none, coerce_numeric_cli_values  # noqa: E402
+from hpc.cli_utils import (  # noqa: E402
+    parse_bool_flag,
+    coerce_str_bool_none,
+    coerce_numeric_cli_values,
+)
 from hpc.arg_groups import add_harbor_env_arg  # noqa: E402
+
 
 @dataclass
 class LlamaFactoryArgs:
@@ -53,7 +59,9 @@ class LlamaFactoryArgs:
     )
     deepspeed: Optional[str] = field(
         default=None,
-        metadata={"help": "Path to deepspeed config file. If None, uses FSDP via accelerate."},
+        metadata={
+            "help": "Path to deepspeed config file. If None, uses FSDP via accelerate."
+        },
     )
     packing: Optional[bool] = field(
         default=None,
@@ -66,7 +74,10 @@ class LlamaFactoryArgs:
         default=None, metadata={"help": "Whether to use liger kernel"}
     )
     use_cce: Optional[bool] = field(
-        default=None, metadata={"help": "Whether to use Cut Cross-Entropy for memory-efficient loss computation"}
+        default=None,
+        metadata={
+            "help": "Whether to use Cut Cross-Entropy for memory-efficient loss computation"
+        },
     )
 
     # Attention implementation
@@ -104,7 +115,9 @@ class LlamaFactoryArgs:
     )
     response_column: Optional[str] = field(
         default=None,
-        metadata={"help": "Override the completion/response column for Alpaca-style datasets."},
+        metadata={
+            "help": "Override the completion/response column for Alpaca-style datasets."
+        },
     )
     history_column: Optional[str] = field(
         default=None,
@@ -151,7 +164,9 @@ class LlamaFactoryArgs:
     )
     tool_call_tag: Optional[str] = field(
         default=None,
-        metadata={"help": "Tools column in ShareGPT datasets (maps to LlamaFactory 'tools' field)"},
+        metadata={
+            "help": "Tools column in ShareGPT datasets (maps to LlamaFactory 'tools' field)"
+        },
     )
     mix_strategy: Optional[str] = field(
         default=None,
@@ -317,7 +332,10 @@ class LlamaFactoryArgs:
         default=None, metadata={"help": "Whether to push to hub"}
     )
     hub_model_id: Optional[str] = field(
-        default=None, metadata={"help": "Repo name to push to hub (default: mlfoundations-dev/{job_name})"}
+        default=None,
+        metadata={
+            "help": "Repo name to push to hub (default: mlfoundations-dev/{job_name})"
+        },
     )
 
     # Extra arguments that might be used depending on finetuning type
@@ -329,17 +347,19 @@ class LlamaFactoryArgs:
         default=None, metadata={"help": "Dropout of LoRA"}
     )
 
+
 @dataclass
 class LaunchArgs:
     """Arguments for job launching"""
 
     # Core launch arguments
     job_name: Optional[str] = field(
-        default=None, metadata={"help": "Job name. This will determine outputs, including HF repo."}
+        default=None,
+        metadata={"help": "Job name. This will determine outputs, including HF repo."},
     )
     job_creator: str = field(
         default="DCAgent",
-        metadata={"help": "Name responsible for launching the job (<=96 characters)"}
+        metadata={"help": "Name responsible for launching the job (<=96 characters)"},
     )
     train_config_path: Optional[str] = field(
         default=None, metadata={"help": "Path to config file"}
@@ -405,11 +425,15 @@ class LaunchArgs:
     )
     dependency: Optional[str] = field(
         default=None,
-        metadata={"help": "SLURM dependency expression to include with submissions (e.g., 'afterany:12345')"},
+        metadata={
+            "help": "SLURM dependency expression to include with submissions (e.g., 'afterany:12345')"
+        },
     )
     reservation: Optional[str] = field(
         default=None,
-        metadata={"help": "SLURM reservation name to submit into (adds #SBATCH --reservation=<name>)"},
+        metadata={
+            "help": "SLURM reservation name to submit into (adds #SBATCH --reservation=<name>)"
+        },
     )
 
     # Pretokenize
@@ -417,7 +441,11 @@ class LaunchArgs:
         default=False, metadata={"help": "Whether to pretokenize", "store_true": True}
     )
     pretok_large: bool = field(
-        default=False, metadata={"help": "If true, pretokenize on boost_qos_bprod 128 nodes", "store_true": True}
+        default=False,
+        metadata={
+            "help": "If true, pretokenize on boost_qos_bprod 128 nodes",
+            "store_true": True,
+        },
     )
 
     # Job parameters
@@ -517,7 +545,9 @@ class LaunchArgs:
     # Daytona API key override (takes precedence over secrets.env)
     daytona_api_key: Optional[str] = field(
         default=None,
-        metadata={"help": "Override DAYTONA_API_KEY (takes precedence over secrets.env)"}
+        metadata={
+            "help": "Override DAYTONA_API_KEY (takes precedence over secrets.env)"
+        },
     )
 
 
@@ -537,12 +567,10 @@ class DataGenArgs:
 
     # Data generation specific
     enable_task_gen: bool = field(
-        default=False,
-        metadata={"help": "Whether to run task generation stage"}
+        default=False, metadata={"help": "Whether to run task generation stage"}
     )
     enable_trace_gen: bool = field(
-        default=False,
-        metadata={"help": "Enable trace generation stage"}
+        default=False, metadata={"help": "Enable trace generation stage"}
     )
     disable_verification: bool = field(
         default=False,
@@ -553,184 +581,230 @@ class DataGenArgs:
     )
     chunk_size: Optional[int] = field(
         default=None,
-        metadata={"help": "Maximum number of tasks per trace chunk when splitting trace jobs"}
+        metadata={
+            "help": "Maximum number of tasks per trace chunk when splitting trace jobs"
+        },
     )
     chunk_array_max: Optional[int] = field(
         default=None,
-        metadata={"help": "Max number of trace chunks to run concurrently (rolling afterany gate; "
-                          "chunk[i] waits on chunk[i-N]). 0/unset = all chunks submit at once. "
-                          "Overrides the datagen-config chunk_array_max when provided."}
+        metadata={
+            "help": "Max number of trace chunks to run concurrently (rolling afterany gate; "
+            "chunk[i] waits on chunk[i-N]). 0/unset = all chunks submit at once. "
+            "Overrides the datagen-config chunk_array_max when provided."
+        },
     )
     datagen_script: Optional[str] = field(
         default=None,
-        metadata={"help": "Path to data generation script (e.g., data/gsm8k_test/generate.py)"}
+        metadata={
+            "help": "Path to data generation script (e.g., data/gsm8k_test/generate.py)"
+        },
     )
     datagen_target_repo: Optional[str] = field(
         default=None,
-        metadata={"help": "Target HuggingFace repository for generated data"}
+        metadata={"help": "Target HuggingFace repository for generated data"},
     )
     datagen_input_dir: Optional[str] = field(
-        default=None,
-        metadata={"help": "Input directory for data generation"}
+        default=None, metadata={"help": "Input directory for data generation"}
     )
     datagen_output_dir: Optional[str] = field(
-        default=None,
-        metadata={"help": "Output directory for generated artifacts"}
+        default=None, metadata={"help": "Output directory for generated artifacts"}
     )
     task_type: Optional[str] = field(
         default=None,
-        metadata={"help": "Optional task type identifier forwarded to the datagen script"}
+        metadata={
+            "help": "Optional task type identifier forwarded to the datagen script"
+        },
     )
     datagen_config: Optional[str] = field(
         default=None,
-        metadata={"help": "Path to YAML config describing datagen inference engine/backends"}
+        metadata={
+            "help": "Path to YAML config describing datagen inference engine/backends"
+        },
     )
     datagen_extra_args: Optional[str] = field(
         default="",
-        metadata={"help": "Additional arguments to pass to generation script"}
+        metadata={"help": "Additional arguments to pass to generation script"},
     )
 
     # Daytona sandbox resource overrides
     sandbox_cpu: Optional[int] = field(
-        default=1,
-        metadata={"help": "Override Daytona sandbox vCPU allocation"}
+        default=1, metadata={"help": "Override Daytona sandbox vCPU allocation"}
     )
     sandbox_memory_gb: Optional[int] = field(
-        default=1,
-        metadata={"help": "Override Daytona sandbox memory in GB"}
+        default=1, metadata={"help": "Override Daytona sandbox memory in GB"}
     )
     sandbox_disk_gb: Optional[int] = field(
-        default=3,
-        metadata={"help": "Override Daytona sandbox disk in GB"}
+        default=3, metadata={"help": "Override Daytona sandbox disk in GB"}
     )
     sandbox_gpu: Optional[int] = field(
-        default=None,
-        metadata={"help": "Override Daytona sandbox GPU allocation"}
+        default=None, metadata={"help": "Override Daytona sandbox GPU allocation"}
     )
 
     trace_script: Optional[str] = field(
-        default=None,
-        metadata={"help": "Path to trace generation script"}
+        default=None, metadata={"help": "Path to trace generation script"}
     )
     tasks_input_path: Optional[str] = field(
         default=None,
-        metadata={"help": "Existing task dataset path for trace generation"}
+        metadata={"help": "Existing task dataset path for trace generation"},
     )
     trace_target_repo: Optional[str] = field(
-        default=None,
-        metadata={"help": "Target HuggingFace repo for traces"}
+        default=None, metadata={"help": "Target HuggingFace repo for traces"}
     )
     trace_output_dir: Optional[str] = field(
-        default=None,
-        metadata={"help": "Output directory for generated traces"}
+        default=None, metadata={"help": "Output directory for generated traces"}
     )
     trace_model: Optional[str] = field(
         default=None,
-        metadata={"help": "DEPRECATED: use --model instead. Alias for model."}
+        metadata={"help": "DEPRECATED: use --model instead. Alias for model."},
     )
     trace_agent_name: Optional[str] = field(
         default=None,
-        metadata={"help": "Agent name override for trace generation (default: read from Harbor config)"}
+        metadata={
+            "help": "Agent name override for trace generation (default: read from Harbor config)"
+        },
     )
     trace_agent_kwargs: Optional[str] = field(
         default=None,
-        metadata={"help": "JSON string of additional kwargs for the trace agent (e.g. '{\"max_episodes\": 32}')."}
+        metadata={
+            "help": "JSON string of additional kwargs for the trace agent (e.g. '{\"max_episodes\": 32}')."
+        },
     )
     trace_n_concurrent: Optional[int] = field(
         default=None,
-        metadata={"help": "Override Harbor orchestrator concurrency for trace generation"}
+        metadata={
+            "help": "Override Harbor orchestrator concurrency for trace generation"
+        },
     )
     trace_n_attempts: Optional[int] = field(
         default=None,
-        metadata={"help": "Override Harbor n_attempts (samples per task) for trace generation. Falls back to harbor YAML's top-level n_attempts, then 1."}
+        metadata={
+            "help": "Override Harbor n_attempts (samples per task) for trace generation. Falls back to harbor YAML's top-level n_attempts, then 1."
+        },
     )
     trace_env: Optional[str] = field(
         default=None,
-        metadata={"help": "Override Harbor environment type for trace generation (e.g. docker, daytona)"}
+        metadata={
+            "help": "Override Harbor environment type for trace generation (e.g. docker, daytona)"
+        },
     )
     trace_harbor_config: Optional[str] = field(
-        default=None,
-        metadata={"help": "Harbor job YAML describing trace execution"}
+        default=None, metadata={"help": "Harbor job YAML describing trace execution"}
     )
     trace_engine: Optional[str] = field(
         default=None,
-        metadata={"help": "Engine to use for trace generation (supports 'openai', 'anthropic', 'vllm_local', 'none'; defaults to datagen_engine)"}
+        metadata={
+            "help": "Engine to use for trace generation (supports 'openai', 'anthropic', 'vllm_local', 'none'; defaults to datagen_engine)"
+        },
     )
     trace_backend: Optional[str] = field(
         default=None,
-        metadata={"help": "Backend to use for trace generation (e.g., 'vllm', 'ray', 'none'; defaults to datagen_backend)"}
+        metadata={
+            "help": "Backend to use for trace generation (e.g., 'vllm', 'ray', 'none'; defaults to datagen_backend)"
+        },
     )
     trace_export_subagents: bool = field(
         default=True,
-        metadata={"help": "Export subagent traces (e.g., context summarization) alongside main agent traces"}
+        metadata={
+            "help": "Export subagent traces (e.g., context summarization) alongside main agent traces"
+        },
     )
     trace_use_gpu: bool = field(
         default=False,
-        metadata={"help": "Request GPUs for trace generation", "store_true": True}
+        metadata={"help": "Request GPUs for trace generation", "store_true": True},
     )
     trace_agent_timeout_sec: Optional[float] = field(
         default=None,
-        metadata={"help": "Override Harbor agent timeout (seconds) for trace generation"}
+        metadata={
+            "help": "Override Harbor agent timeout (seconds) for trace generation"
+        },
     )
     trace_verifier_timeout_sec: Optional[float] = field(
         default=None,
-        metadata={"help": "Override Harbor verifier timeout (seconds) for trace generation"}
+        metadata={
+            "help": "Override Harbor verifier timeout (seconds) for trace generation"
+        },
     )
     harbor_dataset: Optional[str] = field(
         default=None,
-        metadata={"help": "Harbor registry dataset slug such as 'terminal-bench@2.0'"}
+        metadata={"help": "Harbor registry dataset slug such as 'terminal-bench@2.0'"},
     )
     # Upload settings (traces -> HuggingFace, result abstracts -> Supabase)
     upload_to_database: bool = field(
         default=False,
-        metadata={"help": "Upload result abstracts to Supabase and traces to HuggingFace after eval", "store_true": True}
+        metadata={
+            "help": "Upload result abstracts to Supabase and traces to HuggingFace after eval",
+            "store_true": True,
+        },
     )
     upload_username: Optional[str] = field(
         default=None,
-        metadata={"help": "Username for Supabase result attribution (defaults to $UPLOAD_USERNAME or current user)"}
+        metadata={
+            "help": "Username for Supabase result attribution (defaults to $UPLOAD_USERNAME or current user)"
+        },
     )
     upload_error_mode: str = field(
         default="skip_on_error",
-        metadata={"help": "Supabase upload error handling: 'skip_on_error' or 'rollback_on_error'"}
+        metadata={
+            "help": "Supabase upload error handling: 'skip_on_error' or 'rollback_on_error'"
+        },
     )
     upload_hf_repo: Optional[str] = field(
         default=None,
-        metadata={"help": "HuggingFace repo for traces upload (auto-derived from benchmark if not provided)"}
+        metadata={
+            "help": "HuggingFace repo for traces upload (auto-derived from benchmark if not provided)"
+        },
     )
     upload_hf_private: bool = field(
         default=False,
-        metadata={"help": "Create the HuggingFace traces repo as private", "store_true": True}
+        metadata={
+            "help": "Create the HuggingFace traces repo as private",
+            "store_true": True,
+        },
     )
     upload_hf_episodes: str = field(
         default="last",
-        metadata={"help": "Which episodes to include in HuggingFace traces upload: 'last' or 'all'"}
+        metadata={
+            "help": "Which episodes to include in HuggingFace traces upload: 'last' or 'all'"
+        },
     )
     upload_forced_update: bool = field(
         default=False,
-        metadata={"help": "Allow overwriting existing Supabase result records for the same job", "store_true": True}
+        metadata={
+            "help": "Allow overwriting existing Supabase result records for the same job",
+            "store_true": True,
+        },
     )
+
 
 @dataclass
 class ConsolidateArgs:
     consolidate_input: Optional[str] = field(
         default=None,
-        metadata={"help": "Input for consolidation: either a local directory with ZeRO shards or a Hugging Face repo ID"}
+        metadata={
+            "help": "Input for consolidation: either a local directory with ZeRO shards or a Hugging Face repo ID"
+        },
     )
     consolidate_base_repo: Optional[str] = field(
         default=None,
-        metadata={"help": "Base Hugging Face model repo to copy ancillary files (config, tokenizer, chat template) from"}
+        metadata={
+            "help": "Base Hugging Face model repo to copy ancillary files (config, tokenizer, chat template) from"
+        },
     )
     consolidate_output_repo: Optional[str] = field(
         default=None,
-        metadata={"help": "Destination Hugging Face repo to upload merged weights"}
+        metadata={"help": "Destination Hugging Face repo to upload merged weights"},
     )
     consolidate_workdir: Optional[str] = field(
         default=None,
-        metadata={"help": "Working directory on the cluster filesystem for consolidation artifacts"}
+        metadata={
+            "help": "Working directory on the cluster filesystem for consolidation artifacts"
+        },
     )
     consolidate_commit_message: Optional[str] = field(
         default="Merge ZeRO shards into safetensors",
-        metadata={"help": "Commit message to use when uploading consolidated weights back to Hugging Face"}
+        metadata={
+            "help": "Commit message to use when uploading consolidated weights back to Hugging Face"
+        },
     )
 
 
@@ -743,7 +817,7 @@ class RLArgs:
         metadata={
             "help": "Path to RL config YAML file (e.g., terminal_bench.yaml). "
             "Can be absolute path or name of built-in config in hpc/skyrl_yaml/"
-        }
+        },
     )
     skyrl_override: Optional[str] = field(
         default=None,
@@ -751,50 +825,49 @@ class RLArgs:
             "help": "SkyRL Hydra override (key=value). Can be specified multiple times. "
             "Example: --skyrl_override trainer.epochs=5",
             "action": "append",
-        }
+        },
     )
     model_path: Optional[str] = field(
         default=None,
-        metadata={"help": "DEPRECATED: use --model instead. Alias for model."}
+        metadata={"help": "DEPRECATED: use --model instead. Alias for model."},
     )
     train_data: Optional[str] = field(
         default=None,
         metadata={
             "help": "Training dataset path(s). Use JSON list format for multiple: "
-            "'[\"org/dataset1\",\"org/dataset2\"]'"
-        }
+            '\'["org/dataset1","org/dataset2"]\''
+        },
     )
     val_data: Optional[str] = field(
         default=None,
         metadata={
             "help": "Validation dataset path(s). Use JSON list format for multiple: "
             "'[\"org/val-dataset\"]'"
-        }
+        },
     )
     skyrl_entrypoint: Optional[str] = field(
         default=None,
         metadata={
             "help": "Override SkyRL entrypoint module. "
             "Default: inferred from rl_config YAML"
-        }
+        },
     )
     policy_num_nodes: Optional[int] = field(
         default=None,
         metadata={
             "help": "Number of nodes for policy (actor) workers. "
             "If not set, defaults to num_nodes (symmetric setup)"
-        }
+        },
     )
     tensor_parallel_size: Optional[int] = field(
         default=None,
         metadata={
             "help": "Tensor parallel size for vLLM inference engines. "
             "Higher values needed for larger models (70B+). Default from config or 1"
-        }
+        },
     )
     ray_port: Optional[int] = field(
-        default=None,
-        metadata={"help": "Ray head node port (default: 6379)"}
+        default=None, metadata={"help": "Ray head node port (default: 6379)"}
     )
     rl_use_conda: bool = field(
         default=False,
@@ -802,14 +875,14 @@ class RLArgs:
             "help": "Use conda environment for RL instead of venv. "
             "Useful for clusters like Perlmutter where conda is preferred.",
             "store_true": True,
-        }
+        },
     )
     rl_conda_env: Optional[str] = field(
         default="dcagent-rl",
         metadata={
             "help": "Name of conda environment to use for RL when --rl_use_conda is set. "
             "Default: dcagent-rl"
-        }
+        },
     )
     rl_container_sif: Optional[str] = field(
         default=None,
@@ -821,7 +894,7 @@ class RLArgs:
             "the in-SIF install via PYTHONPATH. Mutually informative with "
             "--rl_use_conda/--rl_conda_env (the host-activation switches are "
             "skipped when this is set)."
-        }
+        },
     )
     rl_container_binds: Optional[List[str]] = field(
         default=None,
@@ -831,41 +904,47 @@ class RLArgs:
             "GPFS roots covering code, SIF, tasks, checkpoints, HF cache). "
             "Only used when --rl_container_sif is set.",
             "nargs": "+",
-        }
+        },
     )
     hf_hub_repo_id: Optional[str] = field(
         default=None,
         metadata={
             "help": "HuggingFace Hub repo ID for checkpoint uploads (e.g., 'org/model-name'). "
             "If set, HF-format checkpoints will be uploaded at hf_save_interval steps."
-        }
+        },
     )
     hf_hub_private: bool = field(
         default=False,
         metadata={
             "help": "Create the HuggingFace Hub repo as private",
             "store_true": True,
-        }
+        },
     )
     trace_upload_enabled: Optional[bool] = field(
         default=None,
-        metadata={"help": "Enable post-training trace upload to HuggingFace (overrides YAML config)"}
+        metadata={
+            "help": "Enable post-training trace upload to HuggingFace (overrides YAML config)"
+        },
     )
     trace_upload_repo_org: Optional[str] = field(
         default=None,
-        metadata={"help": "HuggingFace org for trace upload repo (default: DCAgent)"}
+        metadata={"help": "HuggingFace org for trace upload repo (default: DCAgent)"},
     )
     trace_upload_episodes: Optional[str] = field(
         default=None,
-        metadata={"help": "Which episodes to upload: 'last' or 'all' (default: last)"}
+        metadata={"help": "Which episodes to upload: 'last' or 'all' (default: last)"},
     )
     trace_upload_dataset_type: Optional[str] = field(
         default=None,
-        metadata={"help": "Dataset type for trace upload registration: 'SFT' or 'RL' (default: SFT)"}
+        metadata={
+            "help": "Dataset type for trace upload registration: 'SFT' or 'RL' (default: SFT)"
+        },
     )
     trace_upload_cleanup: Optional[bool] = field(
         default=None,
-        metadata={"help": "Remove traces directory after successful upload to conserve inodes (default: true)"}
+        metadata={
+            "help": "Remove traces directory after successful upload to conserve inodes (default: true)"
+        },
     )
 
 
@@ -892,16 +971,30 @@ def _field_is_bool_typed(field) -> bool:
     ann = field.type
     # Annotation may be a string under `from __future__ import annotations`.
     if isinstance(ann, str):
-        return ann in ("bool", "Optional[bool]", "typing.Optional[bool]", "bool | None", "Optional[bool] | None")
+        return ann in (
+            "bool",
+            "Optional[bool]",
+            "typing.Optional[bool]",
+            "bool | None",
+            "Optional[bool] | None",
+        )
     if ann is bool:
         return True
     origin = typing.get_origin(ann)
-    if origin is typing.Union or origin is getattr(__import__("types"), "UnionType", None):
+    if origin is typing.Union or origin is getattr(
+        __import__("types"), "UnionType", None
+    ):
         return bool in typing.get_args(ann)
     return False
 
 
-def _add_dataclass_arguments(arg_group, dataclass_type, exclude_fields=None, *, bool_fields: set[str] | None = None):
+def _add_dataclass_arguments(
+    arg_group,
+    dataclass_type,
+    exclude_fields=None,
+    *,
+    bool_fields: set[str] | None = None,
+):
     """
     Helper function to add arguments from a dataclass to an argument group.
 
@@ -979,6 +1072,7 @@ def _add_dataclass_arguments(arg_group, dataclass_type, exclude_fields=None, *, 
                 kwargs["required"] = True
             arg_group.add_argument(*option_strings, **kwargs)
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Launch HPC jobs for dcft experiment")
 
@@ -996,7 +1090,11 @@ def parse_args():
             if "=" in key:
                 key = key.split("=", 1)[0]
             explicit_cli_keys.add(key.replace("-", "_"))
-            if "=" not in token and (i + 1) < len(raw_argv) and not raw_argv[i + 1].startswith("--"):
+            if (
+                "=" not in token
+                and (i + 1) < len(raw_argv)
+                and not raw_argv[i + 1].startswith("--")
+            ):
                 i += 1
         i += 1
 
@@ -1013,7 +1111,8 @@ def parse_args():
 
     # Add --harbor_config as alias for --trace_harbor_config (more concise for eval jobs)
     launch_group.add_argument(
-        "--harbor_config", "--harbor-config",
+        "--harbor_config",
+        "--harbor-config",
         dest="trace_harbor_config",
         help=argparse.SUPPRESS,  # Hidden alias
     )
@@ -1024,7 +1123,7 @@ def parse_args():
         "--model",
         dest="trace_model",
         help="Model to serve/evaluate (e.g. laion/100k_baseline__Qwen3-8B). "
-             "Overrides datagen config model_path for vLLM serving.",
+        "Overrides datagen config model_path for vLLM serving.",
     )
 
     # Add DataGenArgs arguments
@@ -1060,12 +1159,15 @@ def parse_args():
         hpc_group.add_argument(
             f"--{field}",
             type=str if field in str_hpc_fields else int,
-            help=f"HPC {field}" if field != "gpu_type" else "GPU type override (e.g., h200, l40s) for clusters with multiple GPU types",
+            help=f"HPC {field}"
+            if field != "gpu_type"
+            else "GPU type override (e.g., h200, l40s) for clusters with multiple GPU types",
         )
 
     # Ray object store size (applies to RL, eval, datagen job types)
     hpc_group.add_argument(
-        "--ray_object_store_gb", "--ray-object-store-gb",
+        "--ray_object_store_gb",
+        "--ray-object-store-gb",
         type=float,
         default=40.0,
         help="Ray object store (plasma) size in GB (default: 40).",
@@ -1088,7 +1190,12 @@ def parse_args():
 
     args_dict = {k: v for k, v in vars(args).items() if v is not None}
     args_dict["_explicit_cli_keys"] = explicit_cli_keys
-    literal_none_keys = {"datagen_engine", "trace_engine", "datagen_backend", "trace_backend"}
+    literal_none_keys = {
+        "datagen_engine",
+        "trace_engine",
+        "datagen_backend",
+        "trace_backend",
+    }
     args_dict = coerce_str_bool_none(args_dict, literal_none_keys, bool_keys)
     args_dict = coerce_numeric_cli_values(args_dict)
     return args_dict

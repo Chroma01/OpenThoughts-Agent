@@ -25,7 +25,18 @@ from hpc.launch_utils import maybe_int
 
 
 # API-based engines that don't require local Ray/vLLM
-API_ENGINES = frozenset({"openai", "anthropic", "azure", "together", "fireworks", "groq", "google_gemini", "gemini_openai"})
+API_ENGINES = frozenset(
+    {
+        "openai",
+        "anthropic",
+        "azure",
+        "together",
+        "fireworks",
+        "groq",
+        "google_gemini",
+        "gemini_openai",
+    }
+)
 
 
 @dataclass

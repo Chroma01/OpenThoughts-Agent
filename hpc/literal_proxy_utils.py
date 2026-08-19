@@ -108,7 +108,9 @@ def literal_log_path(experiments_dir: str | Path, job_name: str, token: str) -> 
 
 
 # schemes we treat as durable object stores (upload target) rather than a local FS.
-_REMOTE_PROTOCOLS = frozenset({"gs", "gcs", "s3", "az", "abfs", "abfss", "http", "https"})
+_REMOTE_PROTOCOLS = frozenset(
+    {"gs", "gcs", "s3", "az", "abfs", "abfss", "http", "https"}
+)
 
 # A remote URI survives a ``str()`` round-trip, but ``pathlib.Path`` collapses the
 # ``//`` after the scheme (``Path("gs://x")`` -> ``"gs:/x"``), which hides the scheme
@@ -127,7 +129,9 @@ def _as_remote_uri_str(experiments_dir: str | Path) -> str:
     return _COLLAPSED_SCHEME_RE.sub(lambda m: m.group(1) + "://", str(experiments_dir))
 
 
-def literal_log_remote_uri(experiments_dir: str | Path, job_name: str, token: str) -> Optional[str]:
+def literal_log_remote_uri(
+    experiments_dir: str | Path, job_name: str, token: str
+) -> Optional[str]:
     """Durable remote URI for the literal log, or ``None`` for local ``experiments_dir``.
 
     On iris ``experiments_dir`` is a ``gs://…`` remote_output_dir. The proxy cannot
@@ -154,7 +158,11 @@ def _local_staging_path(job_name: str, token: str) -> Path:
     CWD-relative) so it is robust regardless of the worker's working directory. Carries
     the same per-serve ``token`` as the remote URI so staging + upload stay in sync.
     """
-    return Path(tempfile.gettempdir()) / "ot-agent-literal" / _literal_log_name(job_name, token)
+    return (
+        Path(tempfile.gettempdir())
+        / "ot-agent-literal"
+        / _literal_log_name(job_name, token)
+    )
 
 
 def literal_proxy_endpoint(
@@ -176,7 +184,9 @@ def upstream_origin(endpoint: str) -> str:
     """
     parts = urlsplit(endpoint)
     if not parts.scheme or not parts.netloc:
-        raise ValueError(f"upstream endpoint must be an absolute http(s) URL: {endpoint!r}")
+        raise ValueError(
+            f"upstream endpoint must be an absolute http(s) URL: {endpoint!r}"
+        )
     return urlunsplit((parts.scheme, parts.netloc, "", "", ""))
 
 
@@ -266,14 +276,22 @@ def serve_record_proxy(
     stop_flushing = threading.Event()
     uploader: Optional[threading.Thread] = None
     if remote_uri:
+
         def _flush_loop() -> None:
             while not stop_flushing.wait(flush_interval):
                 try:
                     _upload_literal_log(log_path, remote_uri)
-                except Exception as exc:  # durability is best-effort; never crash the run
-                    print(f"[literal-proxy] periodic literal-log upload failed: {exc}", flush=True)
+                except (
+                    Exception
+                ) as exc:  # durability is best-effort; never crash the run
+                    print(
+                        f"[literal-proxy] periodic literal-log upload failed: {exc}",
+                        flush=True,
+                    )
 
-        uploader = threading.Thread(target=_flush_loop, name="literal-uploader", daemon=True)
+        uploader = threading.Thread(
+            target=_flush_loop, name="literal-uploader", daemon=True
+        )
         uploader.start()
 
     print(
@@ -305,7 +323,10 @@ def serve_record_proxy(
                         flush=True,
                     )
             except Exception as exc:
-                print(f"[literal-proxy] final literal-log upload failed: {exc}", flush=True)
+                print(
+                    f"[literal-proxy] final literal-log upload failed: {exc}",
+                    flush=True,
+                )
 
 
 @contextmanager

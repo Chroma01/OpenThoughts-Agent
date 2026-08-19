@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build the versioned, dependency-complete Stack-Pytest large replacement."""
+
 from __future__ import annotations
 
 import argparse
@@ -27,8 +28,24 @@ def main() -> int:
     args = parser.parse_args()
     tasks_dir = args.output_dir / "tasks"
     if not tasks_dir.exists():
-        run([sys.executable, str(EXTRACTOR), "--parquet", SOURCE_REPO, "--output_dir", str(tasks_dir)])
-    patch_command = [sys.executable, str(PATCHER), "--root", str(tasks_dir), "--drop-log", str(args.output_dir / "dropped.tsv")]
+        run(
+            [
+                sys.executable,
+                str(EXTRACTOR),
+                "--parquet",
+                SOURCE_REPO,
+                "--output_dir",
+                str(tasks_dir),
+            ]
+        )
+    patch_command = [
+        sys.executable,
+        str(PATCHER),
+        "--root",
+        str(tasks_dir),
+        "--drop-log",
+        str(args.output_dir / "dropped.tsv"),
+    ]
     if args.dry_run:
         patch_command.append("--dry-run")
     run(patch_command)

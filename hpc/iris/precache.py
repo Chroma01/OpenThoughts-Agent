@@ -76,8 +76,8 @@ DATASET_MANIFEST = ".dataset_mirror_manifest.json"
 @dataclass(frozen=True)
 class ModelArtifact:
     repo: str
-    gs_uri: str            # gs://<bucket>/ot-agent/models/<repo>
-    s3_uri: str            # s3://<bucket>/ot-agent/models/<repo>/  (runai_streamer serve path)
+    gs_uri: str  # gs://<bucket>/ot-agent/models/<repo>
+    s3_uri: str  # s3://<bucket>/ot-agent/models/<repo>/  (runai_streamer serve path)
     present: bool
     mirrored: bool = False
 
@@ -85,7 +85,7 @@ class ModelArtifact:
 @dataclass(frozen=True)
 class DatasetArtifact:
     repo: str
-    gs_uri: str            # gs://<bucket>/ot-agent/datasets/<repo>
+    gs_uri: str  # gs://<bucket>/ot-agent/datasets/<repo>
     present: bool
     mirrored: bool = False
 
@@ -93,6 +93,7 @@ class DatasetArtifact:
 @dataclass
 class PrecacheResult:
     """Outcome of a pre-cache pass. ``offline_ok`` gates the offline flags."""
+
     model: Optional[ModelArtifact]
     datasets: List[DatasetArtifact]
     offline_ok: bool
@@ -129,7 +130,7 @@ def gs_to_s3(gs_uri: str) -> str:
     the URI as a model DIRECTORY, not a single object).
     """
     assert gs_uri.startswith("gs://"), gs_uri
-    return "s3://" + gs_uri[len("gs://"):].rstrip("/") + "/"
+    return "s3://" + gs_uri[len("gs://") :].rstrip("/") + "/"
 
 
 def model_gcs_dir(bucket: str, repo: str) -> str:
@@ -142,6 +143,7 @@ def dataset_gcs_dir(bucket: str, repo: str) -> str:
 
 def _gcs_fs():
     import gcsfs
+
     return gcsfs.GCSFileSystem()
 
 
@@ -174,7 +176,9 @@ def _model_present(fs, gs_dir: str) -> bool:
         if len(totals) != 1:
             return False
         total = totals.pop()
-        has_weights = {int(match.group(1)) for match in shard_matches} == set(range(1, total + 1))
+        has_weights = {int(match.group(1)) for match in shard_matches} == set(
+            range(1, total + 1)
+        )
     else:
         has_weights = any(name.endswith(".safetensors") for name in names)
     return has_config and has_weights
@@ -228,8 +232,12 @@ def ensure_model_cached(
         present = _model_present(fs, gs_uri)
     except Exception as e:  # noqa: BLE001 - never crash a launch on a cloud hiccup
         if verbose:
-            print(f"[precache] model {repo}: could not verify GCS presence ({e}); "
-                  "treating as NOT cached.", file=sys.stderr, flush=True)
+            print(
+                f"[precache] model {repo}: could not verify GCS presence ({e}); "
+                "treating as NOT cached.",
+                file=sys.stderr,
+                flush=True,
+            )
         return ModelArtifact(repo=repo, gs_uri=gs_uri, s3_uri=s3_uri, present=False)
 
     if present:
@@ -239,18 +247,27 @@ def ensure_model_cached(
 
     if not allow_mirror:
         if verbose:
-            print(f"[precache] model {repo}: cache MISS at {gs_uri} "
-                  "(not mirroring inline from the launch host).", flush=True)
+            print(
+                f"[precache] model {repo}: cache MISS at {gs_uri} "
+                "(not mirroring inline from the launch host).",
+                flush=True,
+            )
         return ModelArtifact(repo=repo, gs_uri=gs_uri, s3_uri=s3_uri, present=False)
 
     # Inline mirror (fan out to both region buckets), then re-verify.
     from scripts.iris.mirror_hf_to_gcs import mirror as mirror_model
+
     dest_prefixes = [f"{b}/{MODELS_PREFIX}" for b in FANOUT_BUCKETS]
     if verbose:
-        print(f"[precache] model {repo}: MISS -> mirroring HF -> {dest_prefixes}", flush=True)
+        print(
+            f"[precache] model {repo}: MISS -> mirroring HF -> {dest_prefixes}",
+            flush=True,
+        )
     mirror_model(repo, dest_prefixes, verbose=verbose)
     present = _model_present(_gcs_fs(), gs_uri)
-    return ModelArtifact(repo=repo, gs_uri=gs_uri, s3_uri=s3_uri, present=present, mirrored=present)
+    return ModelArtifact(
+        repo=repo, gs_uri=gs_uri, s3_uri=s3_uri, present=present, mirrored=present
+    )
 
 
 def ensure_dataset_cached(
@@ -274,8 +291,12 @@ def ensure_dataset_cached(
         present = _dataset_present(fs, gs_uri)
     except Exception as e:  # noqa: BLE001
         if verbose:
-            print(f"[precache] dataset {repo}: could not verify GCS presence ({e}); "
-                  "treating as NOT cached.", file=sys.stderr, flush=True)
+            print(
+                f"[precache] dataset {repo}: could not verify GCS presence ({e}); "
+                "treating as NOT cached.",
+                file=sys.stderr,
+                flush=True,
+            )
         return DatasetArtifact(repo=repo, gs_uri=gs_uri, present=False)
 
     if present:
@@ -289,11 +310,17 @@ def ensure_dataset_cached(
     try:
         _mirror_dataset(repo, verbose=verbose)  # writes to both buckets
         present = _dataset_present(_gcs_fs(), gs_uri)
-        return DatasetArtifact(repo=repo, gs_uri=gs_uri, present=present, mirrored=present)
+        return DatasetArtifact(
+            repo=repo, gs_uri=gs_uri, present=present, mirrored=present
+        )
     except Exception as e:  # noqa: BLE001 - a mirror failure must not crash the launch
         if verbose:
-            print(f"[precache] dataset {repo}: inline mirror FAILED ({e}); "
-                  "will fall back to online.", file=sys.stderr, flush=True)
+            print(
+                f"[precache] dataset {repo}: inline mirror FAILED ({e}); "
+                "will fall back to online.",
+                file=sys.stderr,
+                flush=True,
+            )
         return DatasetArtifact(repo=repo, gs_uri=gs_uri, present=False)
 
 
@@ -309,9 +336,13 @@ def _mirror_dataset(repo: str, *, verbose: bool = True) -> str:
     from huggingface_hub import snapshot_download
 
     if verbose:
-        print(f"[precache] dataset {repo}: MISS -> snapshot_download from HF", flush=True)
+        print(
+            f"[precache] dataset {repo}: MISS -> snapshot_download from HF", flush=True
+        )
     with tempfile.TemporaryDirectory(prefix="ds_mirror_") as tmp:
-        local = Path(snapshot_download(repo_id=repo, repo_type="dataset", local_dir=tmp))
+        local = Path(
+            snapshot_download(repo_id=repo, repo_type="dataset", local_dir=tmp)
+        )
         files = [p for p in local.rglob("*") if p.is_file()]
         manifest = {
             "hf_repo": repo,
@@ -339,8 +370,10 @@ def _mirror_dataset(repo: str, *, verbose: bool = True) -> str:
                     pass
                 fs.put(str(f), gcs_uri)
             if verbose:
-                print(f"[precache] dataset {repo}: uploaded {len(files)} files -> {dest}",
-                      flush=True)
+                print(
+                    f"[precache] dataset {repo}: uploaded {len(files)} files -> {dest}",
+                    flush=True,
+                )
         return first_uri
 
 
@@ -375,10 +408,16 @@ def precache_for_eval(
     """
     notes: List[str] = []
     if mode == "off":
-        return PrecacheResult(model=None, datasets=[], offline_ok=False,
-                              notes=["precache mode=off (online, unchanged)"])
+        return PrecacheResult(
+            model=None,
+            datasets=[],
+            offline_ok=False,
+            notes=["precache mode=off (online, unchanged)"],
+        )
 
-    m = ensure_model_cached(model, region, allow_mirror=allow_model_mirror, verbose=verbose)
+    m = ensure_model_cached(
+        model, region, allow_mirror=allow_model_mirror, verbose=verbose
+    )
     ds = [ensure_dataset_cached(d, region, verbose=verbose) for d in datasets]
 
     missing: List[str] = []
@@ -394,12 +433,16 @@ def precache_for_eval(
             f"  (region bucket: {bucket}); datasets mirror inline on launch when "
             f"the launch host has GCS write creds."
         )
-        msg = ("[precache] NOT offline-eligible; missing from the region mirror: "
-               + ", ".join(missing))
+        msg = (
+            "[precache] NOT offline-eligible; missing from the region mirror: "
+            + ", ".join(missing)
+        )
         if mode == "strict":
             raise SystemExit(
-                msg + "\n" + remediation +
-                "\n  (or relaunch with --hf-offline-mode=auto to run online instead)"
+                msg
+                + "\n"
+                + remediation
+                + "\n  (or relaunch with --hf-offline-mode=auto to run online instead)"
             )
         # auto: never block the launch — run online exactly as today.
         notes.append(msg + " -> running ONLINE (unchanged). To fix: " + remediation)
@@ -417,6 +460,9 @@ def precache_for_eval(
     }
     notes.append("all artifacts present in region mirror -> HF_HUB_OFFLINE=1")
     if verbose:
-        print(f"[precache] OFFLINE OK: model={m.s3_uri} datasets="
-              f"{[d.gs_uri for d in ds]}", flush=True)
+        print(
+            f"[precache] OFFLINE OK: model={m.s3_uri} datasets="
+            f"{[d.gs_uri for d in ds]}",
+            flush=True,
+        )
     return PrecacheResult(model=m, datasets=ds, offline_ok=True, env=env, notes=notes)

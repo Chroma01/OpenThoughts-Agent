@@ -186,7 +186,9 @@ def add_generation_args(
     default_target_repo: Optional[str] = None,
     default_input_dir: Optional[str] = None,
     include_no_upload: bool = True,
-    default_engine: Optional[str] = None,  # legacy; ignored but kept for backward compat signature
+    default_engine: Optional[
+        str
+    ] = None,  # legacy; ignored but kept for backward compat signature
 ) -> argparse.ArgumentParser:
     """Augment ``parser`` with standard generation CLI flags."""
 
@@ -371,7 +373,14 @@ def resolve_engine_runtime(config: DataGenerationConfig) -> RuntimeEngineSetting
     engine_cfg = config.engine
     engine_type = engine_cfg.type.lower()
 
-    if engine_type not in {"openai", "anthropic", "vllm_local", "gemini_openai", "google_gemini", "none"}:
+    if engine_type not in {
+        "openai",
+        "anthropic",
+        "vllm_local",
+        "gemini_openai",
+        "google_gemini",
+        "none",
+    }:
         raise ValueError(f"Unsupported engine type: {engine_cfg.type}")
 
     if engine_type == "none":
@@ -413,7 +422,9 @@ def resolve_engine_runtime(config: DataGenerationConfig) -> RuntimeEngineSetting
         if api_key:
             engine_kwargs["api_key"] = api_key
 
-        effective_interval = provider.healthcheck_interval or engine_cfg.healthcheck_interval
+        effective_interval = (
+            provider.healthcheck_interval or engine_cfg.healthcheck_interval
+        )
         if effective_interval is not None:
             engine_kwargs["healthcheck_interval"] = int(effective_interval)
     else:  # pragma: no cover - defensive programming for future types
@@ -452,7 +463,9 @@ def load_datagen_config(config_path: str | os.PathLike[str]) -> LoadedDatagenCon
         raise ValueError(f"Failed to load datagen config at {path}: {exc}") from exc
 
     if not isinstance(raw_cfg, DictConfig):
-        raise TypeError(f"Datagen config at {path} is not a mapping (got {type(raw_cfg).__name__})")
+        raise TypeError(
+            f"Datagen config at {path} is not a mapping (got {type(raw_cfg).__name__})"
+        )
 
     template = OmegaConf.structured(DataGenerationConfig)
     try:
@@ -463,7 +476,9 @@ def load_datagen_config(config_path: str | os.PathLike[str]) -> LoadedDatagenCon
 
     config_obj = OmegaConf.to_object(merged)
     if not isinstance(config_obj, DataGenerationConfig):
-        raise TypeError("OmegaConf returned unexpected object when materializing datagen config.")
+        raise TypeError(
+            "OmegaConf returned unexpected object when materializing datagen config."
+        )
 
     return LoadedDatagenConfig(path=path, config=config_obj, raw=merged)
 
@@ -473,7 +488,9 @@ def create_engine_from_args(args: argparse.Namespace) -> Optional[InferenceEngin
 
     runtime: Optional[RuntimeEngineSettings] = getattr(args, "_engine_runtime", None)
     if runtime is None:
-        config_path = getattr(args, "engine_config", None) or os.environ.get("DATAGEN_CONFIG_PATH")
+        config_path = getattr(args, "engine_config", None) or os.environ.get(
+            "DATAGEN_CONFIG_PATH"
+        )
         if not config_path:
             return None
         loaded = load_datagen_config(config_path)

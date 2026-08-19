@@ -645,9 +645,7 @@ def read_gcs_progress(
             aggregate_path = artifact_dir / "result.json"
             aggregate_path.write_text(aggregate.stdout)
             aggregate_data = json.loads(aggregate_path.read_text())
-            total = (
-                int(aggregate_data.get("n_total_trials") or 0) or None
-            )
+            total = int(aggregate_data.get("n_total_trials") or 0) or None
         except json.JSONDecodeError:
             pass
 
@@ -675,7 +673,9 @@ def read_gcs_progress(
             exception_file_count=artifacts.exception_file_count if artifacts else None,
             recent_completed=artifacts.recent_completed if artifacts else None,
             recent_errored=artifacts.recent_errored if artifacts else None,
-            recent_benign_timeouts=artifacts.recent_benign_timeouts if artifacts else None,
+            recent_benign_timeouts=artifacts.recent_benign_timeouts
+            if artifacts
+            else None,
             recent_window_error=window_error,
         )
 
@@ -952,13 +952,9 @@ def evalchemy_identity_from_finelog(
         return EvalchemyIdentity(marin_runtags, len(marin_runtags), "evalchemy-lm-eval")
 
     # CoreWeave marinbase-eval layout: one prefix per tier run (many task_dirs).
-    marinbase = sorted(
-        {m.group(0) for m in EVALCHEMY_MARINBASE_PATTERN.finditer(text)}
-    )
+    marinbase = sorted({m.group(0) for m in EVALCHEMY_MARINBASE_PATTERN.finditer(text)})
     if marinbase:
-        tiers = {
-            EVALCHEMY_MARINBASE_PATTERN.search(p).group("tier") for p in marinbase
-        }
+        tiers = {EVALCHEMY_MARINBASE_PATTERN.search(p).group("tier") for p in marinbase}
         total = sum(EVALCHEMY_TIER_TOTALS.get(t, 0) for t in tiers) or None
         slug = EVALCHEMY_MARINBASE_PATTERN.search(marinbase[0]).group("slug")
         label = f"{slug} {'/'.join(sorted(tiers))}".strip()
@@ -974,8 +970,10 @@ def _evalchemy_results_nonempty(client: Any, bucket: str, key: str) -> bool:
     an empty/``{"results": {}}`` file is a failure, not a completion.
     """
     try:
-        body = client.get_object(Bucket=bucket, Key=key)["Body"].read().decode(
-            errors="replace"
+        body = (
+            client.get_object(Bucket=bucket, Key=key)["Body"]
+            .read()
+            .decode(errors="replace")
         )
         results = json.loads(body).get("results")
         return bool(results)
@@ -1054,7 +1052,11 @@ def read_evalchemy_progress(
     label = identity.label
     if identity.total and completed >= identity.total:
         label += f" (complete: {', '.join(sorted(scored_tasks))})"
-    error = f"results listing failed: {'; '.join(listing_errors)}" if listing_errors else None
+    error = (
+        f"results listing failed: {'; '.join(listing_errors)}"
+        if listing_errors
+        else None
+    )
     return Progress(
         completed,
         identity.total,

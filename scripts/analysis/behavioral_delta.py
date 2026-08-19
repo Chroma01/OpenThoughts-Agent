@@ -54,17 +54,17 @@ from scripts.analysis.utils import (  # noqa: E402
 
 _FEATURE_DISPLAY: Dict[str, Tuple[str, str, str]] = {
     # field name        : (label                       , value-fmt , delta-fmt)
-    "tool_calls_total":  ("tool calls / trace",          ".1f",      "+.2f"),
-    "tool_errors":       ("tool errors / trace",          ".1f",      "+.2f"),
-    "tool_responses":    ("tool responses / trace",       ".1f",      "+.2f"),
-    "tool_error_rate":   ("tool error rate",              ".1%",      "+.1f"),  # delta as pp
-    "think_blocks":      ("think blocks / trace",         ".2f",      "+.2f"),
-    "think_tokens":      ("think tokens / trace",         ".0f",      "+.0f"),
-    "think_token_ratio": ("think / assistant ratio",      ".1%",      "+.1f"),  # delta as pp
-    "assistant_msgs":    ("assistant msgs / trace",       ".1f",      "+.2f"),
-    "assistant_tokens":  ("assistant tokens / trace",     ".0f",      "+.0f"),
-    "mean_assistant_tokens": ("mean tokens / asst msg",   ".1f",      "+.2f"),
-    "code_fence_blocks": ("code fences / trace",          ".2f",      "+.2f"),
+    "tool_calls_total": ("tool calls / trace", ".1f", "+.2f"),
+    "tool_errors": ("tool errors / trace", ".1f", "+.2f"),
+    "tool_responses": ("tool responses / trace", ".1f", "+.2f"),
+    "tool_error_rate": ("tool error rate", ".1%", "+.1f"),  # delta as pp
+    "think_blocks": ("think blocks / trace", ".2f", "+.2f"),
+    "think_tokens": ("think tokens / trace", ".0f", "+.0f"),
+    "think_token_ratio": ("think / assistant ratio", ".1%", "+.1f"),  # delta as pp
+    "assistant_msgs": ("assistant msgs / trace", ".1f", "+.2f"),
+    "assistant_tokens": ("assistant tokens / trace", ".0f", "+.0f"),
+    "mean_assistant_tokens": ("mean tokens / asst msg", ".1f", "+.2f"),
+    "code_fence_blocks": ("code fences / trace", ".2f", "+.2f"),
     "self_correction_hits": ("self-correction phrases / trace", ".2f", "+.2f"),
 }
 
@@ -75,6 +75,7 @@ _RATIO_FIELDS = {"tool_error_rate", "think_token_ratio"}
 @dataclass
 class Summary:
     """Aggregated behavioral metrics for one trace dataset."""
+
     label: str
     n: int
     mean_reward: Optional[float]
@@ -105,7 +106,9 @@ def summarize(label: str, traces: Sequence[Trace]) -> Summary:
     tokens = [count_tokens(t.conversation, encoder) for t in traces if t.conversation]
     err = Counter(t.error_type for t in traces if t.error_type)
     fm = Counter(t.failure_mode for t in traces if t.failure_mode)
-    fm_coverage = sum(1 for t in traces if t.failure_mode) / len(traces) if traces else 0.0
+    fm_coverage = (
+        sum(1 for t in traces if t.failure_mode) / len(traces) if traces else 0.0
+    )
     pass_set: set = set()
     fail_set: set = set()
     for task, rows in group_by_task(traces).items():
@@ -130,7 +133,9 @@ def summarize(label: str, traces: Sequence[Trace]) -> Summary:
     # Premature-stop rate among traces with at least one message.
     eligible = [t for t in traces if t.behavioral.assistant_msgs > 0]
     if eligible:
-        premature_rate = sum(1 for t in eligible if t.behavioral.premature_stop) / len(eligible)
+        premature_rate = sum(1 for t in eligible if t.behavioral.premature_stop) / len(
+            eligible
+        )
     else:
         premature_rate = None
 
@@ -151,12 +156,14 @@ def summarize(label: str, traces: Sequence[Trace]) -> Summary:
     )
 
 
-def _delta_str(before: Optional[float], after: Optional[float], pct: bool = False) -> str:
+def _delta_str(
+    before: Optional[float], after: Optional[float], pct: bool = False
+) -> str:
     if before is None or after is None:
         return "—"
     d = after - before
     if pct:
-        return f"{d*100:+.1f}pp"
+        return f"{d * 100:+.1f}pp"
     return f"{d:+.2f}"
 
 
@@ -169,12 +176,14 @@ def _format_value(field_name: str, value: Optional[float]) -> str:
     return f"{value:{fmt}}"
 
 
-def _format_delta(field_name: str, before: Optional[float], after: Optional[float]) -> str:
+def _format_delta(
+    field_name: str, before: Optional[float], after: Optional[float]
+) -> str:
     if before is None or after is None:
         return "—"
     d = after - before
     if field_name in _RATIO_FIELDS:
-        return f"{d*100:+.1f}pp"
+        return f"{d * 100:+.1f}pp"
     fmt = _FEATURE_DISPLAY.get(field_name, ("", "", "+.2f"))[2]
     return f"{d:{fmt}}"
 
@@ -295,7 +304,7 @@ def write_markdown_report(
             "|---|---|---|---|",
         ]
         for key, b, a, d in tool_delta[:top_n]:
-            lines.append(f"| `{key}` | {b:.1%} | {a:.1%} | {d*100:+.1f}pp |")
+            lines.append(f"| `{key}` | {b:.1%} | {a:.1%} | {d * 100:+.1f}pp |")
         lines.append("")
 
     fm_delta = _rank_dist_delta(before.failure_mode_dist, after.failure_mode_dist)
@@ -311,7 +320,7 @@ def write_markdown_report(
             "|---|---|---|---|",
         ]
         for key, b, a, d in fm_delta[:top_n]:
-            lines.append(f"| `{key}` | {b:.1%} | {a:.1%} | {d*100:+.1f}pp |")
+            lines.append(f"| `{key}` | {b:.1%} | {a:.1%} | {d * 100:+.1f}pp |")
         lines.append("")
     else:
         lines += [
@@ -332,13 +341,19 @@ def write_markdown_report(
             "|---|---|---|---|",
         ]
         for key, b, a, d in err_delta[:top_n]:
-            lines.append(f"| `{key}` | {b:.1%} | {a:.1%} | {d*100:+.1f}pp |")
+            lines.append(f"| `{key}` | {b:.1%} | {a:.1%} | {d * 100:+.1f}pp |")
         lines.append("")
 
     # Task-level flips
-    common_tasks = (before.pass_set | before.fail_set) & (after.pass_set | after.fail_set)
-    newly_passing = sorted(t for t in common_tasks if t in before.fail_set and t in after.pass_set)
-    newly_failing = sorted(t for t in common_tasks if t in before.pass_set and t in after.fail_set)
+    common_tasks = (before.pass_set | before.fail_set) & (
+        after.pass_set | after.fail_set
+    )
+    newly_passing = sorted(
+        t for t in common_tasks if t in before.fail_set and t in after.pass_set
+    )
+    newly_failing = sorted(
+        t for t in common_tasks if t in before.pass_set and t in after.fail_set
+    )
     lines += [
         "## Task-level pass/fail flips",
         "",
@@ -406,7 +421,9 @@ def write_markdown_report(
                         "delta": d,
                         "normalized_abs_delta": norm,
                     }
-                    for field_name, b, a, d, norm in _ranked_behavioral_deltas(before, after)
+                    for field_name, b, a, d, norm in _ranked_behavioral_deltas(
+                        before, after
+                    )
                 ],
                 "task_flips": {
                     "newly_passing": newly_passing,
@@ -422,11 +439,24 @@ def write_markdown_report(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--before", required=True, help="Pre-RL trace source (HF id, JSONL, or dir)")
-    parser.add_argument("--after", required=True, help="Post-RL trace source (HF id, JSONL, or dir)")
-    parser.add_argument("--output", type=Path, required=True, help="Markdown report path (sidecar .json also written)")
-    parser.add_argument("--max-rows", type=int, default=None, help="Optional cap for smoke tests")
-    parser.add_argument("--top-n", type=int, default=15, help="Top N rows per ranked section")
+    parser.add_argument(
+        "--before", required=True, help="Pre-RL trace source (HF id, JSONL, or dir)"
+    )
+    parser.add_argument(
+        "--after", required=True, help="Post-RL trace source (HF id, JSONL, or dir)"
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Markdown report path (sidecar .json also written)",
+    )
+    parser.add_argument(
+        "--max-rows", type=int, default=None, help="Optional cap for smoke tests"
+    )
+    parser.add_argument(
+        "--top-n", type=int, default=15, help="Top N rows per ranked section"
+    )
     return parser.parse_args()
 
 
@@ -434,13 +464,18 @@ def run(args: argparse.Namespace) -> int:
     before = load_traces(args.before, max_rows=args.max_rows)
     after = load_traces(args.after, max_rows=args.max_rows)
     if not before or not after:
-        print(f"[behavioral-delta] empty trace set: before={len(before)} after={len(after)}", file=sys.stderr)
+        print(
+            f"[behavioral-delta] empty trace set: before={len(before)} after={len(after)}",
+            file=sys.stderr,
+        )
         return 2
     s_before = summarize(args.before, before)
     s_after = summarize(args.after, after)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     write_markdown_report(s_before, s_after, args.output, top_n=args.top_n)
-    print(f"[behavioral-delta] wrote {args.output} (+ {args.output.with_suffix('.json').name})")
+    print(
+        f"[behavioral-delta] wrote {args.output} (+ {args.output.with_suffix('.json').name})"
+    )
     return 0
 
 

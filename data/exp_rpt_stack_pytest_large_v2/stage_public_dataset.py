@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Record private accepted references and stage a solution-free public dataset."""
+
 from __future__ import annotations
 
 import argparse
@@ -19,7 +20,11 @@ def accepted_tasks(private_root: Path) -> list[Path]:
     tasks = []
     for task in sorted(private_root.iterdir()):
         solve = task / "solution" / "solve.sh"
-        if task.is_dir() and (task / "environment" / "Dockerfile").is_file() and solve.is_file():
+        if (
+            task.is_dir()
+            and (task / "environment" / "Dockerfile").is_file()
+            and solve.is_file()
+        ):
             tasks.append(task)
     if not tasks:
         raise ValueError(f"no accepted private references under {private_root}")
@@ -54,8 +59,12 @@ def main() -> int:
             }
         )
     args.manifest.parent.mkdir(parents=True, exist_ok=True)
-    args.manifest.write_text(json.dumps({"accepted_references": entries}, indent=2) + "\n")
-    print(f"private_accepted={len(entries)} public_staged={len(entries)} manifest={args.manifest}")
+    args.manifest.write_text(
+        json.dumps({"accepted_references": entries}, indent=2) + "\n"
+    )
+    print(
+        f"private_accepted={len(entries)} public_staged={len(entries)} manifest={args.manifest}"
+    )
     return 0
 
 

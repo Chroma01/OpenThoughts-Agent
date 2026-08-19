@@ -17,9 +17,13 @@ from config import DO_SAMPLE, MAX_NEW_TOKENS, pick_device
 #   Gemma 4 : <turn|> (end-of-turn), <eos>      (also <end_of_turn> on Gemma 2/3)
 #   Llama 3 : <|eot_id|>, <|end_of_text|>
 _TURN_END_STRINGS = (
-    "<|im_end|>", "<|endoftext|>",
-    "<turn|>", "<end_of_turn>", "<eos>",
-    "<|eot_id|>", "<|end_of_text|>",
+    "<|im_end|>",
+    "<|endoftext|>",
+    "<turn|>",
+    "<end_of_turn>",
+    "<eos>",
+    "<|eot_id|>",
+    "<|end_of_text|>",
 )
 
 
@@ -83,7 +87,7 @@ def generate_from_ids(
         # narrower than the model intends. See stop_ids().
         eos_token_id=stop_ids(tok, model),
     )
-    return out[0].tolist()[len(input_ids):]
+    return out[0].tolist()[len(input_ids) :]
 
 
 def chat_templated_string(tok, messages: List[Dict[str, str]]) -> str:

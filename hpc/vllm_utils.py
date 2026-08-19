@@ -19,6 +19,7 @@ Usage:
             print(f"vLLM ready at {vllm.endpoint}")
             # ... run inference workloads
 """
+
 from __future__ import annotations
 
 import json
@@ -48,11 +49,11 @@ _OUR_FIELDS = {
     "pipeline_parallel_size",
     "data_parallel_size",
     # Harbor/Daytona engine-specific fields (not vLLM args)
-    "type",                   # engine type (e.g., "vllm_local")
-    "max_output_tokens",      # Harbor config, not vLLM
-    "healthcheck_interval",   # Harbor config, not vLLM
-    "vllm_local",            # Daytona backend config
-    "model",                  # handled separately via --model
+    "type",  # engine type (e.g., "vllm_local")
+    "max_output_tokens",  # Harbor config, not vLLM
+    "healthcheck_interval",  # Harbor config, not vLLM
+    "vllm_local",  # Daytona backend config
+    "model",  # handled separately via --model
 }
 
 # Fields that map to different vLLM CLI arg names
@@ -267,7 +268,9 @@ class VLLMServer:
     config: VLLMConfig
     ray_cluster: "RayCluster"
     log_path: Optional[Path] = None
-    extra_env_vars: Optional[Dict[str, str]] = None  # Additional env vars (e.g., tiktoken)
+    extra_env_vars: Optional[Dict[str, str]] = (
+        None  # Additional env vars (e.g., tiktoken)
+    )
     _process: Optional[subprocess.Popen] = None
     _log_file: Optional[object] = None
 
@@ -297,7 +300,9 @@ class VLLMServer:
             return self.endpoint
 
         # Clean up any stale endpoint JSON from a previous job to avoid IP mismatch
-        if self.config.endpoint_json_path and os.path.exists(self.config.endpoint_json_path):
+        if self.config.endpoint_json_path and os.path.exists(
+            self.config.endpoint_json_path
+        ):
             print(f"Removing stale endpoint JSON: {self.config.endpoint_json_path}")
             try:
                 os.remove(self.config.endpoint_json_path)
@@ -361,10 +366,14 @@ class VLLMServer:
         # Build CLI args and env vars from server_config (pass-through from YAML)
         extra_env_vars: dict[str, str] = {}
         if self.config.server_config:
-            extra_cli_args, extra_env_vars = _build_vllm_cli_args(self.config.server_config)
+            extra_cli_args, extra_env_vars = _build_vllm_cli_args(
+                self.config.server_config
+            )
             cmd.extend(extra_cli_args)
             if extra_cli_args:
-                print(f"  Extra vLLM args: {' '.join(extra_cli_args[:10])}{'...' if len(extra_cli_args) > 10 else ''}")
+                print(
+                    f"  Extra vLLM args: {' '.join(extra_cli_args[:10])}{'...' if len(extra_cli_args) > 10 else ''}"
+                )
 
         # When DP>1 with the Ray backend, vLLM's create_dp_placement_groups
         # asserts the dp_master_ip is a key in Ray's known-nodes dict. Ray
@@ -395,7 +404,10 @@ class VLLMServer:
         # This also handles the cross-node-TP case (TP > gpus_per_node): the
         # max(1, ...) clamp produces size_local=1, which still requires
         # data_parallel_size <= num_nodes for vLLM to accept the layout.
-        if self.config.data_parallel_size > 1 and "--data-parallel-size-local" not in cmd:
+        if (
+            self.config.data_parallel_size > 1
+            and "--data-parallel-size-local" not in cmd
+        ):
             gpus_per_node = self.ray_cluster.config.gpus_per_node
             dp_per_node = max(1, gpus_per_node // self.config.tensor_parallel_size)
             dp_per_node = min(dp_per_node, self.config.data_parallel_size)
@@ -422,7 +434,9 @@ class VLLMServer:
         # Previously the env_vars dict was unpacked but silently discarded.
         if extra_env_vars:
             env.update(extra_env_vars)
-            print(f"  Extra vLLM env: {', '.join(f'{k}={v}' for k, v in extra_env_vars.items())}")
+            print(
+                f"  Extra vLLM env: {', '.join(f'{k}={v}' for k, v in extra_env_vars.items())}"
+            )
         # VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS controls the collective_rpc
         # deadline for execute_model + sample_tokens (multiproc_executor.py
         # lines 314, 326). Default is 300s; on cross-node TP=16 with our
@@ -490,7 +504,9 @@ class VLLMServer:
         # compatibility) and behaves identically to fill for the
         # single-DP-per-node case we hit in practice.
         if self.config.data_parallel_size > 1:
-            tp_pp = self.config.tensor_parallel_size * self.config.pipeline_parallel_size
+            tp_pp = (
+                self.config.tensor_parallel_size * self.config.pipeline_parallel_size
+            )
             if tp_pp > self.ray_cluster.config.gpus_per_node:
                 env.setdefault("VLLM_RAY_DP_PACK_STRATEGY", "span")
             else:
@@ -517,7 +533,9 @@ class VLLMServer:
             all_cpus = set(range(os.cpu_count() or 1))
             if _saved_affinity != all_cpus:
                 os.sched_setaffinity(0, all_cpus)
-                print(f"  Reset CPU affinity: {len(_saved_affinity)} → {len(all_cpus)} CPUs for vLLM server")
+                print(
+                    f"  Reset CPU affinity: {len(_saved_affinity)} → {len(all_cpus)} CPUs for vLLM server"
+                )
         except (OSError, AttributeError):
             pass
 
@@ -600,29 +618,31 @@ class VLLMServer:
         # First, fetch the served model name (auto-generated when
         # custom_model_name is None).
         try:
-            with urllib.request.urlopen(
-                f"{self.base_url}/v1/models", timeout=10
-            ) as r:
+            with urllib.request.urlopen(f"{self.base_url}/v1/models", timeout=10) as r:
                 model_name = _json.loads(r.read().decode())["data"][0]["id"]
         except Exception as e:
             print(f"  [warmup] could not fetch /v1/models ({e!r}); skipping")
             return
 
         # ---- shared helper: drive one /v1/chat/completions request ----
-        def _fire(prompt: str, max_tokens: int, label: str) -> tuple[str, float, bool, str]:
-            body = _json.dumps({
-                "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-                # Sampling params chosen to match the most common production
-                # config (Harbor terminus-2 + Qwen3/GLM-family). If your
-                # serving uses different params, JIT for THOSE specializations
-                # will still happen on the first real request — but the
-                # most-common path is what matters here.
-                "top_k": 20,
-                "top_p": 0.95,
-                "temperature": 0.7,
-            }).encode()
+        def _fire(
+            prompt: str, max_tokens: int, label: str
+        ) -> tuple[str, float, bool, str]:
+            body = _json.dumps(
+                {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    # Sampling params chosen to match the most common production
+                    # config (Harbor terminus-2 + Qwen3/GLM-family). If your
+                    # serving uses different params, JIT for THOSE specializations
+                    # will still happen on the first real request — but the
+                    # most-common path is what matters here.
+                    "top_k": 20,
+                    "top_p": 0.95,
+                    "temperature": 0.7,
+                }
+            ).encode()
             req = urllib.request.Request(
                 f"{self.base_url}/v1/chat/completions",
                 data=body,
@@ -644,17 +664,18 @@ class VLLMServer:
         seq_prompts = [
             "Hello world.",
             "Write a short Python function that adds two numbers.",
-            "Once upon a time, in a faraway land, there lived a curious cat. "
-            * 8,
+            "Once upon a time, in a faraway land, there lived a curious cat. " * 8,
             "Solve: x^2 + 3x - 4 = 0. Walk through it step by step.",
             "Describe a sunset in 2 sentences.",
             "What is the capital of France?",
             "Compute the integral of x dx from 0 to 1.",
             "List 10 random English words: " + " ".join(f"word{i}" for i in range(48)),
         ]
-        print(f"  [warmup] phase 1: {len(seq_prompts)} sequential requests "
-              f"against {model_name} (max_tokens=32, JITs single-request "
-              "sampling kernel)...")
+        print(
+            f"  [warmup] phase 1: {len(seq_prompts)} sequential requests "
+            f"against {model_name} (max_tokens=32, JITs single-request "
+            "sampling kernel)..."
+        )
         seq_ok = 0
         for i, prompt in enumerate(seq_prompts, 1):
             label = f"seq {i}/{len(seq_prompts)}"
@@ -678,17 +699,21 @@ class VLLMServer:
         long_prompt = (
             "You are an experienced software engineer. Consider the following "
             "context carefully and respond with a short summary at the end. "
-            + ("Context line: a thoughtful description of a non-trivial "
-               "engineering tradeoff. " * 80)
+            + (
+                "Context line: a thoughtful description of a non-trivial "
+                "engineering tradeoff. " * 80
+            )
         )
         batch_prompts = list(seq_prompts) + [long_prompt]
         # Cycle batch_prompts up to concurrent_n entries
         batch_n_prompts = [
             batch_prompts[i % len(batch_prompts)] for i in range(concurrent_n)
         ]
-        print(f"  [warmup] phase 2: {concurrent_n} concurrent requests "
-              "(max_tokens=512, one ~2k-token prompt; JITs batched sampling "
-              "kernel at production batch size)...")
+        print(
+            f"  [warmup] phase 2: {concurrent_n} concurrent requests "
+            "(max_tokens=512, one ~2k-token prompt; JITs batched sampling "
+            "kernel at production batch size)..."
+        )
         batch_ok = 0
         t_batch = time.time()
         with ThreadPoolExecutor(max_workers=concurrent_n) as ex:
@@ -703,10 +728,14 @@ class VLLMServer:
                     print(f"  [warmup] {label} OK ({dt:.1f}s)")
                 else:
                     print(f"  [warmup] {label} FAILED: {err}")
-        print(f"  [warmup] phase 2 wall: {time.time() - t_batch:.1f}s "
-              f"({batch_ok}/{concurrent_n} succeeded)")
-        print(f"  [warmup] complete (phase 1: {seq_ok}/{len(seq_prompts)}, "
-              f"phase 2: {batch_ok}/{concurrent_n})")
+        print(
+            f"  [warmup] phase 2 wall: {time.time() - t_batch:.1f}s "
+            f"({batch_ok}/{concurrent_n} succeeded)"
+        )
+        print(
+            f"  [warmup] complete (phase 1: {seq_ok}/{len(seq_prompts)}, "
+            f"phase 2: {batch_ok}/{concurrent_n})"
+        )
 
     def stop(self) -> None:
         """Stop the vLLM server."""
@@ -791,7 +820,9 @@ class VLLMServer:
             # Direct URL mode
             cmd.extend(["--endpoint", self.base_url])
 
-        print(f"  Running health check (max {self.config.health_max_attempts} attempts)...")
+        print(
+            f"  Running health check (max {self.config.health_max_attempts} attempts)..."
+        )
         try:
             subprocess.run(cmd, check=True)
         except subprocess.CalledProcessError as e:

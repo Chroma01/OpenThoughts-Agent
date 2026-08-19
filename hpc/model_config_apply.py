@@ -34,6 +34,7 @@ NOTE: ``model_config/`` currently declares only the ``eval`` subsystem, which
 holds the shared serve profile; datagen resolves against it too (``subsystem``
 defaults to ``"eval"``) so tracegen picks up the same tp / max_model_len / etc.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -70,9 +71,12 @@ def resolve_launch_config(
         return {}
     try:
         from model_config.resolver import resolve_model_config
+
         return resolve_model_config(model, subsystem=subsystem, hardware=hardware) or {}
     except Exception as e:  # pragma: no cover - defensive; never break a launch
-        print(f"{log_prefix} WARNING: model_config resolution failed for {model!r}: {e}")
+        print(
+            f"{log_prefix} WARNING: model_config resolution failed for {model!r}: {e}"
+        )
         return {}
 
 
@@ -145,7 +149,10 @@ def apply_vllm_serve(args, resolved: Dict[str, Any]) -> Tuple[List[str], List[st
     # heuristic is meant to run once over the WHOLE serve config; here it would
     # clobber the datagen-config / vLLM default, so drop it unless the
     # model_config actually asked for prefix caching.
-    if "--enable-prefix-caching" not in mc_cli and "--no-enable-prefix-caching" in mc_cli:
+    if (
+        "--enable-prefix-caching" not in mc_cli
+        and "--no-enable-prefix-caching" in mc_cli
+    ):
         mc_cli = [t for t in mc_cli if t != "--no-enable-prefix-caching"]
 
     existing = list(getattr(args, "_vllm_cli_args", None) or [])
@@ -210,11 +217,16 @@ def apply_to_runner(
     tensor-parallel from the TPU chip count — and logs them as ignored.
     """
     resolved = resolve_launch_config(
-        getattr(args, "model", None), hardware=hardware, subsystem=subsystem, log_prefix=log_prefix
+        getattr(args, "model", None),
+        hardware=hardware,
+        subsystem=subsystem,
+        log_prefix=log_prefix,
     )
     if not resolved:
-        print(f"{log_prefix} model_config: no entry for {getattr(args, 'model', None)!r}; "
-              f"using existing defaults.")
+        print(
+            f"{log_prefix} model_config: no entry for {getattr(args, 'model', None)!r}; "
+            f"using existing defaults."
+        )
         return
 
     applied: Dict[str, Any] = {}
@@ -242,8 +254,10 @@ def apply_to_runner(
     if "conda_env" in resolved:
         ignored["conda_env"] = resolved["conda_env"]
 
-    print(f"{log_prefix} model_config {getattr(args, 'model', None)}: "
-          f"applied {applied}; ignored {ignored}")
+    print(
+        f"{log_prefix} model_config {getattr(args, 'model', None)}: "
+        f"applied {applied}; ignored {ignored}"
+    )
 
 
 def apply_to_launcher(
@@ -264,11 +278,16 @@ def apply_to_launcher(
     (tp derives from the TPU chip count; ``--harbor_config`` is CLI-required).
     """
     resolved = resolve_launch_config(
-        getattr(args, "model", None), hardware=hardware, subsystem=subsystem, log_prefix=log_prefix
+        getattr(args, "model", None),
+        hardware=hardware,
+        subsystem=subsystem,
+        log_prefix=log_prefix,
     )
     if not resolved:
-        print(f"{log_prefix} model_config: no entry for {getattr(args, 'model', None)!r} "
-              f"(resolution deferred to the worker if the model is inferred there).")
+        print(
+            f"{log_prefix} model_config: no entry for {getattr(args, 'model', None)!r} "
+            f"(resolution deferred to the worker if the model is inferred there)."
+        )
         return
 
     applied: Dict[str, Any] = {}
@@ -292,5 +311,7 @@ def apply_to_launcher(
     if "conda_env" in resolved:
         ignored["conda_env"] = resolved["conda_env"]
 
-    print(f"{log_prefix} model_config {getattr(args, 'model', None)}: applied {applied}; "
-          f"serve-config (applied on worker): {serve_note}; ignored {ignored}")
+    print(
+        f"{log_prefix} model_config {getattr(args, 'model', None)}: applied {applied}; "
+        f"serve-config (applied on worker): {serve_note}; ignored {ignored}"
+    )

@@ -27,6 +27,7 @@ try:
         _extract_reasoning_content as harbor_extract_reasoning_content,
         _format_reasoning_block as harbor_format_reasoning_block,
     )
+
     HARBOR_UTILS_AVAILABLE = True
 except Exception:  # pragma: no cover - diagnostic script
     harbor_extract_reasoning_content = None  # type: ignore
@@ -195,8 +196,10 @@ def _print_harbor_projection(response: dict) -> None:
         format_fn = harbor_format_reasoning_block
         source_label = "Harbor utilities"
     else:
+
         def extract_fn(_agent, resp):
             return _fallback_extract_reasoning_content(resp)
+
         format_fn = _fallback_format_reasoning_block
         source_label = "fallback (Harbor utilities unavailable)"
 
@@ -217,7 +220,9 @@ def _print_harbor_projection(response: dict) -> None:
 
     print(f"\n=== Harbor trajectory projection ({source_label}) ===")
     if reasoning:
-        print("Harbor would capture reasoning_content (and embed it inside <think> tags):")
+        print(
+            "Harbor would capture reasoning_content (and embed it inside <think> tags):"
+        )
         print(block)
     else:
         print("Harbor reasoning_content would be empty for this response.")
@@ -245,45 +250,45 @@ def _parse_args() -> argparse.Namespace:
         "Your goal is to solve the task by providing batches of shell commands.\n\n"
         "Format your response as JSON with the following structure:\n\n"
         "{\n"
-        "  \"analysis\": \"Analyze the current state based on the terminal output provided. "
-        "What do you see? What has been accomplished? What still needs to be done?\",\n"
-        "  \"plan\": \"Describe your plan for the next steps. What commands will you run and why? "
-        "Be specific about what you expect each command to accomplish.\",\n"
-        "  \"commands\": [\n"
+        '  "analysis": "Analyze the current state based on the terminal output provided. '
+        'What do you see? What has been accomplished? What still needs to be done?",\n'
+        '  "plan": "Describe your plan for the next steps. What commands will you run and why? '
+        'Be specific about what you expect each command to accomplish.",\n'
+        '  "commands": [\n'
         "    {\n"
-        "      \"keystrokes\": \"ls -la\\n\",\n"
-        "      \"duration\": 0.1\n"
+        '      "keystrokes": "ls -la\\n",\n'
+        '      "duration": 0.1\n'
         "    },\n"
         "    {\n"
-        "      \"keystrokes\": \"cd project\\n\",\n"
-        "      \"duration\": 0.1\n"
+        '      "keystrokes": "cd project\\n",\n'
+        '      "duration": 0.1\n'
         "    }\n"
         "  ],\n"
-        "  \"task_complete\": true\n"
+        '  "task_complete": true\n'
         "}\n\n"
         "Required fields:\n"
-        "- \"analysis\": Your analysis of the current situation\n"
-        "- \"plan\": Your plan for the next steps\n"
-        "- \"commands\": Array of command objects to execute\n\n"
+        '- "analysis": Your analysis of the current situation\n'
+        '- "plan": Your plan for the next steps\n'
+        '- "commands": Array of command objects to execute\n\n'
         "Optional fields:\n"
-        "- \"task_complete\": Boolean indicating if the task is complete (defaults to false if not present)\n\n"
+        '- "task_complete": Boolean indicating if the task is complete (defaults to false if not present)\n\n'
         "Command object structure:\n"
-        "- \"keystrokes\": String containing the exact keystrokes to send to the terminal (required)\n"
-        "- \"duration\": Number of seconds to wait for the command to complete before the next command "
+        '- "keystrokes": String containing the exact keystrokes to send to the terminal (required)\n'
+        '- "duration": Number of seconds to wait for the command to complete before the next command '
         "will be executed (defaults to 1.0 if not present)\n\n"
-        "IMPORTANT: The text inside \"keystrokes\" will be used completely verbatim as keystrokes. "
+        'IMPORTANT: The text inside "keystrokes" will be used completely verbatim as keystrokes. '
         "Write commands exactly as you want them sent to the terminal:\n"
         "- Most bash commands should end with a newline (\\n) to cause them to execute\n"
         "- For special key sequences, use tmux-style escape sequences:\n"
         "  - C-c for Ctrl+C\n"
         "  - C-d for Ctrl+D\n\n"
-        "The \"duration\" attribute specifies the number of seconds to wait for the command to complete "
+        'The "duration" attribute specifies the number of seconds to wait for the command to complete '
         "(default: 1.0) before the next command will be executed. On immediate tasks (e.g., cd, ls, echo, cat) "
         "set a duration of 0.1 seconds. On commands (e.g., gcc, find, rustc) set a duration of 1.0 seconds. On "
         "slow commands (e.g., make, python3 [long running script], wget [file]) set an appropriate duration as "
         "you determine necessary.\n\n"
         "It is better to set a smaller duration than a longer duration. It is always possible to wait again if "
-        "the prior output has not finished, by running {\"keystrokes\": \"\", \"duration\": 10.0} on "
+        'the prior output has not finished, by running {"keystrokes": "", "duration": 10.0} on '
         "subsequent requests to wait longer. Never wait longer than 60 seconds; prefer to poll to see "
         "intermediate result status.\n\n"
         "Important notes:\n"
@@ -369,15 +374,23 @@ def _print_comparison(results: dict[str, dict]) -> None:
         status = "✅ PRESENT" if has_reasoning else "❌ MISSING"
         print(f"  {mode.upper():10s}: {status}")
         if has_reasoning:
-            preview = reasoning[:80].replace("\n", " ") + "..." if len(reasoning) > 80 else reasoning.replace("\n", " ")
+            preview = (
+                reasoning[:80].replace("\n", " ") + "..."
+                if len(reasoning) > 80
+                else reasoning.replace("\n", " ")
+            )
             print(f"             Preview: {preview}")
 
     # Compare direct vs harbor extraction
     direct_resp = results.get("direct", {})
     harbor_resp = results.get("harbor", {})
 
-    direct_reasoning = direct_resp.get("choices", [{}])[0].get("message", {}).get("reasoning_content")
-    harbor_reasoning = harbor_resp.get("choices", [{}])[0].get("message", {}).get("reasoning_content")
+    direct_reasoning = (
+        direct_resp.get("choices", [{}])[0].get("message", {}).get("reasoning_content")
+    )
+    harbor_reasoning = (
+        harbor_resp.get("choices", [{}])[0].get("message", {}).get("reasoning_content")
+    )
 
     direct_has = direct_reasoning is not None and bool(str(direct_reasoning).strip())
     harbor_has = harbor_reasoning is not None and bool(str(harbor_reasoning).strip())
@@ -394,12 +407,16 @@ def _print_comparison(results: dict[str, dict]) -> None:
         print("ℹ️  DIAGNOSIS: Model did not return reasoning_content in either mode.")
         print("   This may be expected if the model doesn't support extended thinking.")
     else:
-        print("🤔 DIAGNOSIS: Unexpected state - Harbor has reasoning but direct doesn't?")
+        print(
+            "🤔 DIAGNOSIS: Unexpected state - Harbor has reasoning but direct doesn't?"
+        )
 
 
 def main() -> None:
     if not os.environ.get("OPENAI_API_KEY"):
-        print("Warning: OPENAI_API_KEY not set – request may fail unless using another provider.")
+        print(
+            "Warning: OPENAI_API_KEY not set – request may fail unless using another provider."
+        )
 
     args = _parse_args()
     results: dict[str, dict] = {}

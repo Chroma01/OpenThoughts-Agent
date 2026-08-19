@@ -21,6 +21,7 @@ Usage:
     python data/patchers/patch_frontiersmith_tasks.py /path/to/tasks
     python data/patchers/patch_frontiersmith_tasks.py /path/to/tasks --dry-run
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,7 +29,9 @@ from pathlib import Path
 
 CANONICAL_DOCKERFILE = (
     Path(__file__).resolve().parent.parent
-    / "frontiersmith" / "templates" / "Dockerfile"
+    / "frontiersmith"
+    / "templates"
+    / "Dockerfile"
 )
 
 
@@ -55,14 +58,15 @@ def main() -> None:
     canonical = CANONICAL_DOCKERFILE.read_text()
 
     task_dirs = sorted(
-        d for d in root.iterdir()
-        if d.is_dir() and (d / "instruction.md").exists()
+        d for d in root.iterdir() if d.is_dir() and (d / "instruction.md").exists()
     )
     print(f"Found {len(task_dirs)} tasks in {root}")
     changed = sum(patch_task(d, canonical, args.dry_run) for d in task_dirs)
     action = "Would normalize" if args.dry_run else "Normalized"
-    print(f"{action} {changed}/{len(task_dirs)} Dockerfiles to the shared canonical env "
-          f"(=> 1 snapshot).")
+    print(
+        f"{action} {changed}/{len(task_dirs)} Dockerfiles to the shared canonical env "
+        f"(=> 1 snapshot)."
+    )
 
 
 if __name__ == "__main__":

@@ -109,8 +109,12 @@ def _install_dataset_sanitizer() -> None:
             if isinstance(row, dict):
                 redacted, findings = redact_record(row)
                 if findings:
-                    print(f"[trace-export] Redacted {len(findings)} credential-shaped values.")
-                cleaned_rows.append({k: _strip_surrogates(v) for k, v in redacted.items()})
+                    print(
+                        f"[trace-export] Redacted {len(findings)} credential-shaped values."
+                    )
+                cleaned_rows.append(
+                    {k: _strip_surrogates(v) for k, v in redacted.items()}
+                )
             else:
                 cleaned_rows.append(row)
         return original_rows_to_dataset(cleaned_rows, *args, **kwargs)
@@ -133,7 +137,9 @@ def _install_inline_subagent_merger() -> None:
     if getattr(traces_utils, "__dcagent_inline_subagents__", False):
         return
 
-    subagent_extractor = getattr(traces_utils, "_extract_complete_subagent_conversation", None)
+    subagent_extractor = getattr(
+        traces_utils, "_extract_complete_subagent_conversation", None
+    )
     if subagent_extractor is None:
         return
 
@@ -272,7 +278,9 @@ def _install_inline_subagent_merger() -> None:
             "trial_name": None,
         }
 
-        agent_steps = [idx for idx, step in enumerate(steps) if step.get("source") == "agent"]
+        agent_steps = [
+            idx for idx, step in enumerate(steps) if step.get("source") == "agent"
+        ]
 
         for idx, step in enumerate(steps):
             source = step.get("source")
@@ -288,8 +296,8 @@ def _install_inline_subagent_merger() -> None:
                 if message:
                     # Fix orphaned </think> tags: when the generation prompt includes <think>
                     # but vLLM only returns generated tokens, the opening tag is missing.
-                    if '</think>' in message and '<think>' not in message:
-                        message = '<think>' + message
+                    if "</think>" in message and "<think>" not in message:
+                        message = "<think>" + message
                     content_parts.append(message)
                 tool_calls = step.get("tool_calls")
                 if isinstance(tool_calls, list):
@@ -301,7 +309,9 @@ def _install_inline_subagent_merger() -> None:
                             "arguments": call.get("arguments", {}),
                         }
                         tool_call_json = json.dumps(tool_call_obj, ensure_ascii=False)
-                        content_parts.append(f"<tool_call>\n{tool_call_json}\n</tool_call>")
+                        content_parts.append(
+                            f"<tool_call>\n{tool_call_json}\n</tool_call>"
+                        )
                 assistant_content = "\n".join(content_parts) if content_parts else ""
                 _append_conversation_turn(
                     conv["conversations"], "assistant", assistant_content
@@ -315,12 +325,16 @@ def _install_inline_subagent_merger() -> None:
                             conv["conversations"], "user", observation_text
                         )
 
-            _append_subagent_transcripts(conv["conversations"], step, trajectory_dir, cache, run_metadata)
+            _append_subagent_transcripts(
+                conv["conversations"], step, trajectory_dir, cache, run_metadata
+            )
 
         return conv
 
     def patched_extract_conversations_from_trajectory(
-        trajectory_file: Path, run_metadata: Dict[str, Any], embed_tools_in_conversation: bool = True,
+        trajectory_file: Path,
+        run_metadata: Dict[str, Any],
+        embed_tools_in_conversation: bool = True,
         include_literal_tokens: bool = False,
         sft_format: bool = False,
     ) -> List[Dict[str, Any]]:
@@ -331,13 +345,17 @@ def _install_inline_subagent_merger() -> None:
         try:
             trajectory_data = json.loads(trajectory_file.read_text())
         except (json.JSONDecodeError, OSError) as exc:
-            print(f"[traces] Skipping trajectory {trajectory_file}: invalid JSON ({exc})")
+            print(
+                f"[traces] Skipping trajectory {trajectory_file}: invalid JSON ({exc})"
+            )
             return []
 
         steps = trajectory_data.get("steps", [])
         agent_info = trajectory_data.get("agent", {})
         trajectory_agent_name = agent_info.get("name") or run_metadata["agent_name"]
-        trajectory_model_name = agent_info.get("model_name") or run_metadata["model_name"]
+        trajectory_model_name = (
+            agent_info.get("model_name") or run_metadata["model_name"]
+        )
         trajectory_run_metadata = {
             **run_metadata,
             "agent_name": trajectory_agent_name,
@@ -368,7 +386,9 @@ def _install_inline_subagent_merger() -> None:
         return conversations
 
     patched_extract_conversations_from_trajectory.__dcagent_inline_subagents__ = True  # type: ignore[attr-defined]
-    traces_utils.extract_conversations_from_trajectory = patched_extract_conversations_from_trajectory
+    traces_utils.extract_conversations_from_trajectory = (
+        patched_extract_conversations_from_trajectory
+    )
 
 
 def _install_harbor_patches(include_literal_tokens: bool = False) -> None:
@@ -395,6 +415,7 @@ def _import_traces_utils():
     """Resolve Harbor's traces_utils module (the per-trial collectors live here)."""
     try:
         from harbor.utils import traces_utils  # type: ignore
+
         return traces_utils
     except Exception as exc:  # pragma: no cover - environment dependent
         raise SystemExit(
@@ -412,6 +433,7 @@ def _finalize_chunk(ds):
     """
     try:
         from scripts.harbor.run_and_export_traces import _finalize_trace_dataset  # type: ignore
+
         ds = _finalize_trace_dataset(ds)
     except Exception:
         pass
@@ -461,7 +483,9 @@ def _collect_trial_rows(
         succ = traces_utils._trial_is_success(trial_dir)
         if succ is None:
             if verbose:
-                print(f"[traces] Trial {trial_dir.name}: missing result.json; skipping due to filter")
+                print(
+                    f"[traces] Trial {trial_dir.name}: missing result.json; skipping due to filter"
+                )
             return []
         if success_filter == "success" and not succ:
             return []
@@ -481,7 +505,9 @@ def _collect_trial_rows(
         )
     except (UnicodeDecodeError, ValueError, OSError) as e:
         if verbose:
-            print(f"[traces] Trial {trial_dir.name}: skipping due to decode/read error: {e}")
+            print(
+                f"[traces] Trial {trial_dir.name}: skipping due to decode/read error: {e}"
+            )
         return []
 
 
@@ -578,7 +604,9 @@ def _flush_chunk_to_parquet(
         _hf_datasets.config.HF_DATASETS_CACHE = cache_dir
         ds = traces_utils.rows_to_dataset(rows)
         if to_sharegpt:
-            ds = traces_utils.convert_openai_to_sharegpt(ds, "conversations", "conversations_sharegpt")
+            ds = traces_utils.convert_openai_to_sharegpt(
+                ds, "conversations", "conversations_sharegpt"
+            )
         ds = _finalize_chunk(ds)
         if include_literal_tokens:
             ds = _pin_literal_token_columns(ds, rows)
@@ -663,7 +691,11 @@ def _process_one_shard_in_subprocess(
     shard_path = Path(tmp_root) / f"train-{shard_idx:05d}.parquet"
     cache_dir = Path(tmp_root) / f"_cache-{shard_idx:05d}"
     written = _flush_chunk_to_parquet(
-        chunk, to_sharegpt, traces_utils, shard_path, cache_dir,
+        chunk,
+        to_sharegpt,
+        traces_utils,
+        shard_path,
+        cache_dir,
         include_literal_tokens=include_literal_tokens,
     )
     if not written:
@@ -753,7 +785,9 @@ def stream_export_and_upload(
         if written:
             total_rows += written
             shard_idx += 1
-            print(f"[trace-export] Shard {shard_idx - 1:05d} done ({written} rows; running total {total_rows}).")
+            print(
+                f"[trace-export] Shard {shard_idx - 1:05d} done ({written} rows; running total {total_rows})."
+            )
 
     try:
         n_trials = 0
@@ -768,7 +802,9 @@ def stream_export_and_upload(
                 batch = []
         _dispatch(batch)  # final partial batch
 
-        print(f"[trace-export] Enumerated {n_trials} trial dirs; collected {total_rows} rows into {shard_idx} shard(s).")
+        print(
+            f"[trace-export] Enumerated {n_trials} trial dirs; collected {total_rows} rows into {shard_idx} shard(s)."
+        )
 
         if shard_idx == 0:
             # Still write+push an empty dataset so downstream consumers see a
@@ -983,7 +1019,11 @@ def write_tokenizer_provenance(api, repo_id: str, provenance: Dict[str, Any]) ->
     from huggingface_hub import HfApi  # type: ignore
 
     api = api or HfApi()
-    served_model = provenance.get("served_model") or provenance.get("served_model_name_observed") or "<unknown>"
+    served_model = (
+        provenance.get("served_model")
+        or provenance.get("served_model_name_observed")
+        or "<unknown>"
+    )
 
     prov_bytes = (json.dumps(provenance, indent=2) + "\n").encode("utf-8")
     api.upload_file(
@@ -1101,10 +1141,14 @@ def main() -> None:
         stats = enrich_trajectories_with_literals(
             str(job_dir),
             literal_logs,
-            iter_trial_dirs=lambda root: traces_utils.iter_trial_dirs(root, recursive=True),
+            iter_trial_dirs=lambda root: traces_utils.iter_trial_dirs(
+                root, recursive=True
+            ),
             verbose=bool(args.verbose),
         )
-        yield_pct = (100.0 * stats.trials_enriched / stats.trials) if stats.trials else 0.0
+        yield_pct = (
+            (100.0 * stats.trials_enriched / stats.trials) if stats.trials else 0.0
+        )
         print(
             f"[trace-export] Literal yield: {stats.trials_enriched}/{stats.trials} trials "
             f"({yield_pct:.1f}%), {stats.steps_enriched} steps enriched, "
@@ -1132,7 +1176,9 @@ def main() -> None:
     if args.single_commit:
         single_commit_dir = tempfile.mkdtemp(prefix="trace_single_commit_")
         os.environ["TRACE_EXPORT_FAKE_UPLOAD_DIR"] = single_commit_dir
-        print(f"[trace-export] --single_commit: staging shards under {single_commit_dir} (no per-shard commits).")
+        print(
+            f"[trace-export] --single_commit: staging shards under {single_commit_dir} (no per-shard commits)."
+        )
     total = stream_export_and_upload(
         job_dir=job_dir,
         repo_id=args.repo_id,
@@ -1148,7 +1194,9 @@ def main() -> None:
         from huggingface_hub import HfApi  # type: ignore
 
         os.environ.pop("TRACE_EXPORT_FAKE_UPLOAD_DIR", None)
-        print(f"[trace-export] --single_commit: pushing {total} rows in ONE upload_folder commit...")
+        print(
+            f"[trace-export] --single_commit: pushing {total} rows in ONE upload_folder commit..."
+        )
         HfApi().upload_folder(
             folder_path=single_commit_dir,
             path_in_repo="data",

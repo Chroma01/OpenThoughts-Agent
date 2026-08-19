@@ -9,6 +9,7 @@ means the submission's mean quality ratio over the 10 cases reached >= TAU
 optimal solution (these are open-ended optimization problems where no exact
 optimum is expected).
 """
+
 from pathlib import Path
 
 REWARD = Path("/logs/verifier/reward.txt")

@@ -91,8 +91,8 @@ def wandb_sync(output_dir):
 
     wandb_regex_match = re.search(r"https://wandb.ai/.*/runs/.* ...", cmd_debug_output)
     if not wandb_regex_match:
-       print(f"Wandb run URL not found in command output: {cmd_debug_output}")
-       return
+        print(f"Wandb run URL not found in command output: {cmd_debug_output}")
+        return
     wandb_run_url = wandb_regex_match.group(0).split("...")[0].strip()
     return wandb_run_url
 
@@ -117,7 +117,9 @@ def generate_model_configs(
     Returns:
         Model: A model configuration object containing the relevant metadata to be uplaoded to DB.
     """
-    raise NotImplementedError("Database-backed model metadata generation is disabled in OpenThoughts-Agent")
+    raise NotImplementedError(
+        "Database-backed model metadata generation is disabled in OpenThoughts-Agent"
+    )
 
 
 def upload_to_db(model_configs: Any):  # noqa: F811

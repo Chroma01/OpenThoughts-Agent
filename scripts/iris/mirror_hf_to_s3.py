@@ -105,22 +105,31 @@ def mirror(
         # to be deleted manually — acceptable for a one-shot seed.
         if existing is not None and existing > 0:
             if verbose:
-                print(f"[hf2s3] [{idx}/{len(keep)}] skip (in S3, {existing} bytes): {fname}",
-                      flush=True)
+                print(
+                    f"[hf2s3] [{idx}/{len(keep)}] skip (in S3, {existing} bytes): {fname}",
+                    flush=True,
+                )
             files_mirrored.append((fname, existing))
             continue
 
         with tempfile.TemporaryDirectory(prefix="hf2s3_") as tmp:
             if verbose:
                 print(f"[hf2s3] [{idx}/{len(keep)}] download: {fname}", flush=True)
-            local_file = Path(hf_hub_download(
-                repo_id=repo_id, filename=fname, local_dir=tmp,
-                local_dir_use_symlinks=False,
-            ))
+            local_file = Path(
+                hf_hub_download(
+                    repo_id=repo_id,
+                    filename=fname,
+                    local_dir=tmp,
+                    local_dir_use_symlinks=False,
+                )
+            )
             size = local_file.stat().st_size
             if verbose:
-                print(f"[hf2s3] [{idx}/{len(keep)}] upload ({size} bytes): "
-                      f"s3://{bucket}/{dst_key}", flush=True)
+                print(
+                    f"[hf2s3] [{idx}/{len(keep)}] upload ({size} bytes): "
+                    f"s3://{bucket}/{dst_key}",
+                    flush=True,
+                )
             s3.upload_file(str(local_file), bucket, dst_key)
             files_mirrored.append((fname, size))
             try:
@@ -143,21 +152,25 @@ def mirror(
         "iris_job_id": os.environ.get("IRIS_JOB_ID"),
     }
     s3.put_object(
-        Bucket=bucket, Key=f"{dst_prefix}/{MANIFEST_FILENAME}",
+        Bucket=bucket,
+        Key=f"{dst_prefix}/{MANIFEST_FILENAME}",
         Body=json.dumps(manifest, indent=2).encode("utf-8"),
         ContentType="application/json",
     )
     if verbose:
         total = sum(sz for _, sz in files_mirrored)
-        print(f"[hf2s3] DONE: {repo_id} -> s3://{bucket}/{dst_prefix} "
-              f"({len(files_mirrored)} files, {total} bytes); manifest at "
-              f"s3://{bucket}/{dst_prefix}/{MANIFEST_FILENAME}", flush=True)
+        print(
+            f"[hf2s3] DONE: {repo_id} -> s3://{bucket}/{dst_prefix} "
+            f"({len(files_mirrored)} files, {total} bytes); manifest at "
+            f"s3://{bucket}/{dst_prefix}/{MANIFEST_FILENAME}",
+            flush=True,
+        )
 
 
 def _parse_s3_prefix(uri: str) -> tuple[str, str]:
     if not uri.startswith("s3://"):
         raise SystemExit(f"--s3-prefix must start with s3:// (got {uri!r})")
-    bucket, _, prefix = uri[len("s3://"):].partition("/")
+    bucket, _, prefix = uri[len("s3://") :].partition("/")
     if not bucket:
         raise SystemExit(f"--s3-prefix missing bucket (got {uri!r})")
     return bucket, prefix.rstrip("/")
@@ -167,21 +180,37 @@ def _legacy_main() -> int:
     p = argparse.ArgumentParser(
         description="Stream one or more HF model repos into a CW S3-compatible bucket.",
     )
-    p.add_argument("--repo", action="append", required=True,
-                   help="HF model repo id (org/name); repeatable.")
-    p.add_argument("--s3-prefix", "--s3_prefix", default="s3://marin-us-east-02a/models",
-                   help="Destination s3://bucket/prefix; each repo lands under "
-                        "<prefix>/<org>--<name>/. Default s3://marin-us-east-02a/models.")
-    p.add_argument("--s3-endpoint", default=os.environ.get("AWS_ENDPOINT_URL"),
-                   help="S3-compatible endpoint URL. Defaults to $AWS_ENDPOINT_URL "
-                        "(injected into CW pods).")
+    p.add_argument(
+        "--repo",
+        action="append",
+        required=True,
+        help="HF model repo id (org/name); repeatable.",
+    )
+    p.add_argument(
+        "--s3-prefix",
+        "--s3_prefix",
+        default="s3://marin-us-east-02a/models",
+        help="Destination s3://bucket/prefix; each repo lands under "
+        "<prefix>/<org>--<name>/. Default s3://marin-us-east-02a/models.",
+    )
+    p.add_argument(
+        "--s3-endpoint",
+        default=os.environ.get("AWS_ENDPOINT_URL"),
+        help="S3-compatible endpoint URL. Defaults to $AWS_ENDPOINT_URL "
+        "(injected into CW pods).",
+    )
     p.add_argument("--quiet", action="store_true")
     args = p.parse_args()
 
     bucket, prefix = _parse_s3_prefix(args.s3_prefix)
     for repo in args.repo:
-        mirror(repo_id=repo, bucket=bucket, prefix=prefix,
-               s3_endpoint=args.s3_endpoint, verbose=not args.quiet)
+        mirror(
+            repo_id=repo,
+            bucket=bucket,
+            prefix=prefix,
+            s3_endpoint=args.s3_endpoint,
+            verbose=not args.quiet,
+        )
     return 0
 
 

@@ -44,9 +44,19 @@ TOKENIZER_PROVENANCE_FILE = "tokenizer_provenance.json"
 # Qwen chat-template turn: <|im_start|>role\n ... <|im_end|>
 _TURN_RE = re.compile(r"<\|im_start\|>(\w+)\n(.*?)<\|im_end\|>", re.DOTALL)
 _SPECIAL_TAIL_RE = re.compile(r"(<\|im_end\|>|<\|endoftext\|>)\s*$")
-_ROLE_TO_SHAREGPT = {"system": "system", "user": "human", "assistant": "gpt", "tool": "human"}
+_ROLE_TO_SHAREGPT = {
+    "system": "system",
+    "user": "human",
+    "assistant": "gpt",
+    "tool": "human",
+}
 # Tokenizer files pulled from a gs:// mirror prefix (enough to decode; no weights).
-_TOKENIZER_FILES = ("tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt")
+_TOKENIZER_FILES = (
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "vocab.json",
+    "merges.txt",
+)
 
 
 def fix_orphan_think(text: str) -> str:
@@ -72,7 +82,10 @@ def leading_context_messages(prompt0_text: str) -> list[dict]:
     Returns ``[{role, content}]`` for every ``<|im_start|>role … <|im_end|>`` block in the
     decoded first prompt — i.e. the context the model saw before its first generation.
     """
-    return [{"role": role, "content": content.strip()} for role, content in _TURN_RE.findall(prompt0_text)]
+    return [
+        {"role": role, "content": content.strip()}
+        for role, content in _TURN_RE.findall(prompt0_text)
+    ]
 
 
 def reconstruct_messages(row: dict, tok) -> list[dict] | None:
@@ -99,12 +112,16 @@ def reconstruct_messages(row: dict, tok) -> list[dict] | None:
     if len(conv_assistants) != n:
         return None
 
-    messages = leading_context_messages(tok.decode(prompts[0], skip_special_tokens=False))
+    messages = leading_context_messages(
+        tok.decode(prompts[0], skip_special_tokens=False)
+    )
     if not messages:
         return None
 
     for k in range(n):
-        asst = clean_completion(fix_orphan_think(tok.decode(completions[k], skip_special_tokens=False)))
+        asst = clean_completion(
+            fix_orphan_think(tok.decode(completions[k], skip_special_tokens=False))
+        )
         messages.append({"role": "assistant", "content": asst})
         if k < n - 1 and (k + 1) < len(conv_users):
             obs = (conv_users[k + 1].get("content") or "").strip()
@@ -115,7 +132,10 @@ def reconstruct_messages(row: dict, tok) -> list[dict] | None:
 
 def to_sharegpt(messages: list[dict]) -> list[dict]:
     """Map OpenAI-style messages to ShareGPT ``[{from, value}]``."""
-    return [{"from": _ROLE_TO_SHAREGPT.get(m["role"], "human"), "value": m["content"]} for m in messages]
+    return [
+        {"from": _ROLE_TO_SHAREGPT.get(m["role"], "human"), "value": m["content"]}
+        for m in messages
+    ]
 
 
 def render_text(messages: list[dict]) -> str:
@@ -126,7 +146,9 @@ def render_text(messages: list[dict]) -> str:
     hand-render keeps each assistant turn's verbatim ``<think>`` / ``<tool_call>`` content, so
     the flat ``text`` is lossless.
     """
-    return "".join(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>\n" for m in messages)
+    return "".join(
+        f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>\n" for m in messages
+    )
 
 
 def build_record(row: dict, tok, *, schema: str = "sharegpt") -> dict | None:
@@ -146,7 +168,9 @@ def build_record(row: dict, tok, *, schema: str = "sharegpt") -> dict | None:
 # --------------------------------------------------------------------------- #
 # I/O boundary
 # --------------------------------------------------------------------------- #
-def resolve_tokenizer_ref(source_repo: str, override: str | None, token: str | None) -> str:
+def resolve_tokenizer_ref(
+    source_repo: str, override: str | None, token: str | None
+) -> str:
     """Return the tokenizer reference to load: ``--tokenizer`` override, else the stamp.
 
     Reads ``served_model`` from the source dataset's ``tokenizer_provenance.json`` (written by
@@ -160,7 +184,9 @@ def resolve_tokenizer_ref(source_repo: str, override: str | None, token: str | N
     from huggingface_hub import hf_hub_download
 
     try:
-        path = hf_hub_download(source_repo, TOKENIZER_PROVENANCE_FILE, repo_type="dataset", token=token)
+        path = hf_hub_download(
+            source_repo, TOKENIZER_PROVENANCE_FILE, repo_type="dataset", token=token
+        )
     except Exception as exc:  # noqa: BLE001 - surface a precise, actionable error
         raise SystemExit(
             f"No --tokenizer given and could not read {TOKENIZER_PROVENANCE_FILE} from "
@@ -192,7 +218,9 @@ def load_tokenizer(ref: str):
     return AutoTokenizer.from_pretrained(ref)
 
 
-def convert_dataset(source_repo: str, tok, *, schema: str, limit: int | None, token: str | None):
+def convert_dataset(
+    source_repo: str, tok, *, schema: str, limit: int | None, token: str | None
+):
     """Stream the source trace dataset and yield converted SFT records + conversion stats."""
     from datasets import load_dataset
 
@@ -214,7 +242,12 @@ def convert_dataset(source_repo: str, tok, *, schema: str, limit: int | None, to
             print(f"  … {converted} converted ({seen} seen)")
         if limit and converted >= limit:
             break
-    stats = {"seen": seen, "literal": literal, "converted": converted, "skipped_alignment": skipped}
+    stats = {
+        "seen": seen,
+        "literal": literal,
+        "converted": converted,
+        "skipped_alignment": skipped,
+    }
     return records, stats
 
 
@@ -256,16 +289,22 @@ def convert_and_upload(
     from datasets import Dataset
     from huggingface_hub import HfApi
 
-    records, stats = convert_dataset(source_repo, tok, schema=schema, limit=limit, token=token)
+    records, stats = convert_dataset(
+        source_repo, tok, schema=schema, limit=limit, token=token
+    )
     print(f"[convert] {stats}")
     if not records:
-        raise SystemExit("[convert] 0 rows converted — nothing to upload (no literal-bearing rows?).")
+        raise SystemExit(
+            "[convert] 0 rows converted — nothing to upload (no literal-bearing rows?)."
+        )
 
     out = Dataset.from_list(records)
     print(f"[upload] pushing {len(out)} rows -> {target_repo} (private={private})")
     out.push_to_hub(target_repo, private=private, token=token)
     HfApi().upload_file(
-        path_or_fileobj=_dataset_card(source_repo, tokenizer_ref, schema).encode("utf-8"),
+        path_or_fileobj=_dataset_card(source_repo, tokenizer_ref, schema).encode(
+            "utf-8"
+        ),
         path_in_repo="README.md",
         repo_id=target_repo,
         repo_type="dataset",
@@ -275,10 +314,16 @@ def convert_and_upload(
     print(f"[done] https://huggingface.co/datasets/{target_repo}  rows={len(out)}")
 
 
-def _validate(source_repo: str, tok, *, schema: str, n_rows: int, token: str | None) -> None:
+def _validate(
+    source_repo: str, tok, *, schema: str, n_rows: int, token: str | None
+) -> None:
     """Print + structurally check the first ``n_rows`` converted rows (no upload)."""
-    records, stats = convert_dataset(source_repo, tok, schema=schema, limit=n_rows, token=token)
-    from_key, val_key = ("from", "value") if schema == "sharegpt" else ("role", "content")
+    records, stats = convert_dataset(
+        source_repo, tok, schema=schema, limit=n_rows, token=token
+    )
+    from_key, val_key = (
+        ("from", "value") if schema == "sharegpt" else ("role", "content")
+    )
     sys_role = "system"
     asst_role = "gpt" if schema == "sharegpt" else "assistant"
     for i, rec in enumerate(records, 1):
@@ -289,8 +334,12 @@ def _validate(source_repo: str, tok, *, schema: str, n_rows: int, token: str | N
             print(f"  [{m[from_key]}] {m[val_key][:150]!r}")
         assert conv[0][from_key] == sys_role, "first turn is not the system prompt"
         assert any(m[from_key] == asst_role for m in conv), "no assistant turns"
-        assert any(m[from_key] == asst_role and "<think>" in m[val_key] for m in conv), "no reasoning"
-        assert all(m[val_key] in rec["text"] for m in conv if m[from_key] == asst_role), "assistant turn missing from text"
+        assert any(
+            m[from_key] == asst_role and "<think>" in m[val_key] for m in conv
+        ), "no reasoning"
+        assert all(
+            m[val_key] in rec["text"] for m in conv if m[from_key] == asst_role
+        ), "assistant turn missing from text"
     print(f"\n[validate] {stats}")
 
 
@@ -298,18 +347,38 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Convert a literal-token trace dataset into an SFT conversations dataset."
     )
-    p.add_argument("--source_repo", required=True, help="HF traces dataset with literal token columns")
-    p.add_argument("--target_repo", help="Destination HF dataset repo (required unless --validate)")
+    p.add_argument(
+        "--source_repo",
+        required=True,
+        help="HF traces dataset with literal token columns",
+    )
+    p.add_argument(
+        "--target_repo", help="Destination HF dataset repo (required unless --validate)"
+    )
     p.add_argument(
         "--tokenizer",
         default=None,
         help="Tokenizer ref (HF repo id, local dir, or gs:// mirror). Default: auto-resolve "
         f"served_model from the source's {TOKENIZER_PROVENANCE_FILE}.",
     )
-    p.add_argument("--schema", choices=["sharegpt", "openai"], default="sharegpt", help="conversations schema")
-    p.add_argument("--private", action="store_true", help="upload private (default: public)")
-    p.add_argument("--limit", type=int, default=None, help="convert at most N rows (debug)")
-    p.add_argument("--validate", type=int, default=0, help="print+check N converted rows, no upload")
+    p.add_argument(
+        "--schema",
+        choices=["sharegpt", "openai"],
+        default="sharegpt",
+        help="conversations schema",
+    )
+    p.add_argument(
+        "--private", action="store_true", help="upload private (default: public)"
+    )
+    p.add_argument(
+        "--limit", type=int, default=None, help="convert at most N rows (debug)"
+    )
+    p.add_argument(
+        "--validate",
+        type=int,
+        default=0,
+        help="print+check N converted rows, no upload",
+    )
     return p.parse_args()
 
 
@@ -323,7 +392,9 @@ def main() -> None:
     tok = load_tokenizer(tokenizer_ref)
 
     if args.validate:
-        _validate(args.source_repo, tok, schema=args.schema, n_rows=args.validate, token=token)
+        _validate(
+            args.source_repo, tok, schema=args.schema, n_rows=args.validate, token=token
+        )
         return
     if not args.target_repo:
         raise SystemExit("--target_repo is required unless --validate is used.")

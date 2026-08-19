@@ -16,6 +16,7 @@ Each model has ONE file at ``model_config/<org>/<slug>.yaml`` holding:
 
 Resolution merge order (later wins): base -> subsystem(s) -> hardware variant.
 """
+
 from model_config.resolver import (
     resolve_model_config,
     load_all_model_configs,

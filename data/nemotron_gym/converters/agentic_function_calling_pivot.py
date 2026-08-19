@@ -60,7 +60,7 @@ _TOOLCALL_HEADER = (
     "plus the catalogue of tools available to you. Decide the SINGLE next tool "
     "call to make.\n\n"
     "Write a JSON object to `/app/answer.txt` of exactly this form:\n\n"
-    "    {\"name\": \"<tool_name>\", \"arguments\": { ... }}\n\n"
+    '    {"name": "<tool_name>", "arguments": { ... }}\n\n'
     "`name` must be one of the available tools; `arguments` must be a JSON "
     "object with the exact argument keys/values that tool needs for this step. "
     "The verifier compares your tool name and arguments against the expected "
@@ -174,7 +174,9 @@ def _render_tools(tools: object) -> str:
         desc = t.get("description") if isinstance(t.get("description"), str) else ""
         params = t.get("parameters")
         try:
-            params_json = json.dumps(params, ensure_ascii=False) if params is not None else "{}"
+            params_json = (
+                json.dumps(params, ensure_ascii=False) if params is not None else "{}"
+            )
         except (TypeError, ValueError):
             params_json = "{}"
         lines.append(f"- {name}: {desc}\n    parameters: {params_json}")
@@ -202,7 +204,9 @@ def _parse_expected_arguments(args: object) -> dict | None:
 
 
 @register(_SOURCE)
-def convert_agentic_function_calling_pivot(row: dict, row_idx: int) -> HarborTask | None:
+def convert_agentic_function_calling_pivot(
+    row: dict, row_idx: int
+) -> HarborTask | None:
     ea = row.get("expected_action")
     if not isinstance(ea, dict):
         return None
@@ -219,10 +223,7 @@ def convert_agentic_function_calling_pivot(row: dict, row_idx: int) -> HarborTas
     trajectory_id = row.get("trajectory_id")
     info = row.get("info") if isinstance(row.get("info"), dict) else {}
 
-    body = (
-        f"Available tools:\n{tools_md}\n\n"
-        f"Conversation so far:\n{transcript}"
-    )
+    body = f"Available tools:\n{tools_md}\n\nConversation so far:\n{transcript}"
     if len(body) > _TRANSCRIPT_MAX:
         body = body[:_TRANSCRIPT_MAX] + "\n\n[... transcript truncated ...]"
 
@@ -274,14 +275,14 @@ def convert_agentic_function_calling_pivot(row: dict, row_idx: int) -> HarborTas
         content = ea.get("content")
         if not isinstance(content, str) or not content.strip():
             return None
-        content = sanitize_text(content, field_name="expected_content", max_len=64 * 1024)
+        content = sanitize_text(
+            content, field_name="expected_content", max_len=64 * 1024
+        )
         instruction = sanitize_text(
             _MESSAGE_HEADER + body,
             field_name="instruction_md",
             max_len=_INSTR_MAX,
-        ) + answer_delivery_guidance(
-            "/app/response.txt", what="your reply"
-        )
+        ) + answer_delivery_guidance("/app/response.txt", what="your reply")
         task_id = task_id_for(
             "agentic-msg-pivot",
             f"{trajectory_id}|{info.get('turn')}|{info.get('step')}|" + content[:256],

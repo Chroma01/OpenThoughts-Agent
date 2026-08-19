@@ -69,7 +69,9 @@ def _discover_cli_flags() -> set[str]:
         # vllm-tpu's --help import path triggers libtpu/XLA bring-up which can
         # hang for minutes on a cold worker; 60s lets us fall back to the
         # assume-supported path before a TPU import deadlock.
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=60
+        )
     except Exception as exc:  # pragma: no cover - best effort
         print(
             f"[start_vllm_ray_controller] Warning: unable to inspect vLLM CLI flags ({exc}); "
@@ -99,10 +101,12 @@ def _supported_flags() -> set[str]:
 # Flags that the CUDA vLLM api_server accepts but the vLLM-TPU api_server
 # rejects with "unrecognized arguments". When VLLM_SKIP_FLAG_DISCOVERY=1 we
 # can't probe the real argparse, so we have to know these statically.
-_TPU_UNSUPPORTED_API_SERVER_FLAGS = frozenset({
-    "--ray-address",
-    "--swap-space",
-})
+_TPU_UNSUPPORTED_API_SERVER_FLAGS = frozenset(
+    {
+        "--ray-address",
+        "--swap-space",
+    }
+)
 
 
 def _is_tpu_env() -> bool:
@@ -175,8 +179,12 @@ def build_vllm_command(args: argparse.Namespace, extra_args: List[str]) -> List[
     # Pipeline parallel size
     if args.pipeline_parallel_size > 1:
         if _flag_supported("--pipeline-parallel-size"):
-            _append_flag(cmd, "--pipeline-parallel-size", str(args.pipeline_parallel_size))
-            print(f"[start_vllm_ray_controller] Enabling pipeline parallelism: {args.pipeline_parallel_size}")
+            _append_flag(
+                cmd, "--pipeline-parallel-size", str(args.pipeline_parallel_size)
+            )
+            print(
+                f"[start_vllm_ray_controller] Enabling pipeline parallelism: {args.pipeline_parallel_size}"
+            )
         else:
             print(
                 "[start_vllm_ray_controller] WARNING: --pipeline-parallel-size not supported by vLLM version",
@@ -210,7 +218,9 @@ def build_vllm_command(args: argparse.Namespace, extra_args: List[str]) -> List[
     return cmd
 
 
-def write_endpoint_json(endpoint_json: Path, host: str, port: int, model: str, args: argparse.Namespace) -> None:
+def write_endpoint_json(
+    endpoint_json: Path, host: str, port: int, model: str, args: argparse.Namespace
+) -> None:
     endpoint_json.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "model_name": args.served_model_name or model,
@@ -234,10 +244,20 @@ def parse_args() -> tuple[argparse.Namespace, List[str]]:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("--ray-address", required=True, help="Address of the Ray head (host:port)")
-    parser.add_argument("--host", default="0.0.0.0", help="Host interface for the API server (default: 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=8000, help="Port for the API server (default: 8000)")
-    parser.add_argument("--model", type=str, help="Model path (defaults to VLLM_MODEL_PATH env var)")
+    parser.add_argument(
+        "--ray-address", required=True, help="Address of the Ray head (host:port)"
+    )
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Host interface for the API server (default: 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=8000, help="Port for the API server (default: 8000)"
+    )
+    parser.add_argument(
+        "--model", type=str, help="Model path (defaults to VLLM_MODEL_PATH env var)"
+    )
     parser.add_argument(
         "--tensor-parallel-size",
         type=int,
@@ -339,24 +359,29 @@ def main() -> None:
     # ray.init / ray.shutdown roundtrip costs ~3-5s and isn't load-bearing
     # (vLLM connects to Ray itself with its own ray.init). Set
     # VLLM_SKIP_RAY_PROBE=1 (iris launcher sets it automatically) to skip.
-    if (
-        ray is not None
-        and ray_address
-        and os.environ.get("VLLM_SKIP_RAY_PROBE") != "1"
-    ):
+    if ray is not None and ray_address and os.environ.get("VLLM_SKIP_RAY_PROBE") != "1":
         try:
-            print(f"[start_vllm_ray_controller] Inspecting Ray resources at {ray_address} before placement.", flush=True)
+            print(
+                f"[start_vllm_ray_controller] Inspecting Ray resources at {ray_address} before placement.",
+                flush=True,
+            )
             ray.init(address=ray_address, ignore_reinit_error=True)
             cluster_resources = ray.cluster_resources()
             nodes = ray.nodes()
-            print(f"[start_vllm_ray_controller] Ray cluster resources: {cluster_resources}", flush=True)
+            print(
+                f"[start_vllm_ray_controller] Ray cluster resources: {cluster_resources}",
+                flush=True,
+            )
             print(
                 f"[start_vllm_ray_controller] Ray nodes ({len(nodes)}): "
                 f"{[node.get('NodeID') for node in nodes]}",
                 flush=True,
             )
         except Exception as exc:  # pragma: no cover - best effort logging
-            print(f"[start_vllm_ray_controller] Warning: unable to query Ray cluster resources: {exc}", flush=True)
+            print(
+                f"[start_vllm_ray_controller] Warning: unable to query Ray cluster resources: {exc}",
+                flush=True,
+            )
         finally:
             try:
                 ray.shutdown()
@@ -398,7 +423,11 @@ def main() -> None:
                 sys.stdout.write(line)
                 sys.stdout.flush()
         except Exception as exc:  # pragma: no cover
-            print(f"[start_vllm_ray_controller] tee error: {exc}", file=sys.stderr, flush=True)
+            print(
+                f"[start_vllm_ray_controller] tee error: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     tee_thread = threading.Thread(target=_tee_child_output, daemon=True)
     tee_thread.start()

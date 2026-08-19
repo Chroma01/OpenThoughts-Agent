@@ -78,7 +78,7 @@ _INDUCTIVE_HEADER = (
     "The verifier imports your `transform` and runs it on a held-out test input, "
     "comparing the returned grid cell-by-cell to the gold output. Available "
     "imports inside the sandbox: numpy, scipy, itertools, collections. Do NOT "
-    "include an `if __name__ == \"__main__\"` block. (You may instead place the "
+    'include an `if __name__ == "__main__"` block. (You may instead place the '
     "fenced ```python ... ``` code block in `/app/answer.txt`; the verifier "
     "extracts the transform function from either location.)\n\n"
     "---\n\n"
@@ -118,7 +118,11 @@ def _convert_transductive(row: dict, row_idx: int) -> HarborTask | None:
         + answer_delivery_guidance("/app/answer.txt", what="the output grid")
     )
     dockerfile = render_dockerfile(base=_BASE_IMAGE)
-    pid = row.get("problem_id") if isinstance(row.get("problem_id"), str) else str(row_idx)
+    pid = (
+        row.get("problem_id")
+        if isinstance(row.get("problem_id"), str)
+        else str(row_idx)
+    )
     task_id = task_id_for("arc-trans", f"{pid}|{row_idx}|" + repr(expected))
     return HarborTask(
         task_id=task_id,
@@ -156,7 +160,11 @@ def _convert_inductive(row: dict, row_idx: int) -> HarborTask | None:
         base=_BASE_IMAGE,
         pip_packages=("numpy==1.26.4", "scipy==1.11.4"),
     )
-    pid = row.get("problem_id") if isinstance(row.get("problem_id"), str) else str(row_idx)
+    pid = (
+        row.get("problem_id")
+        if isinstance(row.get("problem_id"), str)
+        else str(row_idx)
+    )
     task_id = task_id_for("arc-induct", f"{pid}|{row_idx}|" + repr(expected))
     return HarborTask(
         task_id=task_id,
@@ -199,7 +207,9 @@ def convert_arc_agi(row: dict, row_idx: int) -> HarborTask | None:
     if isinstance(rcp, dict):
         for m in rcp.get("input", []) or []:
             if isinstance(m, dict) and m.get("role") == "system":
-                sys_txt = m.get("content", "") if isinstance(m.get("content"), str) else ""
+                sys_txt = (
+                    m.get("content", "") if isinstance(m.get("content"), str) else ""
+                )
                 break
     if "transform" in sys_txt and "Python" in sys_txt:
         return _convert_inductive(row, row_idx)

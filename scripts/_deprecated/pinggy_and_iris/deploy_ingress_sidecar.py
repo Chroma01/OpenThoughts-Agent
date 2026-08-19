@@ -47,7 +47,9 @@ from serve_public import parse_bank  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-IRIS_BIN = os.environ.get("IRIS_BIN", "/Users/benjaminfeuer/Documents/marin/.venv/bin/iris")
+IRIS_BIN = os.environ.get(
+    "IRIS_BIN", "/Users/benjaminfeuer/Documents/marin/.venv/bin/iris"
+)
 # Cluster the sidecar runs on. It fronts THAT cluster's controller EndpointProxy, so it must
 # be the SAME cluster the served endpoint is registered on (a cross-cluster/federated proxy
 # hop is exactly what marin#7448 broke). Override for a CoreWeave-GPU endpoint (e.g. the grug
@@ -59,7 +61,8 @@ ENTRYPOINT = "scripts/inference/run_ingress_sidecar_iris.py"
 # single-region and reject the GCP-TPU region names). Override via IRIS_INGRESS_REGION.
 DEFAULT_REGION = os.environ.get("IRIS_INGRESS_REGION", "us-east5")
 DEFAULT_BANK = os.environ.get(
-    "PINGGY_BANK", str(Path.home() / "Documents" / "notes" / "ot-agent" / "pinggy_bank.md")
+    "PINGGY_BANK",
+    str(Path.home() / "Documents" / "notes" / "ot-agent" / "pinggy_bank.md"),
 )
 SIDECAR_PORT = 8443
 
@@ -74,12 +77,14 @@ def require_key() -> str:
     if not key:
         raise SystemExit(
             "IRIS_INGRESS_API_KEY not in env — "
-            "`source \"$DC_AGENT_SECRET_ENV\"` first (see .agents/secret.md)."
+            '`source "$DC_AGENT_SECRET_ENV"` first (see .agents/secret.md).'
         )
     return key
 
 
-def run_iris(*args: str, cwd: str | None = None, timeout: int = 300, check: bool = True) -> str:
+def run_iris(
+    *args: str, cwd: str | None = None, timeout: int = 300, check: bool = True
+) -> str:
     """Invoke the iris CLI; return stdout (iris logs go to stderr)."""
     result = subprocess.run(
         [IRIS_BIN, "--cluster", CLUSTER, *args],
@@ -89,7 +94,9 @@ def run_iris(*args: str, cwd: str | None = None, timeout: int = 300, check: bool
         timeout=timeout,
     )
     if check and result.returncode != 0:
-        raise SystemExit(f"iris {' '.join(args)} failed (code {result.returncode}):\n{result.stderr[-1200:]}")
+        raise SystemExit(
+            f"iris {' '.join(args)} failed (code {result.returncode}):\n{result.stderr[-1200:]}"
+        )
     return result.stdout
 
 
@@ -118,7 +125,9 @@ def _edge_ip(host: str) -> str:
         try:
             lines = subprocess.run(
                 ["dig", f"@{resolver}", "+short", "+tries=2", "+time=3", host],
-                capture_output=True, text=True, timeout=12,
+                capture_output=True,
+                text=True,
+                timeout=12,
             ).stdout.splitlines()
         except Exception:
             continue
@@ -128,7 +137,9 @@ def _edge_ip(host: str) -> str:
     return ""
 
 
-def curl_code(host: str, path: str, bearer: str | None = None, timeout: int = 25, retries: int = 3) -> int:
+def curl_code(
+    host: str, path: str, bearer: str | None = None, timeout: int = 25, retries: int = 3
+) -> int:
     """HTTP status of ``https://<host><path>`` via the pinggy edge; 0 if no response.
 
     Always forces a freshly-resolved edge IP with ``--resolve`` (system DNS is
@@ -139,14 +150,25 @@ def curl_code(host: str, path: str, bearer: str | None = None, timeout: int = 25
     code = 0
     for _ in range(retries):
         edge = _edge_ip(host)
-        cmd = ["curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", str(timeout)]
+        cmd = [
+            "curl",
+            "-sk",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "--max-time",
+            str(timeout),
+        ]
         if edge:
             cmd += ["--resolve", f"{host}:443:{edge}"]
         if bearer:
             cmd += ["-H", f"Authorization: Bearer {bearer}"]
         cmd.append(f"https://{host}{path}")
         try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10).stdout.strip()
+            out = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout + 10
+            ).stdout.strip()
             code = int(out or "0")
         except Exception:
             code = 0
@@ -214,7 +236,9 @@ def find_running_job() -> dict | None:
     out = run_iris(
         "query",
         f"SELECT job_id, state FROM jobs WHERE job_id LIKE '%/{JOB_NAME}'",
-        "-f", "csv", check=False,
+        "-f",
+        "csv",
+        check=False,
     )
     for line in out.splitlines():
         parts = [p.strip() for p in line.split(",")]
@@ -246,21 +270,40 @@ def stop_ingress_job(job_id: str) -> None:
 def launch(url: str, token: str, api_key: str, region: str) -> str:
     """Submit the CPU-only, non-preemptible ingress job; return its job_id."""
     args = [
-        "job", "run",
-        "--cpu", "2", "--memory", "2GB", "--disk", "8GB",
-        "--priority", "interactive", "--no-preemptible",
+        "job",
+        "run",
+        "--cpu",
+        "2",
+        "--memory",
+        "2GB",
+        "--disk",
+        "8GB",
+        "--priority",
+        "interactive",
+        "--no-preemptible",
         *(["--region", region] if region else []),
-        "--job-name", JOB_NAME,
-        "-e", "IRIS_INGRESS_API_KEY", api_key,
-        "-e", "PINGGY_URL", url,
-        "-e", "PINGGY_TOKEN", token,
+        "--job-name",
+        JOB_NAME,
+        "-e",
+        "IRIS_INGRESS_API_KEY",
+        api_key,
+        "-e",
+        "PINGGY_URL",
+        url,
+        "-e",
+        "PINGGY_TOKEN",
+        token,
         "--no-wait",
-        "--", "python", ENTRYPOINT,
+        "--",
+        "python",
+        ENTRYPOINT,
     ]
     out = run_iris(*args, cwd=str(_REPO_ROOT), timeout=600)
     job_ids = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("/")]
     if not job_ids:
-        raise SystemExit(f"could not parse job_id from `iris job run` output:\n{out[-800:]}")
+        raise SystemExit(
+            f"could not parse job_id from `iris job run` output:\n{out[-800:]}"
+        )
     return job_ids[-1]
 
 
@@ -272,13 +315,19 @@ def wait_for_serving(job_id: str, timeout: int = 420) -> str:
         if host:
             return host
         summary = run_iris("job", "summary", job_id, check=False)
-        if re.search(r"State:\s+(failed|terminated|dead|error|cancelled)", summary, re.I):
-            raise SystemExit(f"job {job_id} went terminal before serving:\n{summary[-800:]}")
+        if re.search(
+            r"State:\s+(failed|terminated|dead|error|cancelled)", summary, re.I
+        ):
+            raise SystemExit(
+                f"job {job_id} went terminal before serving:\n{summary[-800:]}"
+            )
         time.sleep(15)
     raise SystemExit(f"job {job_id} did not print INGRESS_HOST within {timeout}s.")
 
 
-def launch_and_verify(api_key: str, region: str, bank: str, attempts: int = 2) -> tuple[str, str]:
+def launch_and_verify(
+    api_key: str, region: str, bank: str, attempts: int = 2
+) -> tuple[str, str]:
     """Pick a free pair, launch, wait, and G2-verify; retry on a fresh pair if G2 fails."""
     tried: set[str] = set()
     last = ""
@@ -298,10 +347,14 @@ def launch_and_verify(api_key: str, region: str, bank: str, attempts: int = 2) -
             log(f"[deploy] G2 OK {detail}")
             return host, job_id
         last = str(detail)
-        log(f"[deploy] G2 FAILED on {url}: {detail}; tearing down and trying another pair.")
+        log(
+            f"[deploy] G2 FAILED on {url}: {detail}; tearing down and trying another pair."
+        )
         stop_ingress_job(job_id)
         time.sleep(5)
-    raise SystemExit(f"could not stand up a healthy ingress after {attempts} pairs; last G2={last}")
+    raise SystemExit(
+        f"could not stand up a healthy ingress after {attempts} pairs; last G2={last}"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -341,7 +394,9 @@ def cmd_ensure(args) -> int:
         if host and is_public_healthy(host, tolerance=180):
             print(f"INGRESS_HOST={host} JOB_ID={job_id} STATUS=healthy")
             return 0
-        log(f"[ensure] job {job_id} RUNNING but public /healthz down >180s; redeploying.")
+        log(
+            f"[ensure] job {job_id} RUNNING but public /healthz down >180s; redeploying."
+        )
         stop_ingress_job(job_id)
         time.sleep(5)
     else:
@@ -360,12 +415,16 @@ def cmd_status(args) -> int:
     state = job.get("state", "?")
     host = ingress_host_from_logs(job_id) or "unknown"
     healthy = host != "unknown" and is_public_healthy(host, tolerance=30)
-    print(f"JOB_ID={job_id} STATE={state} INGRESS_HOST={host} HEALTHZ={'200' if healthy else '000'}")
+    print(
+        f"JOB_ID={job_id} STATE={state} INGRESS_HOST={host} HEALTHZ={'200' if healthy else '000'}"
+    )
     return 0 if healthy else 1
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = p.add_subparsers(dest="cmd")
     for name in ("deploy", "ensure", "status"):
         sp = sub.add_parser(name)

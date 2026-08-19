@@ -157,6 +157,7 @@ class LocalRLRunner:
 
     def _setup_signal_handlers(self) -> None:
         """Set up signal handlers for graceful shutdown."""
+
         def handle_signal(signum, _frame):
             print(f"\nSignal {signum} received; shutting down...", file=sys.stderr)
             self.cleanup()
@@ -178,6 +179,7 @@ class LocalRLRunner:
         if self._ray_started:
             try:
                 import ray
+
                 ray.shutdown()
                 print("Ray cluster shut down.")
             except Exception:
@@ -220,7 +222,9 @@ class LocalRLRunner:
         # Build experiment args dict (mimics exp_args from HPC launcher)
         exp_args = self._build_exp_args()
 
-        parsed, passthrough_overrides = apply_context_budget_overrides(parsed, self.config.skyrl_overrides)
+        parsed, passthrough_overrides = apply_context_budget_overrides(
+            parsed, self.config.skyrl_overrides
+        )
         print(f"Resolved context budget: {parsed.context_budget.as_dict()}")
 
         # Build Hydra args using shared utility
@@ -230,13 +234,17 @@ class LocalRLRunner:
             cpus_per_node=self.config.cpus,
         )
         experiments_root = Path(self.config.experiments_dir)
-        run_paths = RLPathManager(self.config.job_name, experiments_root, experiments_root).resolve(
+        run_paths = RLPathManager(
+            self.config.job_name, experiments_root, experiments_root
+        ).resolve(
             trainer_config=parsed.trainer,
             terminal_bench_config=parsed.terminal_bench or {},
             skyrl_overrides=self.config.skyrl_overrides,
         )
         print(run_paths.describe())
-        hydra_args = build_skyrl_hydra_args(parsed, exp_args, hpc_stub, run_paths=run_paths)
+        hydra_args = build_skyrl_hydra_args(
+            parsed, exp_args, hpc_stub, run_paths=run_paths
+        )
 
         if passthrough_overrides:
             hydra_args.extend(passthrough_overrides)
@@ -301,7 +309,10 @@ class LocalRLRunner:
         # multi-node Ray cluster each node's task already sees its own 8 GPUs and
         # Ray/SkyRL place workers per-node, so pinning here would be wrong.
         if self.config.num_nodes <= 1:
-            os.environ.setdefault("CUDA_VISIBLE_DEVICES", ",".join(str(i) for i in range(self.config.gpus)))
+            os.environ.setdefault(
+                "CUDA_VISIBLE_DEVICES",
+                ",".join(str(i) for i in range(self.config.gpus)),
+            )
 
         print("\nEnvironment configured:")
         print(f"  TENSOR_PARALLEL_SIZE={os.environ['TENSOR_PARALLEL_SIZE']}")
@@ -333,8 +344,10 @@ class LocalRLRunner:
         # slice, which then crashed in the local ray.init() below.
         external_ray = bool(os.environ.get("RAY_ADDRESS"))
         if external_ray:
-            print(f"\nAttaching to external Ray cluster at {os.environ['RAY_ADDRESS']} "
-                  f"(num_nodes={self.config.num_nodes}, gpus_per_node={self._gpus_per_node()})")
+            print(
+                f"\nAttaching to external Ray cluster at {os.environ['RAY_ADDRESS']} "
+                f"(num_nodes={self.config.num_nodes}, gpus_per_node={self._gpus_per_node()})"
+            )
             return self._run_skyrl(entrypoint, hydra_args)
 
         try:
@@ -386,7 +399,7 @@ class LocalRLRunner:
             else:
                 cwd = None
 
-        print(f"\nCommand: {' '.join(cmd[:3])} [... {len(cmd)-3} more args]")
+        print(f"\nCommand: {' '.join(cmd[:3])} [... {len(cmd) - 3} more args]")
         sys.stdout.flush()
 
         proc = subprocess.Popen(cmd, cwd=cwd)
@@ -397,6 +410,7 @@ class LocalRLRunner:
 @dataclass
 class _LocalHPCStub:
     """Minimal HPC-like object for build_skyrl_hydra_args compatibility."""
+
     gpus_per_node: int = 4
     cpus_per_node: int = 48
     name: str = "local"
@@ -496,7 +510,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Number of nodes (default 1 = single-node local Ray). >1 attaches to "
-             "an external Ray cluster via RAY_ADDRESS (used by the iris GPU launcher).",
+        "an external Ray cluster via RAY_ADDRESS (used by the iris GPU launcher).",
     )
     parser.add_argument("--num-nodes", dest="num_nodes", help=argparse.SUPPRESS)
 
@@ -532,7 +546,12 @@ def create_parser() -> argparse.ArgumentParser:
         default=[],
         help="SkyRL Hydra override (can be specified multiple times).",
     )
-    parser.add_argument("--skyrl-override", dest="skyrl_override", action="append", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--skyrl-override",
+        dest="skyrl_override",
+        action="append",
+        help=argparse.SUPPRESS,
+    )
 
     # Path arguments
     parser.add_argument(
@@ -540,7 +559,9 @@ def create_parser() -> argparse.ArgumentParser:
         default=str(PROJECT_ROOT / "experiments"),
         help="Directory for experiment outputs.",
     )
-    parser.add_argument("--experiments-dir", dest="experiments_dir", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--experiments-dir", dest="experiments_dir", help=argparse.SUPPRESS
+    )
 
     # Control arguments
     parser.add_argument(
@@ -548,7 +569,9 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print configuration and command without running.",
     )
-    parser.add_argument("--dry-run", dest="dry_run", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--dry-run", dest="dry_run", action="store_true", help=argparse.SUPPRESS
+    )
 
     return parser
 

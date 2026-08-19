@@ -41,6 +41,7 @@ Importable: ``get_job_state(job_id, cluster)`` returns a ``JobStateSnapshot``;
 ``watch(job_id, ...)`` runs the poll loop and returns the terminal snapshot, so a
 supervising agent can use this as the watch primitive instead of grepping logs.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -61,7 +62,9 @@ from typing import Any, Callable, Collection, Mapping, Sequence, TypeVar
 
 # The operational helpers deliberately validate identifiers with the current
 # Iris implementation from Marin main, not a copy vendored into this repo.
-MARIN_MAIN_ROOT = Path(os.environ.get("MARIN_MAIN_ROOT", "/Users/benjaminfeuer/Documents/marin"))
+MARIN_MAIN_ROOT = Path(
+    os.environ.get("MARIN_MAIN_ROOT", "/Users/benjaminfeuer/Documents/marin")
+)
 MARIN_IRIS_SOURCE = MARIN_MAIN_ROOT / "lib" / "iris" / "src"
 if MARIN_IRIS_SOURCE.exists() and str(MARIN_IRIS_SOURCE) not in sys.path:
     sys.path.insert(0, str(MARIN_IRIS_SOURCE))
@@ -148,7 +151,9 @@ class RegexFilter:
 Record = TypeVar("Record")
 
 
-def parse_regex_filters(specifications: Sequence[str], allowed_fields: Collection[str]) -> list[RegexFilter]:
+def parse_regex_filters(
+    specifications: Sequence[str], allowed_fields: Collection[str]
+) -> list[RegexFilter]:
     """Parse user-facing ``field=regex`` filters and validate their field names."""
     allowed = {field.lower() for field in allowed_fields}
     filters: list[RegexFilter] = []
@@ -164,7 +169,9 @@ def parse_regex_filters(specifications: Sequence[str], allowed_fields: Collectio
         try:
             pattern = re.compile(expression, re.IGNORECASE)
         except re.error as error:
-            raise ValueError(f"Invalid regex in filter {specification!r}: {error}") from error
+            raise ValueError(
+                f"Invalid regex in filter {specification!r}: {error}"
+            ) from error
         filters.append(RegexFilter(normalized_field, pattern))
     return filters
 
@@ -179,8 +186,13 @@ def filter_records(
         return list(records)
     matching: list[Record] = []
     for record in records:
-        values = {field.lower(): str(value) for field, value in field_values(record).items()}
-        if all(regex_filter.pattern.search(values[regex_filter.field]) for regex_filter in filters):
+        values = {
+            field.lower(): str(value) for field, value in field_values(record).items()
+        }
+        if all(
+            regex_filter.pattern.search(values[regex_filter.field])
+            for regex_filter in filters
+        ):
             matching.append(record)
     return matching
 
@@ -194,13 +206,23 @@ def format_duration(
     """Format elapsed time from start through finish or the current instant."""
     if started_at_ms is None:
         return "—"
-    ended_at_ms = finished_at_ms if finished_at_ms is not None else now_ms if now_ms is not None else int(time.time() * 1000)
+    ended_at_ms = (
+        finished_at_ms
+        if finished_at_ms is not None
+        else now_ms
+        if now_ms is not None
+        else int(time.time() * 1000)
+    )
     if ended_at_ms < started_at_ms:
         return "—"
     total_minutes = (ended_at_ms - started_at_ms) // 60_000
     days, remaining_minutes = divmod(total_minutes, 1_440)
     hours, minutes = divmod(remaining_minutes, 60)
-    parts = ([f"{days}d"] if days else []) + ([f"{hours}h"] if hours else []) + [f"{minutes}m"]
+    parts = (
+        ([f"{days}d"] if days else [])
+        + ([f"{hours}h"] if hours else [])
+        + [f"{minutes}m"]
+    )
     return " ".join(parts)
 
 
@@ -243,11 +265,15 @@ def _pad(value: str, width: int) -> str:
     return value + " " * max(0, width - _display_width(value))
 
 
-def _column_widths(headers: Sequence[str], rows: Sequence[Sequence[StyledCell]], max_width: int) -> list[int]:
+def _column_widths(
+    headers: Sequence[str], rows: Sequence[Sequence[StyledCell]], max_width: int
+) -> list[int]:
     natural = [_display_width(header) for header in headers]
     for row in rows:
         for index, cell in enumerate(row):
-            natural[index] = max(natural[index], _display_width(_single_line(cell.value)))
+            natural[index] = max(
+                natural[index], _display_width(_single_line(cell.value))
+            )
 
     # A box consumes three characters per column (two spaces and one separator)
     # plus the closing separator. Always retain at least one content character.
@@ -258,10 +284,14 @@ def _column_widths(headers: Sequence[str], rows: Sequence[Sequence[StyledCell]],
     ]
     widths = minimums if sum(minimums) <= available else [1] * len(headers)
     while sum(widths) < available:
-        candidates = [index for index, width in enumerate(widths) if width < natural[index]]
+        candidates = [
+            index for index, width in enumerate(widths) if width < natural[index]
+        ]
         if not candidates:
             break
-        index = max(candidates, key=lambda item: (natural[item] - widths[item]) / natural[item])
+        index = max(
+            candidates, key=lambda item: (natural[item] - widths[item]) / natural[item]
+        )
         widths[index] += 1
     return widths
 
@@ -310,7 +340,9 @@ def box_table(
         return _styled(value, "info", color)
 
     def logical_row(values: Sequence[StyledCell]) -> list[str]:
-        columns = [_wrapped_lines(cell.value, width) for cell, width in zip(values, widths)]
+        columns = [
+            _wrapped_lines(cell.value, width) for cell, width in zip(values, widths)
+        ]
         height = max(len(column) for column in columns)
         lines: list[str] = []
         for line_index in range(height):
@@ -332,7 +364,9 @@ def box_table(
     return "\n".join(lines)
 
 
-def render_error_report(title: str, checked_at: datetime, errors: Sequence[MonitorError]) -> str:
+def render_error_report(
+    title: str, checked_at: datetime, errors: Sequence[MonitorError]
+) -> str:
     """Render normalized monitor failures separately from the fleet status table."""
     lines = [f"# {title}", "", f"Checked at: {checked_at.isoformat()}", ""]
     if not errors:
@@ -342,7 +376,9 @@ def render_error_report(title: str, checked_at: datetime, errors: Sequence[Monit
         grouped.setdefault(_single_line(error.scope), []).append(error)
     for scope in sorted(grouped):
         lines.extend([f"## {scope}", ""])
-        for error in sorted(grouped[scope], key=lambda item: (item.operation, item.message)):
+        for error in sorted(
+            grouped[scope], key=lambda item: (item.operation, item.message)
+        ):
             lines.append(
                 f"- **{_single_line(error.operation)}:** {_single_line(error.message)}"
             )
@@ -410,9 +446,13 @@ def load_bundle_manifest(bundle: JobBundle) -> dict[str, Any]:
     try:
         value = json.loads(bundle.manifest_path.read_text())
     except json.JSONDecodeError as error:
-        raise ValueError(f"Invalid bundle manifest at {bundle.manifest_path}: {error}") from error
+        raise ValueError(
+            f"Invalid bundle manifest at {bundle.manifest_path}: {error}"
+        ) from error
     if not isinstance(value, dict):
-        raise ValueError(f"Bundle manifest at {bundle.manifest_path} must contain a JSON object.")
+        raise ValueError(
+            f"Bundle manifest at {bundle.manifest_path} must contain a JSON object."
+        )
     return value
 
 
@@ -429,7 +469,9 @@ def write_bundle_manifest(bundle: JobBundle, updates: dict[str, Any]) -> None:
             "bundle_directory": str(bundle.directory),
         }
     )
-    bundle.manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n")
+    bundle.manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n"
+    )
 
 
 def is_transient_dns_failure(result: subprocess.CompletedProcess[str]) -> bool:
@@ -440,12 +482,17 @@ def is_transient_dns_failure(result: subprocess.CompletedProcess[str]) -> bool:
     return any(marker in message for marker in TRANSIENT_DNS_MARKERS)
 
 
-def is_transient_iris_connection_failure(result: subprocess.CompletedProcess[str]) -> bool:
+def is_transient_iris_connection_failure(
+    result: subprocess.CompletedProcess[str],
+) -> bool:
     """Return whether an Iris command failed on a retryable network dependency."""
     if result.returncode == 0:
         return False
     message = f"{result.stderr}\n{result.stdout}".lower()
-    return any(marker in message for marker in (*TRANSIENT_DNS_MARKERS, *TRANSIENT_FINELOG_MARKERS))
+    return any(
+        marker in message
+        for marker in (*TRANSIENT_DNS_MARKERS, *TRANSIENT_FINELOG_MARKERS)
+    )
 
 
 def run_iris_command(
@@ -465,7 +512,10 @@ def run_iris_command(
             timeout=timeout,
             env=environment,
         )
-        if not is_transient_iris_connection_failure(result) or attempt == DNS_ATTEMPTS - 1:
+        if (
+            not is_transient_iris_connection_failure(result)
+            or attempt == DNS_ATTEMPTS - 1
+        ):
             return result
         time.sleep(DNS_INITIAL_BACKOFF * 2**attempt)
     raise AssertionError("unreachable")
@@ -520,7 +570,9 @@ class JobStateSnapshot:
 # ---------- iris CLI helpers (authoritative state) ----------
 
 
-def _run_iris(args: list[str], cluster: str, timeout: int = 180) -> subprocess.CompletedProcess:
+def _run_iris(
+    args: list[str], cluster: str, timeout: int = 180
+) -> subprocess.CompletedProcess:
     cmd = [IRIS_BIN, f"--cluster={cluster}", *args]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
@@ -589,7 +641,10 @@ def get_job_summary(job_id: str, cluster: str) -> JobStateSnapshot | None:
         last_err = (proc.stderr or proc.stdout)[-400:]
         if attempt < len(IRIS_BACKOFFS):
             time.sleep(IRIS_BACKOFFS[attempt])
-    print(f"  [summary] failed after {IRIS_ATTEMPTS} attempts: {last_err}", file=sys.stderr)
+    print(
+        f"  [summary] failed after {IRIS_ATTEMPTS} attempts: {last_err}",
+        file=sys.stderr,
+    )
     return None
 
 
@@ -653,7 +708,9 @@ def count_live_pods(job_id: str) -> int | None:
 # ---------- the authoritative single observation ----------
 
 
-def get_job_state(job_id: str, cluster: str = DEFAULT_CLUSTER, check_pods: bool = False) -> JobStateSnapshot:
+def get_job_state(
+    job_id: str, cluster: str = DEFAULT_CLUSTER, check_pods: bool = False
+) -> JobStateSnapshot:
     """Return the current authoritative state of ``job_id``.
 
     Order: ``job summary --json`` (primary) → ``query`` (fallback) → if both say
@@ -673,8 +730,11 @@ def get_job_state(job_id: str, cluster: str = DEFAULT_CLUSTER, check_pods: bool 
         # "disappeared" from "controller unreachable" via the pod count.
         if pods == 0:
             return JobStateSnapshot(
-                job_id=job_id, state="absent", state_int=None,
-                source="absent", pods_alive=0,
+                job_id=job_id,
+                state="absent",
+                state_int=None,
+                source="absent",
+                pods_alive=0,
                 error="no controller record AND 0 pods on cluster (disappeared)",
             )
         raise RuntimeError(
@@ -723,8 +783,12 @@ def watch(
                 return snap
         if max_polls is not None and polls >= max_polls:
             print(f"[watch] reached max_polls={max_polls}; stopping", file=sys.stderr)
-            return snap if snap is not None else JobStateSnapshot(
-                job_id=job_id, state="unspecified", state_int=0, source="timeout"
+            return (
+                snap
+                if snap is not None
+                else JobStateSnapshot(
+                    job_id=job_id, state="unspecified", state_int=0, source="timeout"
+                )
             )
         time.sleep(interval)
 
@@ -740,14 +804,33 @@ _EXIT_FOR_STATE = {
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("job_id", help="iris job id, e.g. /benjaminfeuer/rl-131k-cpdcp2r3")
-    ap.add_argument("--cluster", default=DEFAULT_CLUSTER, help=f"iris cluster (default: {DEFAULT_CLUSTER}; use 'marin' for TPU)")
-    ap.add_argument("--interval", type=int, default=60, help="poll interval seconds (default 60)")
-    ap.add_argument("--once", action="store_true", help="print current state once and exit")
-    ap.add_argument("--no-pods", action="store_true", help="skip the kubectl pod cross-check")
-    ap.add_argument("--max-polls", type=int, default=None, help="stop after N polls even if still running")
-    ap.add_argument("--json", action="store_true", help="emit the final snapshot as JSON")
+    ap.add_argument(
+        "--cluster",
+        default=DEFAULT_CLUSTER,
+        help=f"iris cluster (default: {DEFAULT_CLUSTER}; use 'marin' for TPU)",
+    )
+    ap.add_argument(
+        "--interval", type=int, default=60, help="poll interval seconds (default 60)"
+    )
+    ap.add_argument(
+        "--once", action="store_true", help="print current state once and exit"
+    )
+    ap.add_argument(
+        "--no-pods", action="store_true", help="skip the kubectl pod cross-check"
+    )
+    ap.add_argument(
+        "--max-polls",
+        type=int,
+        default=None,
+        help="stop after N polls even if still running",
+    )
+    ap.add_argument(
+        "--json", action="store_true", help="emit the final snapshot as JSON"
+    )
     args = ap.parse_args()
 
     check_pods = not args.no_pods
@@ -756,13 +839,20 @@ def main() -> int:
             snap = get_job_state(args.job_id, args.cluster, check_pods=check_pods)
             print(snap.verdict_line(), flush=True)
         else:
-            snap = watch(args.job_id, args.cluster, interval=args.interval, check_pods=check_pods, max_polls=args.max_polls)
+            snap = watch(
+                args.job_id,
+                args.cluster,
+                interval=args.interval,
+                check_pods=check_pods,
+                max_polls=args.max_polls,
+            )
     except RuntimeError as e:
         print(f"[watch] ERROR: {e}", file=sys.stderr)
         return 3
 
     if args.json:
         from dataclasses import asdict
+
         print(json.dumps(asdict(snap), indent=2, default=str))
 
     return _EXIT_FOR_STATE.get(snap.state, 3 if not snap.is_terminal else 0)

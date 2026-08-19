@@ -44,7 +44,9 @@ class SanitizationError(ValueError):
     """Raised when dataset content fails security validation."""
 
 
-def sanitize_text(value: object, *, field_name: str, max_len: int = _MAX_TEXT_LEN) -> str:
+def sanitize_text(
+    value: object, *, field_name: str, max_len: int = _MAX_TEXT_LEN
+) -> str:
     """Coerce to str, strip C0/C1 control chars except \\t \\n \\r, cap length.
 
     Anything that isn't a string is rejected — the caller is expected to do
@@ -133,9 +135,7 @@ class HarborTask:
         self._assert_pinned_image()
 
     def _assert_pinned_image(self) -> None:
-        m = re.search(
-            r"^\s*FROM\s+([^\s]+)", self.dockerfile, flags=re.MULTILINE
-        )
+        m = re.search(r"^\s*FROM\s+([^\s]+)", self.dockerfile, flags=re.MULTILINE)
         if not m:
             raise SanitizationError("Dockerfile missing FROM directive")
         image = m.group(1)
@@ -250,7 +250,9 @@ def render_dockerfile(
     """
     if base not in PINNED_BASE_IMAGES:
         raise SanitizationError(f"base image not pinned: {base!r}")
-    pip_re = re.compile(r"^[A-Za-z0-9._\-]+(\[[A-Za-z0-9._\-,]+\])?(==[A-Za-z0-9._\-+]+)?$")
+    pip_re = re.compile(
+        r"^[A-Za-z0-9._\-]+(\[[A-Za-z0-9._\-,]+\])?(==[A-Za-z0-9._\-+]+)?$"
+    )
     for pkg in pip_packages:
         if not pip_re.match(pkg):
             raise SanitizationError(f"unsafe pip package spec: {pkg!r}")
@@ -289,7 +291,9 @@ python3 /tests/verifier.py >> /logs/verifier/test-stdout.txt 2>&1 || true
 """
 
 
-def answer_delivery_guidance(path: str = "/app/answer.txt", *, what: str = "your answer") -> str:
+def answer_delivery_guidance(
+    path: str = "/app/answer.txt", *, what: str = "your answer"
+) -> str:
     """Canonical instruction block teaching a TERMINAL agent how to submit.
 
     Root cause this fixes: the validate harness runs `terminus-2` (a tmux/shell
@@ -371,7 +375,9 @@ storage_mb = 10240
 _now = int(time.time())
 
 
-def render_metadata(*, source_dataset: str, source_uuid: str | None, extra: dict | None = None) -> dict:
+def render_metadata(
+    *, source_dataset: str, source_uuid: str | None, extra: dict | None = None
+) -> dict:
     base = {
         "source": "nemotron_gym",
         "source_dataset": source_dataset,

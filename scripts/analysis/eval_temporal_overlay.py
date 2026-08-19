@@ -140,28 +140,45 @@ def _is_baseline_label(label: str) -> bool:
     return label.lower().startswith("baseline") or "base" in label.lower()
 
 
-def _plot(rl_centers, rl_means, eval_markers, output_path: Path, bin_hours: float) -> None:
+def _plot(
+    rl_centers, rl_means, eval_markers, output_path: Path, bin_hours: float
+) -> None:
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
-        print("[eval-temporal-overlay] matplotlib unavailable; skipping plot", file=sys.stderr)
+        print(
+            "[eval-temporal-overlay] matplotlib unavailable; skipping plot",
+            file=sys.stderr,
+        )
         return
     fig, ax = plt.subplots(figsize=(12, 5))
     if rl_centers:
-        ax.plot(rl_centers, rl_means, "-o", label=f"RL-time reward (bin={bin_hours}h)", color="#36c", markersize=4)
+        ax.plot(
+            rl_centers,
+            rl_means,
+            "-o",
+            label=f"RL-time reward (bin={bin_hours}h)",
+            color="#36c",
+            markersize=4,
+        )
 
     # Group markers by timestamp so co-located ones can be horizontally
     # jittered (without jitter, overlapping markers hide each other).
-    plotted = [m for m in eval_markers if m["timestamp"] is not None and m["mean_reward"] is not None]
+    plotted = [
+        m
+        for m in eval_markers
+        if m["timestamp"] is not None and m["mean_reward"] is not None
+    ]
     by_ts: Dict[datetime, List[Dict[str, Any]]] = defaultdict(list)
     for m in plotted:
         by_ts[m["timestamp"]].append(m)
 
     # Jitter strategy: total time span / 80 -> per-step offset; 0 for solo.
     if rl_centers:
-        span = (max(rl_centers) - min(rl_centers))
+        span = max(rl_centers) - min(rl_centers)
     elif plotted:
         ts_list = [m["timestamp"] for m in plotted]
         span = max(ts_list) - min(ts_list) if len(ts_list) > 1 else timedelta(hours=1)
@@ -235,7 +252,11 @@ def _plot(rl_centers, rl_means, eval_markers, output_path: Path, bin_hours: floa
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--rl-traces", required=True, help="RL-time training trace source (HF/JSONL/dir)")
+    parser.add_argument(
+        "--rl-traces",
+        required=True,
+        help="RL-time training trace source (HF/JSONL/dir)",
+    )
     parser.add_argument(
         "--eval-traces",
         action="append",
@@ -247,9 +268,18 @@ def parse_args() -> argparse.Namespace:
             "time axis."
         ),
     )
-    parser.add_argument("--bin-hours", type=float, default=4.0, help="Hours per RL-time bin")
-    parser.add_argument("--output", type=Path, required=True, help="PNG output path (JSON sidecar also written)")
-    parser.add_argument("--max-rows", type=int, default=None, help="Cap rows per source (smoke testing)")
+    parser.add_argument(
+        "--bin-hours", type=float, default=4.0, help="Hours per RL-time bin"
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="PNG output path (JSON sidecar also written)",
+    )
+    parser.add_argument(
+        "--max-rows", type=int, default=None, help="Cap rows per source (smoke testing)"
+    )
     return parser.parse_args()
 
 
@@ -274,7 +304,9 @@ def run(args: argparse.Namespace) -> int:
                     {
                         "label": m["label"],
                         "source": m["source"],
-                        "timestamp": m["timestamp"].isoformat() if m["timestamp"] else None,
+                        "timestamp": m["timestamp"].isoformat()
+                        if m["timestamp"]
+                        else None,
                         "n": m["n"],
                         "mean_reward": m["mean_reward"],
                     }
@@ -285,7 +317,9 @@ def run(args: argparse.Namespace) -> int:
         ),
         encoding="utf-8",
     )
-    print(f"[eval-temporal-overlay] wrote {args.output} ({len(rl_centers)} RL bins, {len(eval_markers)} eval markers)")
+    print(
+        f"[eval-temporal-overlay] wrote {args.output} ({len(rl_centers)} RL bins, {len(eval_markers)} eval markers)"
+    )
     return 0
 
 

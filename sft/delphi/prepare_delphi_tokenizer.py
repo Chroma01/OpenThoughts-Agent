@@ -38,14 +38,16 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 # the Llama-3.1 / Delphi tokenizer; verified present 2026-06-08). Keep in sync with the `delphi`
 # LLaMA-Factory template (thought_words + tool wrappers) and chat_templates/delphi_v0.jinja2.
 CANONICAL_TOKEN_IDS = {
-    "<|start_think|>": 128002,      # was <|reserved_special_token_0|>
-    "<|end_think|>": 128003,        # was <|reserved_special_token_1|>
-    "<|tool_call|>": 128005,        # was <|reserved_special_token_2|>
-    "<|tool_call_end|>": 128011,    # was <|reserved_special_token_3|>
-    "<|tool_result|>": 128012,      # was <|reserved_special_token_4|>
+    "<|start_think|>": 128002,  # was <|reserved_special_token_0|>
+    "<|end_think|>": 128003,  # was <|reserved_special_token_1|>
+    "<|tool_call|>": 128005,  # was <|reserved_special_token_2|>
+    "<|tool_call_end|>": 128011,  # was <|reserved_special_token_3|>
+    "<|tool_result|>": 128012,  # was <|reserved_special_token_4|>
     "<|tool_result_end|>": 128013,  # was <|reserved_special_token_5|>
 }
-TRAINED_VOCAB_CEILING = 128000  # ids below this are regular trained BPE tokens (the mean-init pool)
+TRAINED_VOCAB_CEILING = (
+    128000  # ids below this are regular trained BPE tokens (the mean-init pool)
+)
 
 
 def rename_reserved_slots(out_dir: Path, token_ids: dict[str, int]) -> None:
@@ -63,7 +65,9 @@ def rename_reserved_slots(out_dir: Path, token_ids: dict[str, int]) -> None:
             entry["content"] = id_to_new[entry["id"]]
             entry["special"] = True
             renamed += 1
-    assert renamed == len(token_ids), f"renamed {renamed}/{len(token_ids)} in tokenizer.json"
+    assert renamed == len(token_ids), (
+        f"renamed {renamed}/{len(token_ids)} in tokenizer.json"
+    )
     tok_json_path.write_text(json.dumps(tok_json, ensure_ascii=False, indent=2))
 
     cfg_path = out_dir / "tokenizer_config.json"
@@ -98,9 +102,20 @@ def mean_init_rows(model, token_ids: dict[str, int]) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", required=True, help="HF repo id or local path of the Delphi checkpoint")
-    ap.add_argument("--output", required=True, type=Path, help="output dir for the prepared model+tokenizer")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--model",
+        required=True,
+        help="HF repo id or local path of the Delphi checkpoint",
+    )
+    ap.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+        help="output dir for the prepared model+tokenizer",
+    )
     ap.add_argument("--dtype", default="bfloat16")
     args = ap.parse_args()
 
@@ -113,19 +128,31 @@ def main() -> None:
     rename_reserved_slots(args.output, CANONICAL_TOKEN_IDS)
 
     tok = AutoTokenizer.from_pretrained(args.output)
-    assert len(tok) == base_vocab, f"vocab grew {base_vocab} -> {len(tok)} (rename failed, fell back to add)"
+    assert len(tok) == base_vocab, (
+        f"vocab grew {base_vocab} -> {len(tok)} (rename failed, fell back to add)"
+    )
     for s, want_id in CANONICAL_TOKEN_IDS.items():
         got = tok.convert_tokens_to_ids(s)
         assert got == want_id, f"{s} -> {got}, expected {want_id}"
-        assert len(tok.encode(s, add_special_tokens=False)) == 1, f"{s} did not tokenize to a single id"
-    print(f"tokenizer OK: {len(CANONICAL_TOKEN_IDS)} tokens renamed onto reserved slots, vocab={len(tok)}")
+        assert len(tok.encode(s, add_special_tokens=False)) == 1, (
+            f"{s} did not tokenize to a single id"
+        )
+    print(
+        f"tokenizer OK: {len(CANONICAL_TOKEN_IDS)} tokens renamed onto reserved slots, vocab={len(tok)}"
+    )
 
     # 2. model: mean-init the reused rows, save
-    model = AutoModelForCausalLM.from_pretrained(args.model, dtype=getattr(torch, args.dtype))
-    assert model.get_output_embeddings() is not None, "expected untied lm_head (Delphi is untied)"
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model, dtype=getattr(torch, args.dtype)
+    )
+    assert model.get_output_embeddings() is not None, (
+        "expected untied lm_head (Delphi is untied)"
+    )
     mean_init_rows(model, CANONICAL_TOKEN_IDS)
     model.save_pretrained(args.output)
-    print(f"model OK: mean-init'd input+output rows for ids {sorted(CANONICAL_TOKEN_IDS.values())}")
+    print(
+        f"model OK: mean-init'd input+output rows for ids {sorted(CANONICAL_TOKEN_IDS.values())}"
+    )
     print(f"wrote prepared checkpoint -> {args.output}")
 
 

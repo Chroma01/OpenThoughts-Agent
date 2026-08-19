@@ -30,7 +30,9 @@ def v3_7_readme(previous: str) -> str:
     )
     marker = "> **v3.6 (current)**"
     if marker not in previous:
-        raise ValueError("TaskTrove README no longer has the expected v3.6 release marker")
+        raise ValueError(
+            "TaskTrove README no longer has the expected v3.6 release marker"
+        )
     return previous.replace(marker, release + "> **v3.6**", 1)
 
 
@@ -39,13 +41,23 @@ def stage_release(stage: Path) -> None:
     api = HfApi()
     if not api.file_exists(SOURCE_REPO, "tasks.parquet", repo_type="dataset"):
         raise ValueError(f"{SOURCE_REPO} does not contain tasks.parquet")
-    if not api.file_exists(TASKTROVE_REPO, f"{OLD_SUBDIR}/tasks.parquet", repo_type="dataset"):
-        raise ValueError(f"{TASKTROVE_REPO} does not contain {OLD_SUBDIR}/tasks.parquet")
+    if not api.file_exists(
+        TASKTROVE_REPO, f"{OLD_SUBDIR}/tasks.parquet", repo_type="dataset"
+    ):
+        raise ValueError(
+            f"{TASKTROVE_REPO} does not contain {OLD_SUBDIR}/tasks.parquet"
+        )
 
-    readme_path = Path(hf_hub_download(TASKTROVE_REPO, "README.md", repo_type="dataset"))
-    target_tasks = Path(hf_hub_download(SOURCE_REPO, "tasks.parquet", repo_type="dataset"))
+    readme_path = Path(
+        hf_hub_download(TASKTROVE_REPO, "README.md", repo_type="dataset")
+    )
+    target_tasks = Path(
+        hf_hub_download(SOURCE_REPO, "tasks.parquet", repo_type="dataset")
+    )
     (stage / NEW_SUBDIR).mkdir(parents=True)
-    (stage / "README.md").write_text(v3_7_readme(readme_path.read_text()), encoding="utf-8")
+    (stage / "README.md").write_text(
+        v3_7_readme(readme_path.read_text()), encoding="utf-8"
+    )
     shutil.copy2(target_tasks, stage / NEW_SUBDIR / "tasks.parquet")
 
 

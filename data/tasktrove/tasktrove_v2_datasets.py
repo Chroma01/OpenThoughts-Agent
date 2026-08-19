@@ -108,8 +108,14 @@ UNKNOWN = [
     "laion/exp_rpt_stack-rust-v2",
 ]
 
-ALL = [(r, "easy") for r in EASY] + [(r, "medium") for r in MEDIUM] + \
-      [(r, "hard") for r in HARD] + [(r, "unknown") for r in UNKNOWN]
+ALL = (
+    [(r, "easy") for r in EASY]
+    + [(r, "medium") for r in MEDIUM]
+    + [(r, "hard") for r in HARD]
+    + [(r, "unknown") for r in UNKNOWN]
+)
 
 if __name__ == "__main__":
-    print(f"EASY={len(EASY)} MEDIUM={len(MEDIUM)} HARD={len(HARD)} UNKNOWN={len(UNKNOWN)} TOTAL={len(ALL)}")
+    print(
+        f"EASY={len(EASY)} MEDIUM={len(MEDIUM)} HARD={len(HARD)} UNKNOWN={len(UNKNOWN)} TOTAL={len(ALL)}"
+    )

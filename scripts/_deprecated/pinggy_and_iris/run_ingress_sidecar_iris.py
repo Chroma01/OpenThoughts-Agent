@@ -62,7 +62,9 @@ def resolve_controller_proxy_base() -> str:
     Raises:
         SystemExit: if no controller-address env var is present (not in-cluster).
     """
-    addr = os.environ.get("IRIS_CONTROLLER_ADDRESS") or os.environ.get("IRIS_CONTROLLER_URL")
+    addr = os.environ.get("IRIS_CONTROLLER_ADDRESS") or os.environ.get(
+        "IRIS_CONTROLLER_URL"
+    )
     if not addr:
         raise SystemExit(
             "IRIS_CONTROLLER_ADDRESS not set — cannot locate the controller EndpointProxy. "
@@ -81,7 +83,9 @@ def start_sidecar(port: int, proxy_base: str) -> subprocess.Popen:
     env["CONTROLLER_PROXY_BASE"] = proxy_base
     env["SIDECAR_HOST"] = "0.0.0.0"
     env["SIDECAR_PORT"] = str(port)
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_REPO_ROOT), env.get("PYTHONPATH", "")]))
+    env["PYTHONPATH"] = os.pathsep.join(
+        filter(None, [str(_REPO_ROOT), env.get("PYTHONPATH", "")])
+    )
     proc = subprocess.Popen(
         [sys.executable, "-m", "hpc.ingress_sidecar"],
         cwd=str(_REPO_ROOT),
@@ -108,7 +112,9 @@ def wait_for_healthz(port: int, proc: subprocess.Popen, timeout: int = 60) -> No
     deadline = time.time() + timeout
     while time.time() < deadline:
         if proc.poll() is not None:
-            raise SystemExit(f"sidecar exited (code {proc.returncode}) before becoming healthy.")
+            raise SystemExit(
+                f"sidecar exited (code {proc.returncode}) before becoming healthy."
+            )
         try:
             with urllib.request.urlopen(url, timeout=3) as resp:
                 if resp.status == 200:
@@ -135,21 +141,41 @@ def spawn_tunnel(url: str, token: str, port: int, log_path: Path) -> PinggyTunne
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--pinggy-url", default=os.environ.get("PINGGY_URL"),
-                   help="Pinggy persistent url (e.g. abc123.a.pinggy.link). Or set PINGGY_URL.")
-    p.add_argument("--pinggy-token", default=os.environ.get("PINGGY_TOKEN"),
-                   help="Pinggy auth token for the persistent url. Or set PINGGY_TOKEN.")
-    p.add_argument("--port", type=int, default=int(os.environ.get("SIDECAR_PORT", "8443")),
-                   help="Local sidecar bind/tunnel port (default 8443).")
-    p.add_argument("--healthz-timeout", type=int, default=60,
-                   help="Seconds to wait for the sidecar to become healthy.")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--pinggy-url",
+        default=os.environ.get("PINGGY_URL"),
+        help="Pinggy persistent url (e.g. abc123.a.pinggy.link). Or set PINGGY_URL.",
+    )
+    p.add_argument(
+        "--pinggy-token",
+        default=os.environ.get("PINGGY_TOKEN"),
+        help="Pinggy auth token for the persistent url. Or set PINGGY_TOKEN.",
+    )
+    p.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("SIDECAR_PORT", "8443")),
+        help="Local sidecar bind/tunnel port (default 8443).",
+    )
+    p.add_argument(
+        "--healthz-timeout",
+        type=int,
+        default=60,
+        help="Seconds to wait for the sidecar to become healthy.",
+    )
     args = p.parse_args()
 
     if not os.environ.get("IRIS_INGRESS_API_KEY"):
-        raise SystemExit("IRIS_INGRESS_API_KEY must be set (pass via `iris job run -e`).")
+        raise SystemExit(
+            "IRIS_INGRESS_API_KEY must be set (pass via `iris job run -e`)."
+        )
     if not args.pinggy_url or not args.pinggy_token:
-        raise SystemExit("Provide the pinggy pair via --pinggy-url/--pinggy-token or PINGGY_URL/PINGGY_TOKEN.")
+        raise SystemExit(
+            "Provide the pinggy pair via --pinggy-url/--pinggy-token or PINGGY_URL/PINGGY_TOKEN."
+        )
 
     proxy_base = resolve_controller_proxy_base()
     print(f"[supervisor] CONTROLLER_PROXY_BASE = {proxy_base}")
@@ -201,7 +227,9 @@ def main() -> int:
         if not tunnel.is_running:
             print("[supervisor] pinggy tunnel process died; re-spawning.")
             try:
-                tunnel = spawn_tunnel(args.pinggy_url, args.pinggy_token, args.port, log_path)
+                tunnel = spawn_tunnel(
+                    args.pinggy_url, args.pinggy_token, args.port, log_path
+                )
             except Exception as exc:  # noqa: BLE001 — retry on next loop, don't crash the supervisor
                 print(f"[supervisor] tunnel re-spawn failed: {exc}; retrying.")
         else:

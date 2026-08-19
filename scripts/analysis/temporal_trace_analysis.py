@@ -98,7 +98,10 @@ def _floor_datetime(dt: datetime, bin_hours: float) -> datetime:
 # only touches cheap Python ints/floats/strings.
 # ---------------------------------------------------------------------------
 
-def _precompute_rows(dataset, encoder, max_text_chars: int = 500_000) -> List[Dict[str, Any]]:
+
+def _precompute_rows(
+    dataset, encoder, max_text_chars: int = 500_000
+) -> List[Dict[str, Any]]:
     """Extract text, tokenize in batch, and derive all per-row fields.
 
     Args:
@@ -143,8 +146,11 @@ def _precompute_rows(dataset, encoder, max_text_chars: int = 500_000) -> List[Di
 
     n_truncated = sum(1 for fl in full_lengths if fl > max_text_chars)
     if n_truncated:
-        print(f"  Note: {n_truncated} texts truncated from >{max_text_chars} chars "
-              f"(token counts estimated for overflow portion).", flush=True)
+        print(
+            f"  Note: {n_truncated} texts truncated from >{max_text_chars} chars "
+            f"(token counts estimated for overflow portion).",
+            flush=True,
+        )
 
     # --- Phase 2: batch tokenisation (parallelised in Rust by tiktoken) ----
     #     Small chunks with a per-chunk timeout so one bad sample can't block.
@@ -156,6 +162,7 @@ def _precompute_rows(dataset, encoder, max_text_chars: int = 500_000) -> List[Di
     n_timed_out = 0
     try:
         from tqdm import tqdm
+
         pbar = tqdm(total=n, desc="  Tokenizing", unit="row")
     except ImportError:
         pbar = None
@@ -185,8 +192,11 @@ def _precompute_rows(dataset, encoder, max_text_chars: int = 500_000) -> List[Di
     if pbar is not None:
         pbar.close()
     if n_timed_out:
-        print(f"  Warning: {n_timed_out} rows in timed-out chunks "
-              f"(token counts estimated from char length).", flush=True)
+        print(
+            f"  Warning: {n_timed_out} rows in timed-out chunks "
+            f"(token counts estimated from char length).",
+            flush=True,
+        )
 
     # Adjust token counts for truncated texts
     for idx in range(n):
@@ -203,6 +213,7 @@ def _precompute_rows(dataset, encoder, max_text_chars: int = 500_000) -> List[Di
 # ---------------------------------------------------------------------------
 # Aggregate stats from pre-computed rows (cheap — no text / tokenisation)
 # ---------------------------------------------------------------------------
+
 
 def _aggregate_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Compute aggregate statistics over pre-computed row dicts."""
@@ -292,9 +303,7 @@ def _aggregate_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         fname: (sum(vals) / len(vals) if vals else None)
         for fname, vals in bvals.items()
     }
-    premature_rate = (
-        premature_hits / premature_eligible if premature_eligible else None
-    )
+    premature_rate = premature_hits / premature_eligible if premature_eligible else None
 
     return {
         "count": n,
@@ -344,24 +353,42 @@ def _print_summary_table(bin_stats: Dict[str, Dict[str, Any]]) -> None:
 # y_lim_or_None). The accessor returns a float per bin or None.
 # ---------------------------------------------------------------------------
 
+
 def _bin_accessor(field_name: str):
     """Return an accessor that extracts a behavioral mean from a bin dict."""
+
     def _get(s: Dict[str, Any]) -> Optional[float]:
         v = (s.get("behavioral") or {}).get(field_name)
         return v
+
     return _get
 
 
 _BEHAVIORAL_PANELS = [
-    ("Tool calls / trace",       _bin_accessor("tool_calls_total"),    "tab:green",  None),
-    ("Tool error rate",          _bin_accessor("tool_error_rate"),     "tab:red",    (-0.02, 1.02)),
-    ("Tool errors / trace",      _bin_accessor("tool_errors"),         "tab:brown",  None),
-    ("Mean tokens / asst msg",   _bin_accessor("mean_assistant_tokens"), "tab:blue", None),
-    ("Asst msgs / trace",        _bin_accessor("assistant_msgs"),      "tab:cyan",   None),
-    ("Think tokens / trace",     _bin_accessor("think_tokens"),        "tab:olive",  None),
-    ("Think / asst ratio",       _bin_accessor("think_token_ratio"),   "tab:gray",   (-0.02, 1.02)),
-    ("Code fences / trace",      _bin_accessor("code_fence_blocks"),   "tab:purple", None),
-    ("Self-correction / trace",  _bin_accessor("self_correction_hits"), "darkorange", None),
+    ("Tool calls / trace", _bin_accessor("tool_calls_total"), "tab:green", None),
+    ("Tool error rate", _bin_accessor("tool_error_rate"), "tab:red", (-0.02, 1.02)),
+    ("Tool errors / trace", _bin_accessor("tool_errors"), "tab:brown", None),
+    (
+        "Mean tokens / asst msg",
+        _bin_accessor("mean_assistant_tokens"),
+        "tab:blue",
+        None,
+    ),
+    ("Asst msgs / trace", _bin_accessor("assistant_msgs"), "tab:cyan", None),
+    ("Think tokens / trace", _bin_accessor("think_tokens"), "tab:olive", None),
+    (
+        "Think / asst ratio",
+        _bin_accessor("think_token_ratio"),
+        "tab:gray",
+        (-0.02, 1.02),
+    ),
+    ("Code fences / trace", _bin_accessor("code_fence_blocks"), "tab:purple", None),
+    (
+        "Self-correction / trace",
+        _bin_accessor("self_correction_hits"),
+        "darkorange",
+        None,
+    ),
 ]
 
 
@@ -376,6 +403,7 @@ def _generate_plot(bin_stats: Dict[str, Dict[str, Any]], output_path: Path) -> N
     """
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
@@ -402,11 +430,11 @@ def _generate_plot(bin_stats: Dict[str, Dict[str, Any]], output_path: Path) -> N
     # 4-column grid: column-major ordering pairs reward/behavioral side-by-
     # side. Total panels = 4 legacy + 1 premature + len(_BEHAVIORAL_PANELS) = 14.
     legacy_panels = [
-        ("Reward rate",        reward_rates,       "tab:blue",   (-0.05, 1.05)),
-        ("Avg conversation turns", avg_turns,      "tab:orange", None),
-        ("Error rate",         error_rates,        "tab:red",    (-0.05, 1.05)),
-        ("Parse error rate",   parse_err_rates,    "tab:purple", (-0.05, 1.05)),
-        ("Premature stop rate", premature_rates,   "tab:pink",   (-0.05, 1.05)),
+        ("Reward rate", reward_rates, "tab:blue", (-0.05, 1.05)),
+        ("Avg conversation turns", avg_turns, "tab:orange", None),
+        ("Error rate", error_rates, "tab:red", (-0.05, 1.05)),
+        ("Parse error rate", parse_err_rates, "tab:purple", (-0.05, 1.05)),
+        ("Premature stop rate", premature_rates, "tab:pink", (-0.05, 1.05)),
     ]
     behavioral_panels = []
     for title, accessor, color, ylim in _BEHAVIORAL_PANELS:
@@ -434,7 +462,7 @@ def _generate_plot(bin_stats: Dict[str, Dict[str, Any]], output_path: Path) -> N
         ax.tick_params(axis="y", labelsize=7)
 
     # Hide any unused axes.
-    for ax in axes[len(all_panels):]:
+    for ax in axes[len(all_panels) :]:
         ax.set_visible(False)
 
     # Show a subset of x-tick labels to avoid crowding (on the bottom row).
@@ -502,8 +530,10 @@ def main() -> None:
     if len(dated_keys) > 1:
         dropped_key = dated_keys[-1]
         dropped_rows = bins.pop(dropped_key)
-        print(f"Dropped last bin '{dropped_key}' ({len(dropped_rows)} rows, likely partial).",
-              flush=True)
+        print(
+            f"Dropped last bin '{dropped_key}' ({len(dropped_rows)} rows, likely partial).",
+            flush=True,
+        )
 
     print(f"Computing statistics for {len(bins)} bins...", flush=True)
     bin_stats: Dict[str, Dict[str, Any]] = {}
@@ -522,11 +552,13 @@ def main() -> None:
     # Print table
     _print_summary_table(bin_stats)
     print()
-    print(f"Global: {global_stats['count']} rows, "
-          f"reward_rate={global_stats['reward_rate']:.3f}, "
-          f"error_rate={global_stats['error_rate']:.3f}, "
-          f"parsing_errors={global_stats['parsing_error_count']} "
-          f"({global_stats['parsing_error_rate']:.3f})")
+    print(
+        f"Global: {global_stats['count']} rows, "
+        f"reward_rate={global_stats['reward_rate']:.3f}, "
+        f"error_rate={global_stats['error_rate']:.3f}, "
+        f"parsing_errors={global_stats['parsing_error_count']} "
+        f"({global_stats['parsing_error_rate']:.3f})"
+    )
     if all_error_counts:
         print("Error breakdown:")
         for err_type, cnt in sorted(all_error_counts.items(), key=lambda x: -x[1]):

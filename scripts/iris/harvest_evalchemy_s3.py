@@ -32,6 +32,7 @@ Model dirs are the s3-safe slugs (lower, '/' and '.' -> '-'), e.g. `qwen-qwen3-5
 `moonshotai-moonlight-16b-a3b-instruct`, `deepseek-ai-deepseek-v2-lite-chat`, `inclusionai-ling-lite`,
 `penfever-grug-67b-a2b-sft-s2-thinking-step630`, `qwen-qwen3-next-80b-a3b-thinking`.
 """
+
 import argparse
 import json
 import statistics as st
@@ -51,9 +52,13 @@ DEFAULT_ARTIFACTS_DIR = (
 ART = DEFAULT_ARTIFACTS_DIR
 
 INSCOPE = [
-    "qwen-qwen3-5-35b-a3b", "qwen-qwen3-next-80b-a3b-thinking", "qwen-qwen3-30b-a3b-thinking-2507",
-    "moonshotai-moonlight-16b-a3b-instruct", "deepseek-ai-deepseek-v2-lite-chat",
-    "inclusionai-ling-lite", "penfever-grug-67b-a2b-sft-s2-thinking-step630",
+    "qwen-qwen3-5-35b-a3b",
+    "qwen-qwen3-next-80b-a3b-thinking",
+    "qwen-qwen3-30b-a3b-thinking-2507",
+    "moonshotai-moonlight-16b-a3b-instruct",
+    "deepseek-ai-deepseek-v2-lite-chat",
+    "inclusionai-ling-lite",
+    "penfever-grug-67b-a2b-sft-s2-thinking-step630",
 ]
 
 
@@ -77,14 +82,18 @@ def listall(s3, prefix, delim=""):
         if tok:
             kw["ContinuationToken"] = tok
         r = s3.list_objects_v2(**kw)
-        out += [p["Prefix"] for p in r.get("CommonPrefixes", [])] if delim else [c["Key"] for c in r.get("Contents", [])]
+        out += (
+            [p["Prefix"] for p in r.get("CommonPrefixes", [])]
+            if delim
+            else [c["Key"] for c in r.get("Contents", [])]
+        )
         if not r.get("IsTruncated"):
             return out
         tok = r["NextContinuationToken"]
 
 
 def download(s3, key):
-    dst = ART / key[len(BASE):]
+    dst = ART / key[len(BASE) :]
     dst.parent.mkdir(parents=True, exist_ok=True)
     s3.download_file(BUCKET, key, str(dst))
     return dst
@@ -103,8 +112,23 @@ def task_metrics(d):
             continue
         for mk, mv in vals.items():
             kl = mk.lower()
-            if isinstance(mv, (int, float)) and "stderr" not in kl and any(
-                s in kl for s in ("accuracy_avg", "exact_match", "pass@1", "prompt-level", "prompt_level", "acc,", "acc_norm", "accuracy", "python_pass@1")
+            if (
+                isinstance(mv, (int, float))
+                and "stderr" not in kl
+                and any(
+                    s in kl
+                    for s in (
+                        "accuracy_avg",
+                        "exact_match",
+                        "pass@1",
+                        "prompt-level",
+                        "prompt_level",
+                        "acc,",
+                        "acc_norm",
+                        "accuracy",
+                        "python_pass@1",
+                    )
+                )
             ):
                 out[f"{task}:{mk}"] = round(mv, 4)
     return out
@@ -114,7 +138,11 @@ def harvest_aime(s3, run_prefix, do_download, downloaded_paths=None):
     """AIME 3-seed μ±σ from a run's AIME24_seed4{2,3,4}/…/results_*.json. Returns (str, valid)."""
     vals = {}
     for seed in (42, 43, 44):
-        keys = [k for k in listall(s3, f"{run_prefix}AIME24_seed{seed}/") if "results_" in k and k.endswith(".json")]
+        keys = [
+            k
+            for k in listall(s3, f"{run_prefix}AIME24_seed{seed}/")
+            if "results_" in k and k.endswith(".json")
+        ]
         if not keys:
             vals[seed] = None
             continue
@@ -125,23 +153,42 @@ def harvest_aime(s3, run_prefix, do_download, downloaded_paths=None):
             d = json.load(open(p))
         else:
             d = json.loads(s3.get_object(Bucket=BUCKET, Key=keys[0])["Body"].read())
-        vals[seed] = round(d.get("results", {}).get("AIME24", {}).get("accuracy_avg", 0.0), 4)
+        vals[seed] = round(
+            d.get("results", {}).get("AIME24", {}).get("accuracy_avg", 0.0), 4
+        )
     got = [v for v in vals.values() if v is not None]
     valid = len(got) == 3 and all(v > 0 for v in got)
     if valid:
         mu, sd = st.mean(got) * 100, st.pstdev(got) * 100
         return f"AIME24 = {mu:.1f} ±{sd:.1f} (3s)   seeds42/43/44={got}", True
-    return f"AIME24 INVALID (degenerate/partial) seeds42/43/44={[vals[s] for s in (42,43,44)]} — do NOT record", False
+    return (
+        f"AIME24 INVALID (degenerate/partial) seeds42/43/44={[vals[s] for s in (42, 43, 44)]} — do NOT record",
+        False,
+    )
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Harvest marin-canonical baseline eval results from durable s3.")
+    ap = argparse.ArgumentParser(
+        description="Harvest marin-canonical baseline eval results from durable s3."
+    )
     ap.add_argument("--model", help="s3 model slug (dir under iris/marinbase-eval/)")
     ap.add_argument("--all", action="store_true", help="all in-scope models")
-    ap.add_argument("--run", default="", help="substring filter on run-dir name (e.g. aime3, t2-, tier1)")
-    ap.add_argument("--aime", action="store_true", help="compute 3-seed AIME μ±σ for matching runs")
-    ap.add_argument("--download", action="store_true", help="mirror every selected run artifact")
-    ap.add_argument("--samples", action="store_true", help="deprecated compatibility alias for --download")
+    ap.add_argument(
+        "--run",
+        default="",
+        help="substring filter on run-dir name (e.g. aime3, t2-, tier1)",
+    )
+    ap.add_argument(
+        "--aime", action="store_true", help="compute 3-seed AIME μ±σ for matching runs"
+    )
+    ap.add_argument(
+        "--download", action="store_true", help="mirror every selected run artifact"
+    )
+    ap.add_argument(
+        "--samples",
+        action="store_true",
+        help="deprecated compatibility alias for --download",
+    )
     ap.add_argument("--list", action="store_true", help="list model dirs and exit")
     ap.add_argument(
         "--output-dir",
@@ -156,13 +203,21 @@ def main():
 
     if a.list:
         for m in listall(s3, BASE, delim="/"):
-            print(" ", m[len(BASE):-1])
+            print(" ", m[len(BASE) : -1])
         return
 
     do_download = a.download or a.samples
-    models = INSCOPE if a.all else ([a.model] if a.model else sys.exit("give --model, --all, or --list"))
+    models = (
+        INSCOPE
+        if a.all
+        else ([a.model] if a.model else sys.exit("give --model, --all, or --list"))
+    )
     for m in models:
-        runs = [r for r in listall(s3, f"{BASE}{m}/", delim="/") if a.run in r.split("/")[-2]]
+        runs = [
+            r
+            for r in listall(s3, f"{BASE}{m}/", delim="/")
+            if a.run in r.split("/")[-2]
+        ]
         if not runs:
             print(f"\n## {m}: (no runs match --run '{a.run}')")
             continue
@@ -179,7 +234,13 @@ def main():
             for k in keys:
                 if "results_" in k and k.endswith(".json"):
                     p = downloaded_paths.get(k)
-                    d = json.load(open(p)) if p else json.loads(s3.get_object(Bucket=BUCKET, Key=k)["Body"].read())
+                    d = (
+                        json.load(open(p))
+                        if p
+                        else json.loads(
+                            s3.get_object(Bucket=BUCKET, Key=k)["Body"].read()
+                        )
+                    )
                     got.update(task_metrics(d))
             if got:
                 print(f"  {rn}:")

@@ -34,6 +34,7 @@ import torch.nn.functional as F
 try:
     from densemixer.logging_utils import log_custom_forward_usage
 except Exception:  # pragma: no cover - logging is best-effort
+
     def log_custom_forward_usage(_name):
         return None
 
@@ -62,12 +63,20 @@ class CustomQwen3MoeSparseMoeBlock:
         router_logits, _, _ = gate(flat_hidden)
         router_logits = router_logits.to(dtype=dtype)  # (N, num_experts)
 
-        routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)  # (N, num_experts)
-        routing_weights_topk, selected_experts = torch.topk(routing_weights, top_k, dim=-1)
+        routing_weights = F.softmax(
+            router_logits, dim=1, dtype=torch.float
+        )  # (N, num_experts)
+        routing_weights_topk, selected_experts = torch.topk(
+            routing_weights, top_k, dim=-1
+        )
         if norm_topk_prob:
             norm_ratio = routing_weights_topk.sum(dim=-1, keepdim=True)
             routing_weights_topk = routing_weights_topk / norm_ratio
-            mask = F.one_hot(selected_experts, num_classes=num_experts).sum(dim=1).to(dtype)
+            mask = (
+                F.one_hot(selected_experts, num_classes=num_experts)
+                .sum(dim=1)
+                .to(dtype)
+            )
             # partscale_fix_expert (stock densemixer default): detached renorm on the
             # off-top-k mass, live renorm on the selected mass.
             routing_weights = (
@@ -82,19 +91,29 @@ class CustomQwen3MoeSparseMoeBlock:
 
         experts = self.experts  # fused Qwen3MoeExperts (3D weight params)
         gate_up_proj = experts.gate_up_proj  # (num_experts, 2*inter, hidden)
-        down_proj = experts.down_proj        # (num_experts, hidden, inter)
+        down_proj = experts.down_proj  # (num_experts, hidden, inter)
         act_fn = experts.act_fn
 
         for expert_idx in range(num_experts):
             # per-expert MLP, computed for ALL tokens (the dense forward)
             gate_up = F.linear(flat_hidden, gate_up_proj[expert_idx])
             g, u = gate_up.chunk(2, dim=-1)
-            expert_output = F.linear(act_fn(g) * u, down_proj[expert_idx]).to(dtype=dtype)  # (N, hidden)
+            expert_output = F.linear(act_fn(g) * u, down_proj[expert_idx]).to(
+                dtype=dtype
+            )  # (N, hidden)
 
             # per-expert grad hook: expert params only see grad from their routed tokens
-            activation_mask = (selected_experts == expert_idx).any(dim=1).float().unsqueeze(-1).to(dtype)
+            activation_mask = (
+                (selected_experts == expert_idx)
+                .any(dim=1)
+                .float()
+                .unsqueeze(-1)
+                .to(dtype)
+            )
             if expert_output.requires_grad:
-                expert_output.register_hook(lambda grad, mask=activation_mask: grad * mask)
+                expert_output.register_hook(
+                    lambda grad, mask=activation_mask: grad * mask
+                )
 
             # dense accumulation (full-softmax weight for this expert, every token)
             weight_full = routing_weights[:, expert_idx].unsqueeze(-1)  # (N, 1)
@@ -104,9 +123,12 @@ class CustomQwen3MoeSparseMoeBlock:
             matches = selected_experts == expert_idx  # (N, top_k)
             if matches.any():
                 token_indices, k_indices = torch.where(matches)
-                weights_topk = routing_weights_topk[token_indices, k_indices].unsqueeze(-1)
+                weights_topk = routing_weights_topk[token_indices, k_indices].unsqueeze(
+                    -1
+                )
                 sparse_outputs[token_indices] = (
-                    sparse_outputs[token_indices] + expert_output[token_indices] * weights_topk
+                    sparse_outputs[token_indices]
+                    + expert_output[token_indices] * weights_topk
                 )
 
         # STE: forward value = sparse (conventional) output; backward grad = dense.

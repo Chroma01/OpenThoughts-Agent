@@ -54,7 +54,9 @@ def canonicalize_content(content: str) -> str:
     """
     if "</think>" not in content:
         return content
-    reasoning = content.split("</think>")[0].rstrip("\n").split("<think>")[-1].lstrip("\n")
+    reasoning = (
+        content.split("</think>")[0].rstrip("\n").split("<think>")[-1].lstrip("\n")
+    )
     answer = content.split("</think>")[-1].lstrip("\n")
     reasoning = reasoning.strip("\n")
     if reasoning:
@@ -66,7 +68,9 @@ def transform_messages(messages: list[dict]) -> list[dict]:
     out = []
     for m in messages:
         if m.get("role") == "assistant" and isinstance(m.get("content"), str):
-            out.append({"role": m["role"], "content": canonicalize_content(m["content"])})
+            out.append(
+                {"role": m["role"], "content": canonicalize_content(m["content"])}
+            )
         else:
             out.append({"role": m["role"], "content": m["content"]})
     return out
@@ -116,7 +120,9 @@ def main() -> None:
     names = []
     for name in cols:
         if name == "messages":
-            arrays.append(pa.array(new_messages, type=table.schema.field("messages").type))
+            arrays.append(
+                pa.array(new_messages, type=table.schema.field("messages").type)
+            )
         else:
             arrays.append(table.column(name))
         names.append(name)
@@ -175,7 +181,9 @@ dataset's licensing/provenance (derived from `nvidia/Llama-Nemotron-Post-Trainin
         return
 
     api = HfApi()
-    assert "laion" in [o["name"] for o in api.whoami().get("orgs", [])], "no laion org access"
+    assert "laion" in [o["name"] for o in api.whoami().get("orgs", [])], (
+        "no laion org access"
+    )
     print(f"creating + uploading {OUT_REPO} ...", flush=True)
     api.create_repo(OUT_REPO, repo_type="dataset", exist_ok=True, private=False)
     api.upload_folder(folder_path=args.out_dir, repo_id=OUT_REPO, repo_type="dataset")

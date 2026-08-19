@@ -78,9 +78,7 @@ class ThrashingDetector(ProcessRewardModel):
                 if token_sets[i] and token_sets[j]:
                     intersection = token_sets[i] & token_sets[j]
                     union = token_sets[i] | token_sets[j]
-                    similarities.append(
-                        len(intersection) / len(union) if union else 0
-                    )
+                    similarities.append(len(intersection) / len(union) if union else 0)
 
         if not similarities:
             return False

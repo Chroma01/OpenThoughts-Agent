@@ -88,10 +88,21 @@ GCLOUD_CLI = os.environ.get(
 
 # Mapping from iris JOB_STATE_* enum string → coarse status the daemon cares about.
 _IRIS_TERMINAL_SUCCESS = {"JOB_STATE_SUCCEEDED"}
-_IRIS_TERMINAL_FAILURE = {"JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_KILLED",
-                          "JOB_STATE_TIMEOUT", "JOB_STATE_PREEMPTED"}
-_IRIS_RUNNING = {"JOB_STATE_PENDING", "JOB_STATE_RUNNING", "JOB_STATE_SCHEDULED",
-                 "JOB_STATE_QUEUED", "JOB_STATE_SUBMITTED", "JOB_STATE_ASSIGNED"}
+_IRIS_TERMINAL_FAILURE = {
+    "JOB_STATE_FAILED",
+    "JOB_STATE_CANCELLED",
+    "JOB_STATE_KILLED",
+    "JOB_STATE_TIMEOUT",
+    "JOB_STATE_PREEMPTED",
+}
+_IRIS_RUNNING = {
+    "JOB_STATE_PENDING",
+    "JOB_STATE_RUNNING",
+    "JOB_STATE_SCHEDULED",
+    "JOB_STATE_QUEUED",
+    "JOB_STATE_SUBMITTED",
+    "JOB_STATE_ASSIGNED",
+}
 
 # ---------------------------------------------------------------------
 # Hang watchdog
@@ -131,7 +142,9 @@ WATCHDOG_PREFIX = os.environ.get("OT_AGENT_WATCHDOG_PREFIX", "")
 # still use the reserved port normally. Re-asserted each poll (self-healing).
 IRIS_PORT_LOCK_DIR = Path(os.environ.get("IRIS_PORT_LOCK_DIR", "/tmp/iris"))
 RESERVED_LOCAL_PORTS = [
-    int(p) for p in os.environ.get("OT_AGENT_RESERVED_LOCAL_PORTS", "10000").split(",") if p.strip()
+    int(p)
+    for p in os.environ.get("OT_AGENT_RESERVED_LOCAL_PORTS", "10000").split(",")
+    if p.strip()
 ]
 
 
@@ -148,12 +161,15 @@ def reserve_iris_local_ports() -> None:
         for port in RESERVED_LOCAL_PORTS:
             (IRIS_PORT_LOCK_DIR / f"port_{port}").write_text(str(os.getpid()))
     except OSError as e:
-        _log(f"could not reserve iris local ports {RESERVED_LOCAL_PORTS}: {e}", err=True)
+        _log(
+            f"could not reserve iris local ports {RESERVED_LOCAL_PORTS}: {e}", err=True
+        )
 
 
 # ---------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -192,15 +208,24 @@ def _strip_log_prefix(stdout: str) -> str:
 # Iris controller interaction
 # ---------------------------------------------------------------------
 
-def _iris_job_list(cluster_config: str, user_prefix: str, *, timeout: int = 120) -> list[dict]:
+
+def _iris_job_list(
+    cluster_config: str, user_prefix: str, *, timeout: int = 120
+) -> list[dict]:
     """Shell to ``iris --config <c> job list --prefix <p> --json``.
 
     Returns the parsed list, or [] on any subprocess / parse error
     (logged to stderr; daemon keeps polling on the next cycle).
     """
     cmd = [
-        IRIS_CLI, "--config", cluster_config,
-        "job", "list", "--prefix", user_prefix, "--json",
+        IRIS_CLI,
+        "--config",
+        cluster_config,
+        "job",
+        "list",
+        "--prefix",
+        user_prefix,
+        "--json",
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -217,8 +242,10 @@ def _iris_job_list(cluster_config: str, user_prefix: str, *, timeout: int = 120)
     try:
         return json.loads(_strip_log_prefix(result.stdout))
     except json.JSONDecodeError as e:
-        _log(f"iris list output not JSON: {e}; first 200 chars: "
-             f"{result.stdout[:200]!r}", err=True)
+        _log(
+            f"iris list output not JSON: {e}; first 200 chars: {result.stdout[:200]!r}",
+            err=True,
+        )
         return []
 
 
@@ -250,13 +277,20 @@ def _dump_iris_logs(record: JobRecord, local_dest: Path) -> Optional[int]:
     """
     log_path = local_dest / IRIS_LOG_FILENAME
     cmd = [
-        IRIS_CLI, "--config", record.cluster_config,
-        "job", "logs", record.job_id, "--max-lines", "100000",
+        IRIS_CLI,
+        "--config",
+        record.cluster_config,
+        "job",
+        "logs",
+        record.job_id,
+        "--max-lines",
+        "100000",
     ]
     try:
         with log_path.open("w") as f:
-            result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE,
-                                    text=True, timeout=300)
+            result = subprocess.run(
+                cmd, stdout=f, stderr=subprocess.PIPE, text=True, timeout=300
+            )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         _log(f"iris-log dump failed for {record.job_id}: {e}", err=True)
         return None
@@ -304,14 +338,18 @@ def fetch_record(record: JobRecord) -> bool:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        update_status(record.job_id, status=STATUS_FETCH_FAILED,
-                      error_msg=f"gcloud rsync timed out / not found: {e}")
+        update_status(
+            record.job_id,
+            status=STATUS_FETCH_FAILED,
+            error_msg=f"gcloud rsync timed out / not found: {e}",
+        )
         _log(f"fetch failed for {record.job_id}: {e}", err=True)
         return False
 
     if result.returncode != 0:
         update_status(
-            record.job_id, status=STATUS_FETCH_FAILED,
+            record.job_id,
+            status=STATUS_FETCH_FAILED,
             error_msg=f"rc={result.returncode} stderr={result.stderr.strip()[:500]}",
         )
         _log(
@@ -323,7 +361,8 @@ def fetch_record(record: JobRecord) -> bool:
 
     size = _dir_size_bytes(local_dest)
     update_status(
-        record.job_id, status=STATUS_FETCHED,
+        record.job_id,
+        status=STATUS_FETCHED,
         fetched_at_iso=_now_iso(),
         bytes_fetched=size,
     )
@@ -334,6 +373,7 @@ def fetch_record(record: JobRecord) -> bool:
 # ---------------------------------------------------------------------
 # Hang watchdog implementation
 # ---------------------------------------------------------------------
+
 
 def _parse_harbor_iso(ts: str) -> Optional[datetime]:
     """Parse harbor's result.json ``updated_at`` as an aware UTC timestamp."""
@@ -346,8 +386,12 @@ def _parse_harbor_iso(ts: str) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
-def _is_hung(updated_at: Optional[datetime], n_completed: Optional[int],
-             now: datetime, threshold_seconds: int) -> bool:
+def _is_hung(
+    updated_at: Optional[datetime],
+    n_completed: Optional[int],
+    now: datetime,
+    threshold_seconds: int,
+) -> bool:
     """Pure hang predicate (no I/O — unit-tested directly).
 
     Hung iff harbor has served at least one trial (``n_completed > 0``) and
@@ -375,10 +419,14 @@ def _harbor_liveness(record: JobRecord) -> tuple[Optional[datetime], Optional[in
         try:
             proc = subprocess.run(
                 [GCLOUD_CLI, "storage", "cat", path],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            _log(f"watchdog: result.json read failed for {record.job_id}: {e}", err=True)
+            _log(
+                f"watchdog: result.json read failed for {record.job_id}: {e}", err=True
+            )
             return None, None
         if proc.returncode == 0:
             try:
@@ -404,8 +452,11 @@ def _watchdog_kill(record: JobRecord) -> bool:
         _log(f"watchdog: kill subprocess failed for {record.job_id}: {e}", err=True)
         return False
     if proc.returncode != 0:
-        _log(f"watchdog: kill rc={proc.returncode} for {record.job_id}: "
-             f"{(proc.stderr or '').strip()[:200]}", err=True)
+        _log(
+            f"watchdog: kill rc={proc.returncode} for {record.job_id}: "
+            f"{(proc.stderr or '').strip()[:200]}",
+            err=True,
+        )
         return False
     return True
 
@@ -427,8 +478,10 @@ def watchdog_check(record: JobRecord, now: datetime) -> bool:
         return False
 
     stale_h = (now - updated_at).total_seconds() / 3600.0
-    detail = (f"harbor result.json stale {stale_h:.1f}h "
-              f"(threshold {WATCHDOG_HANG_SECONDS / 3600:.1f}h), n_completed={n_completed}")
+    detail = (
+        f"harbor result.json stale {stale_h:.1f}h "
+        f"(threshold {WATCHDOG_HANG_SECONDS / 3600:.1f}h), n_completed={n_completed}"
+    )
 
     if WATCHDOG_MODE == "log_only":
         _log(f"watchdog: WOULD KILL {record.job_id} — {detail}")
@@ -438,7 +491,8 @@ def watchdog_check(record: JobRecord, now: datetime) -> bool:
     if not _watchdog_kill(record):
         return False  # kill failed; leave RUNNING, retry next cycle
     update_status(
-        record.job_id, status=STATUS_FAILED,
+        record.job_id,
+        status=STATUS_FAILED,
         last_polled_at_iso=_now_iso(),
         error_msg=f"watchdog: hung {stale_h:.1f}h, auto-killed",
     )
@@ -449,6 +503,7 @@ def watchdog_check(record: JobRecord, now: datetime) -> bool:
 # ---------------------------------------------------------------------
 # Poll loop
 # ---------------------------------------------------------------------
+
 
 def poll_once() -> None:
     """One full reconciliation pass over the registry."""
@@ -502,17 +557,24 @@ def poll_once() -> None:
                 ):
                     continue
                 update_status(
-                    r.job_id, status=STATUS_RUNNING,
+                    r.job_id,
+                    status=STATUS_RUNNING,
                     last_polled_at_iso=now_iso,
                     iris_attempt_id=preemption_count,
                 )
                 continue
 
-            terminal = state in _IRIS_TERMINAL_SUCCESS or state in _IRIS_TERMINAL_FAILURE
+            terminal = (
+                state in _IRIS_TERMINAL_SUCCESS or state in _IRIS_TERMINAL_FAILURE
+            )
             if not terminal:
                 # Unknown state — keep polling, don't lose the row.
-                update_status(r.job_id, status=r.status, last_polled_at_iso=now_iso,
-                              error_msg=f"unhandled iris state {state}")
+                update_status(
+                    r.job_id,
+                    status=r.status,
+                    last_polled_at_iso=now_iso,
+                    error_msg=f"unhandled iris state {state}",
+                )
                 continue
 
             # Job is terminal. Don't re-fetch if already done.
@@ -523,7 +585,8 @@ def poll_once() -> None:
                 STATUS_SUCCEEDED if state in _IRIS_TERMINAL_SUCCESS else STATUS_FAILED
             )
             update_status(
-                r.job_id, status=terminal_status,
+                r.job_id,
+                status=terminal_status,
                 last_polled_at_iso=now_iso,
                 exit_code=exit_code,
                 iris_attempt_id=preemption_count,
@@ -539,7 +602,9 @@ def run_loop(interval: int, once: bool) -> int:
     """Main daemon entry. ``--once`` returns after a single pass."""
     ensure_local_paths(PATHS.home, PATHS.state, PATHS.logs)
     reserve_iris_local_ports()
-    _log(f"started interval={interval}s once={once} db={DB_PATH} reserved_ports={RESERVED_LOCAL_PORTS}")
+    _log(
+        f"started interval={interval}s once={once} db={DB_PATH} reserved_ports={RESERVED_LOCAL_PORTS}"
+    )
 
     stop_flag = {"set": False}
 
@@ -573,6 +638,7 @@ def run_loop(interval: int, once: bool) -> int:
 # ---------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------
+
 
 def _cmd_run(args: argparse.Namespace) -> int:
     return run_loop(args.interval, args.once)
@@ -623,8 +689,11 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
     record = get(args.job_id)
     if record is None:
         _log(f"job not in registry: {args.job_id}", err=True)
-        _log("Submit via the launcher first, or re-register manually with "
-             "hpc.iris_job_registry.register_submission()", err=True)
+        _log(
+            "Submit via the launcher first, or re-register manually with "
+            "hpc.iris_job_registry.register_submission()",
+            err=True,
+        )
         return 1
 
     update_status(record.job_id, status=STATUS_FETCHING)
@@ -636,6 +705,7 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------
 # launchd install / uninstall
 # ---------------------------------------------------------------------
+
 
 def _build_plist(*, interval: int) -> dict:
     """Construct the launchd agent plist dict for the current install.
@@ -671,8 +741,12 @@ def _build_plist(*, interval: int) -> dict:
     return {
         "Label": LABEL,
         "ProgramArguments": [
-            python_exe, "-m", "hpc.iris_fetch_daemon",
-            "run", "--interval", str(interval),
+            python_exe,
+            "-m",
+            "hpc.iris_fetch_daemon",
+            "run",
+            "--interval",
+            str(interval),
         ],
         "WorkingDirectory": str(repo_root),
         "KeepAlive": True,
@@ -706,14 +780,17 @@ def _cmd_install(args: argparse.Namespace) -> int:
     subprocess.run(["launchctl", "bootout", target], capture_output=True)
     bootstrap = subprocess.run(
         ["launchctl", "bootstrap", f"gui/{uid}", str(PLIST_PATH)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if bootstrap.returncode != 0:
         _log(f"launchctl bootstrap failed: {bootstrap.stderr.strip()}", err=True)
         return 1
     subprocess.run(["launchctl", "enable", target], capture_output=True)
     kickstart = subprocess.run(
-        ["launchctl", "kickstart", "-k", target], capture_output=True, text=True,
+        ["launchctl", "kickstart", "-k", target],
+        capture_output=True,
+        text=True,
     )
     if kickstart.returncode != 0:
         _log(f"launchctl kickstart warning: {kickstart.stderr.strip()}", err=True)
@@ -728,7 +805,9 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
     uid = os.getuid()
     target = f"gui/{uid}/{LABEL}"
     bootout = subprocess.run(
-        ["launchctl", "bootout", target], capture_output=True, text=True,
+        ["launchctl", "bootout", target],
+        capture_output=True,
+        text=True,
     )
     if bootout.returncode != 0 and "No such process" not in (bootout.stderr or ""):
         _log(f"launchctl bootout: {bootout.stderr.strip()}", err=True)
@@ -747,6 +826,7 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
 # argparse wiring
 # ---------------------------------------------------------------------
 
+
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(
         prog="python -m hpc.iris_fetch_daemon",
@@ -755,15 +835,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pr = sub.add_parser("run", help="Run the poll loop in the foreground.")
-    pr.add_argument("--interval", type=int, default=60,
-                    help="Seconds between polls (default 60).")
-    pr.add_argument("--once", action="store_true",
-                    help="Run a single pass and exit.")
+    pr.add_argument(
+        "--interval", type=int, default=60, help="Seconds between polls (default 60)."
+    )
+    pr.add_argument("--once", action="store_true", help="Run a single pass and exit.")
     pr.set_defaults(func=_cmd_run)
 
     ps = sub.add_parser("status", help="Show heartbeat + recent jobs.")
-    ps.add_argument("--limit", type=int, default=10,
-                    help="Number of recent jobs to display (default 10).")
+    ps.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Number of recent jobs to display (default 10).",
+    )
     ps.set_defaults(func=_cmd_status)
 
     pf = sub.add_parser("fetch", help="Manually fetch outputs for one job.")
@@ -771,8 +855,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     pf.set_defaults(func=_cmd_fetch)
 
     pi = sub.add_parser("install", help="Install the launchd user agent.")
-    pi.add_argument("--interval", type=int, default=60,
-                    help="Poll interval baked into the plist (default 60s).")
+    pi.add_argument(
+        "--interval",
+        type=int,
+        default=60,
+        help="Poll interval baked into the plist (default 60s).",
+    )
     pi.set_defaults(func=_cmd_install)
 
     pu = sub.add_parser("uninstall", help="Remove the launchd user agent.")

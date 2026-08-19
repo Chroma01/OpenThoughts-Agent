@@ -21,6 +21,7 @@ Two layers (see the module's two public functions):
 The two functions are PURE (pass a stats dict + planned n_trials). SUPABASE_URL /
 SUPABASE_SERVICE_ROLE_KEY are only needed for the CLI (fetches a job by id).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -51,7 +52,9 @@ CANONICAL_HIGH_ERRORS_THRESHOLD = 10
 
 @dataclass
 class GuardrailCounts:
-    invalid_error_count: int  # Σ len(exception_stats[type]) over NON-benign, array-shaped types
+    invalid_error_count: (
+        int  # Σ len(exception_stats[type]) over NON-benign, array-shaped types
+    )
     is_high_errors: bool  # invalid_error_count > 10  (the "Errors: k" badge condition)
     is_incomplete: bool  # attempted (stats.n_trials) < planned (job.n_trials)
     attempted_n_trials: Optional[int]
@@ -94,9 +97,10 @@ def guardrail_counts(stats: Any, planned_n_trials: Optional[int]) -> GuardrailCo
     attempted = (stats or {}).get("n_trials")
     attempted = attempted if isinstance(attempted, int) else None
     is_incomplete = (
-        (attempted is not None and planned_n_trials is not None and attempted < planned_n_trials)
-        or (attempted is None and planned_n_trials is not None and planned_n_trials > 0)
-    )
+        attempted is not None
+        and planned_n_trials is not None
+        and attempted < planned_n_trials
+    ) or (attempted is None and planned_n_trials is not None and planned_n_trials > 0)
     return GuardrailCounts(
         invalid_error_count=invalid_error_count,
         is_high_errors=invalid_error_count > CANONICAL_HIGH_ERRORS_THRESHOLD,
@@ -131,15 +135,21 @@ def passes_gate(
     c = guardrail_counts(stats, planned_n_trials)
     reasons = []
     if c.invalid_error_count > max_invalid_errors:
-        reasons.append(f"high-errors ({c.invalid_error_count} non-benign > {max_invalid_errors})")
+        reasons.append(
+            f"high-errors ({c.invalid_error_count} non-benign > {max_invalid_errors})"
+        )
     if min_complete_frac is not None:
-        frac = (c.attempted_n_trials or 0) / planned_n_trials if planned_n_trials else 0.0
+        frac = (
+            (c.attempted_n_trials or 0) / planned_n_trials if planned_n_trials else 0.0
+        )
         if frac < min_complete_frac:
             reasons.append(
                 f"incomplete ({c.attempted_n_trials}/{c.planned_n_trials} = {frac:.1%} < {min_complete_frac:.0%})"
             )
     elif require_complete and c.is_incomplete:
-        reasons.append(f"incomplete ({c.attempted_n_trials}/{c.planned_n_trials} trials)")
+        reasons.append(
+            f"incomplete ({c.attempted_n_trials}/{c.planned_n_trials} trials)"
+        )
     passed = not reasons
     return passed, ("PASS" if passed else "FAIL: " + "; ".join(reasons))
 
@@ -151,7 +161,10 @@ def _get_client():
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not key:
-        print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set", file=sys.stderr)
+        print(
+            "Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set",
+            file=sys.stderr,
+        )
         sys.exit(1)
     return create_client(url, key)
 
@@ -167,7 +180,9 @@ def main(argv=None):
         default=CANONICAL_HIGH_ERRORS_THRESHOLD,
         help="gate threshold on non-benign error count (default 10 = leaderboard isHighErrors)",
     )
-    ap.add_argument("--no-require-complete", action="store_true", help="do NOT fail on incomplete")
+    ap.add_argument(
+        "--no-require-complete", action="store_true", help="do NOT fail on incomplete"
+    )
     ap.add_argument("--json", action="store_true", help="emit JSON")
     a = ap.parse_args(argv)
 
@@ -191,11 +206,17 @@ def main(argv=None):
         require_complete=not a.no_require_complete,
     )
     if a.json:
-        print(json.dumps({**asdict(counts), "passed": passed, "reason": reason}, indent=2))
+        print(
+            json.dumps({**asdict(counts), "passed": passed, "reason": reason}, indent=2)
+        )
     else:
         print(f"job {a.job_id} (user={job.get('username')})")
-        print(f"  invalid_error_count = {counts.invalid_error_count}  (Errors:k badge = {counts.is_high_errors})")
-        print(f"  incomplete          = {counts.is_incomplete}  ({counts.attempted_n_trials}/{counts.planned_n_trials} trials)")
+        print(
+            f"  invalid_error_count = {counts.invalid_error_count}  (Errors:k badge = {counts.is_high_errors})"
+        )
+        print(
+            f"  incomplete          = {counts.is_incomplete}  ({counts.attempted_n_trials}/{counts.planned_n_trials} trials)"
+        )
         print(f"  GATE                = {reason}")
 
 

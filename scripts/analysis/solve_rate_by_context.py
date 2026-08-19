@@ -21,7 +21,11 @@ from typing import Optional
 
 import numpy as np
 
-from scripts.analysis.utils import TOKEN_REPRESENTATIONS, extract_reward, extract_error_type
+from scripts.analysis.utils import (
+    TOKEN_REPRESENTATIONS,
+    extract_reward,
+    extract_error_type,
+)
 from scripts.analysis.trace_metrics import (
     load_and_filter,
     tokenize_dataset,
@@ -51,6 +55,7 @@ def _bin_label(threshold: int) -> str:
 
 # ── Per-bin statistics ───────────────────────────────────────────────────────
 
+
 @dataclass
 class BinStats:
     label: str
@@ -77,7 +82,11 @@ class BinStats:
 
     @property
     def error_rate(self) -> float:
-        return (self.n_timeout + self.n_ctx_exceeded + self.n_other_error) / self.n if self.n else 0.0
+        return (
+            (self.n_timeout + self.n_ctx_exceeded + self.n_other_error) / self.n
+            if self.n
+            else 0.0
+        )
 
 
 @dataclass
@@ -89,6 +98,7 @@ class DatasetResult:
 
 
 # ── Analysis ─────────────────────────────────────────────────────────────────
+
 
 def compute_bin_stats(
     ds,
@@ -153,6 +163,7 @@ def print_table(result: DatasetResult) -> None:
 
 
 # ── Plotting ─────────────────────────────────────────────────────────────────
+
 
 def plot_results(
     results: list[DatasetResult],
@@ -237,6 +248,7 @@ def plot_results(
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
+
 def main(argv: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(
         description="Solve/timeout/error rates binned by context length.",
@@ -294,9 +306,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     from transformers import AutoTokenizer
 
     print(f"Loading tokenizer: {args.tokenizer}")
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.tokenizer, trust_remote_code=True
-    )
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
 
     all_results: list[DatasetResult] = []
 

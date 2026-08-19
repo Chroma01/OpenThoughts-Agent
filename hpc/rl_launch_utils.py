@@ -196,8 +196,12 @@ def build_apptainer_prefix(
     # and wait process observes them; each still honors an explicit override.
     raylet_wait = os.environ.get("RAY_raylet_start_wait_time_s", "120")
     prefix.extend(["--env", f"RAY_raylet_start_wait_time_s={raylet_wait}"])
-    raylet_connect_attempts = os.environ.get("RAY_raylet_client_num_connect_attempts", "120")
-    prefix.extend(["--env", f"RAY_raylet_client_num_connect_attempts={raylet_connect_attempts}"])
+    raylet_connect_attempts = os.environ.get(
+        "RAY_raylet_client_num_connect_attempts", "120"
+    )
+    prefix.extend(
+        ["--env", f"RAY_raylet_client_num_connect_attempts={raylet_connect_attempts}"]
+    )
     prefix.append(sif)
     return prefix
 

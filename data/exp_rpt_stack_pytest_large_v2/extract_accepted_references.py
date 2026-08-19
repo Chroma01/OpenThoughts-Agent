@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Materialize private task references accepted by a Harbor oracle job."""
+
 from __future__ import annotations
 
 import argparse

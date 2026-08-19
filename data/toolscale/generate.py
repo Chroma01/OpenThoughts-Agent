@@ -33,9 +33,15 @@ else:
 
 
 def add_toolscale_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser.add_argument("--split", type=str, default="train", help="Dataset split to load.")
-    parser.add_argument("--limit", type=int, default=100, help="Maximum number of tasks to generate.")
-    parser.add_argument("--offset", type=int, default=0, help="Offset into the dataset split.")
+    parser.add_argument(
+        "--split", type=str, default="train", help="Dataset split to load."
+    )
+    parser.add_argument(
+        "--limit", type=int, default=100, help="Maximum number of tasks to generate."
+    )
+    parser.add_argument(
+        "--offset", type=int, default=0, help="Offset into the dataset split."
+    )
     parser.add_argument(
         "--dataset-prefix",
         type=str,
@@ -54,9 +60,15 @@ def add_toolscale_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         default=None,
         help="Optional Hugging Face repo for uploads (dataset).",
     )
-    parser.add_argument("--hf-token", type=str, default=None, help="Hugging Face token for uploads.")
-    parser.add_argument("--hf-private", action="store_true", help="Upload dataset as private.")
-    parser.add_argument("--no-upload", action="store_true", help="Skip Hugging Face upload.")
+    parser.add_argument(
+        "--hf-token", type=str, default=None, help="Hugging Face token for uploads."
+    )
+    parser.add_argument(
+        "--hf-private", action="store_true", help="Upload dataset as private."
+    )
+    parser.add_argument(
+        "--no-upload", action="store_true", help="Skip Hugging Face upload."
+    )
     return parser
 
 
@@ -93,13 +105,17 @@ def _format_instruction_section(title: str, body: Optional[str]) -> List[str]:
 
 def _render_instruction(row: Dict[str, object]) -> str:
     scenario = row.get("user_scenario") or {}
-    scenario_instructions = scenario.get("instructions") if isinstance(scenario, dict) else {}
+    scenario_instructions = (
+        scenario.get("instructions") if isinstance(scenario, dict) else {}
+    )
     eval_criteria = row.get("evaluation_criteria") or {}
 
     lines: List[str] = ["# ToolScale Bug Fix Task"]
 
     domain = (
-        scenario_instructions.get("domain") if isinstance(scenario_instructions, dict) else None
+        scenario_instructions.get("domain")
+        if isinstance(scenario_instructions, dict)
+        else None
     )
     if domain:
         lines.append(f"- **Domain:** {domain}")
@@ -110,14 +126,32 @@ def _render_instruction(row: Dict[str, object]) -> str:
         lines.append(f"- **Scenario ID:** {row['id']}")
 
     if isinstance(scenario_instructions, dict):
-        lines.extend(_format_instruction_section("Task Instructions", scenario_instructions.get("task_instructions")))
-        lines.extend(_format_instruction_section("Reason for Request", scenario_instructions.get("reason_for_call")))
-        lines.extend(_format_instruction_section("Known Information", scenario_instructions.get("known_info")))
-        lines.extend(_format_instruction_section("Unknown Information", scenario_instructions.get("unknown_info")))
+        lines.extend(
+            _format_instruction_section(
+                "Task Instructions", scenario_instructions.get("task_instructions")
+            )
+        )
+        lines.extend(
+            _format_instruction_section(
+                "Reason for Request", scenario_instructions.get("reason_for_call")
+            )
+        )
+        lines.extend(
+            _format_instruction_section(
+                "Known Information", scenario_instructions.get("known_info")
+            )
+        )
+        lines.extend(
+            _format_instruction_section(
+                "Unknown Information", scenario_instructions.get("unknown_info")
+            )
+        )
 
     initial_state = row.get("initial_state")
     if initial_state:
-        lines.extend(["", "## Initial State", json.dumps(initial_state, indent=2, default=str)])
+        lines.extend(
+            ["", "## Initial State", json.dumps(initial_state, indent=2, default=str)]
+        )
 
     actions = eval_criteria.get("actions") if isinstance(eval_criteria, dict) else None
     if isinstance(actions, Sequence) and actions:
@@ -128,12 +162,18 @@ def _render_instruction(row: Dict[str, object]) -> str:
             args = action.get("arguments")
             summary = f"- `{name}`"
             if isinstance(args, dict):
-                filtered = {k: v for k, v in args.items() if v not in (None, "", [], {}, 0)}
+                filtered = {
+                    k: v for k, v in args.items() if v not in (None, "", [], {}, 0)
+                }
                 if filtered:
                     summary += f" with args {json.dumps(filtered, default=str)}"
             lines.append(summary)
 
-    communicate_info = eval_criteria.get("communicate_info") if isinstance(eval_criteria, dict) else None
+    communicate_info = (
+        eval_criteria.get("communicate_info")
+        if isinstance(eval_criteria, dict)
+        else None
+    )
     if communicate_info:
         lines.extend(
             [
@@ -143,7 +183,9 @@ def _render_instruction(row: Dict[str, object]) -> str:
             ]
         )
 
-    nl_assertions = eval_criteria.get("nl_assertions") if isinstance(eval_criteria, dict) else None
+    nl_assertions = (
+        eval_criteria.get("nl_assertions") if isinstance(eval_criteria, dict) else None
+    )
     if nl_assertions:
         lines.extend(
             [
@@ -165,7 +207,7 @@ def _render_instruction(row: Dict[str, object]) -> str:
             "",
             "Verification is handled by an OpenAI-powered judge that reads your `response.md` "
             "and the scenario assertions. Make sure your response stands alone, cites specific "
-            "details, and clearly answers all unknowns."
+            "details, and clearly answers all unknowns.",
         ]
     )
     return "\n".join(lines).strip() + "\n"
@@ -184,19 +226,27 @@ def _render_solution_script(row: Dict[str, object]) -> str:
             name = action.get("name", "unknown_action")
             args = action.get("arguments")
             if isinstance(args, dict):
-                filtered = {k: v for k, v in args.items() if v not in (None, "", [], {}, 0)}
+                filtered = {
+                    k: v for k, v in args.items() if v not in (None, "", [], {}, 0)
+                }
             else:
                 filtered = {}
             summary_lines.append(f"- {name} {json.dumps(filtered, default=str)}")
 
-    communicate_info = eval_criteria.get("communicate_info") if isinstance(eval_criteria, dict) else None
+    communicate_info = (
+        eval_criteria.get("communicate_info")
+        if isinstance(eval_criteria, dict)
+        else None
+    )
     if communicate_info:
         summary_lines.append("")
         summary_lines.append("Information to communicate:")
         for info in communicate_info:
             summary_lines.append(f"- {info}")
 
-    nl_assertions = eval_criteria.get("nl_assertions") if isinstance(eval_criteria, dict) else None
+    nl_assertions = (
+        eval_criteria.get("nl_assertions") if isinstance(eval_criteria, dict) else None
+    )
     if nl_assertions:
         summary_lines.append("")
         summary_lines.append("NL assertions to satisfy:")
@@ -257,14 +307,22 @@ def generate_tasks(args: argparse.Namespace) -> Tuple[Path, Dict[str, object]]:
     for idx in indices:
         row = dataset[idx]
         eval_criteria = row.get("evaluation_criteria") or {}
-        nl_assertions = eval_criteria.get("nl_assertions") if isinstance(eval_criteria, dict) else None
+        nl_assertions = (
+            eval_criteria.get("nl_assertions")
+            if isinstance(eval_criteria, dict)
+            else None
+        )
         if not nl_assertions:
-            skipped.append({"index": idx, "reason": "missing nl_assertions", "id": row.get("id")})
+            skipped.append(
+                {"index": idx, "reason": "missing nl_assertions", "id": row.get("id")}
+            )
             continue
 
         instruction_content = _render_instruction(row)
         solution_content = _render_solution_script(row)
-        verifier_instruction = _llm_verifier_instruction(instruction_content, nl_assertions)
+        verifier_instruction = _llm_verifier_instruction(
+            instruction_content, nl_assertions
+        )
         test_sh_content = create_pytest_sh()
         test_py_content = create_test_state_py(verifier_instruction)
 
@@ -289,7 +347,9 @@ def generate_tasks(args: argparse.Namespace) -> Tuple[Path, Dict[str, object]]:
         produced += 1
 
     if produced == 0:
-        raise RuntimeError("No ToolScale tasks generated. Relax filters or check dataset.")
+        raise RuntimeError(
+            "No ToolScale tasks generated. Relax filters or check dataset."
+        )
 
     artifacts: Dict[str, object] = {
         "dataset": DATASET_NAME,

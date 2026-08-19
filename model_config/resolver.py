@@ -9,6 +9,7 @@ Resolution merge order (later wins, most-specific):
 Falls back to regex patterns (model_config/_patterns.yaml) when no per-model
 file exists, preserving the eval registry's size-inference defaults.
 """
+
 from __future__ import annotations
 
 import re
@@ -22,14 +23,16 @@ MODEL_CONFIG_DIR = Path(__file__).resolve().parent
 # Fields that are MODEL-INTRINSIC — the same regardless of subsystem. A field
 # goes to the base ONLY if the model's entry actually carries it (so Pattern-D
 # models that deliberately omit tool_call_parser/reasoning_parser stay omitted).
-INTRINSIC_FIELDS = frozenset({
-    "trust_remote_code",
-    "hf_overrides",
-    "limit_mm_per_prompt",
-    "max_model_len",
-    "tool_call_parser",
-    "reasoning_parser",
-})
+INTRINSIC_FIELDS = frozenset(
+    {
+        "trust_remote_code",
+        "hf_overrides",
+        "limit_mm_per_prompt",
+        "max_model_len",
+        "tool_call_parser",
+        "reasoning_parser",
+    }
+)
 
 
 def _slugify(model: str) -> tuple[str, str]:
@@ -73,7 +76,11 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 
 def _strip_internal_keys(d: dict) -> dict:
     """Remove keys that are schema/structural (model, subsystems, variants) — not vLLM params."""
-    return {k: v for k, v in d.items() if k not in ("model", "subsystems", "variants", "notes")}
+    return {
+        k: v
+        for k, v in d.items()
+        if k not in ("model", "subsystems", "variants", "notes")
+    }
 
 
 def _resolve_patterns(model: str, subsystem: str, hardware: Optional[str]) -> dict:
@@ -99,7 +106,11 @@ def _resolve_patterns(model: str, subsystem: str, hardware: Optional[str]) -> di
             continue
         if re.search(regex, model):
             return _strip_internal_keys(
-                {k: v for k, v in pat.items() if k not in ("match", "profiles", "subsystems")}
+                {
+                    k: v
+                    for k, v in pat.items()
+                    if k not in ("match", "profiles", "subsystems")
+                }
             )
     return {}
 
@@ -166,7 +177,9 @@ def resolve_model_config(
     return merged
 
 
-def load_all_model_configs(subsystem: str = "eval", hardware: Optional[str] = None) -> Dict[str, dict]:
+def load_all_model_configs(
+    subsystem: str = "eval", hardware: Optional[str] = None
+) -> Dict[str, dict]:
     """Load + resolve EVERY model file into a flat {HF-name -> resolved config} dict.
 
     This is the back-compat bridge for the eval listener's ``load_model_registry`` /
@@ -175,12 +188,18 @@ def load_all_model_configs(subsystem: str = "eval", hardware: Optional[str] = No
     """
     out: Dict[str, dict] = {}
     for org_dir in sorted(MODEL_CONFIG_DIR.iterdir()):
-        if not org_dir.is_dir() or org_dir.name.startswith("_") or org_dir.name.startswith("."):
+        if (
+            not org_dir.is_dir()
+            or org_dir.name.startswith("_")
+            or org_dir.name.startswith(".")
+        ):
             continue
         for f in sorted(org_dir.glob("*.yaml")):
             data = _load_yaml(f)
             model_id = data.get("model")
             if not model_id:
                 continue
-            out[model_id] = resolve_model_config(model_id, subsystem=subsystem, hardware=hardware)
+            out[model_id] = resolve_model_config(
+                model_id, subsystem=subsystem, hardware=hardware
+            )
     return out

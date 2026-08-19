@@ -8,6 +8,7 @@ already holds the good (eos-fixed) INSTRUCT captures (both parsers). This script
   3. Re-renders the full log (instruct + base) -> all agentic HTML.
 Run with the tokviz-rt interpreter.
 """
+
 from __future__ import annotations
 
 import functools
@@ -44,8 +45,10 @@ def main() -> None:
     shim = ra.start_shim("base")
     try:
         for parser_key, bundled_config, _suffix in ra.VARIANTS:
-            print(f"\n[finish-base] base / {parser_key} (config={bundled_config.name})",
-                  flush=True)
+            print(
+                f"\n[finish-base] base / {parser_key} (config={bundled_config.name})",
+                flush=True,
+            )
             for repo in sorted(p for p in ra.REPOS_DIR.iterdir() if p.is_dir()):
                 ra.run_sweagent_on_repo("base", repo, bundled_config)
     finally:

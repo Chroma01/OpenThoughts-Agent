@@ -59,9 +59,15 @@ def sanitize_component(text: str) -> str:
     return text or "task"
 
 
-def build_task(task_dir: Path, tag: str, output_images_dir: Path, skip_migrate: bool, verbose: bool):
+def build_task(
+    task_dir: Path, tag: str, output_images_dir: Path, skip_migrate: bool, verbose: bool
+):
     # podman-hpc build
-    run(["podman-hpc", "build", "-t", tag, "-f", "Dockerfile", "."], cwd=task_dir, verbose=verbose)
+    run(
+        ["podman-hpc", "build", "-t", tag, "-f", "Dockerfile", "."],
+        cwd=task_dir,
+        verbose=verbose,
+    )
     if not skip_migrate:
         run(["podman-hpc", "migrate", tag], cwd=task_dir, verbose=verbose)
     # save image
@@ -82,12 +88,35 @@ def copy_task(task_dir: Path, dest_dir: Path, tag: str):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Build Harbor tasks with podman-hpc and emit image-based tasks.")
-    ap.add_argument("--tasks-dir", required=True, type=Path, help="Input tasks directory (each subdir is a task with Dockerfile).")
-    ap.add_argument("--output-images-dir", required=True, type=Path, help="Where to store saved images (.tar).")
-    ap.add_argument("--output-tasks-dir", required=True, type=Path, help="Where to write task copies that reference prebuilt images.")
-    ap.add_argument("--tag-prefix", default="harbor-task", help="Prefix for image tags (tag will be <prefix>-<taskname>:latest).")
-    ap.add_argument("--skip-migrate", action="store_true", help="Skip podman-hpc migrate step.")
+    ap = argparse.ArgumentParser(
+        description="Build Harbor tasks with podman-hpc and emit image-based tasks."
+    )
+    ap.add_argument(
+        "--tasks-dir",
+        required=True,
+        type=Path,
+        help="Input tasks directory (each subdir is a task with Dockerfile).",
+    )
+    ap.add_argument(
+        "--output-images-dir",
+        required=True,
+        type=Path,
+        help="Where to store saved images (.tar).",
+    )
+    ap.add_argument(
+        "--output-tasks-dir",
+        required=True,
+        type=Path,
+        help="Where to write task copies that reference prebuilt images.",
+    )
+    ap.add_argument(
+        "--tag-prefix",
+        default="harbor-task",
+        help="Prefix for image tags (tag will be <prefix>-<taskname>:latest).",
+    )
+    ap.add_argument(
+        "--skip-migrate", action="store_true", help="Skip podman-hpc migrate step."
+    )
     ap.add_argument("--verbose", action="store_true", help="Print commands.")
     args = ap.parse_args()
 
@@ -111,13 +140,17 @@ def main():
         env_rel = env_dir.relative_to(task_root)  # path from task root to env dir
 
         task_slug = sanitize_component(task_root_rel)
-        env_slug = sanitize_component("-".join(env_rel.parts)) if env_rel.parts else "env"
+        env_slug = (
+            sanitize_component("-".join(env_rel.parts)) if env_rel.parts else "env"
+        )
         tag = f"{args.tag_prefix}-{task_slug}-{env_slug}:latest"
 
         print(f"[task] {task_root_rel} (env {env_rel}) -> tag {tag}")
 
         # Build from original env dir
-        tar_path = build_task(env_dir, tag, args.output_images_dir, args.skip_migrate, args.verbose)
+        tar_path = build_task(
+            env_dir, tag, args.output_images_dir, args.skip_migrate, args.verbose
+        )
 
         # Copy full task tree, then mutate env dir
         dest_task_dir = args.output_tasks_dir / task_root_rel

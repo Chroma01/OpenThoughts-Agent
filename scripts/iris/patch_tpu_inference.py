@@ -36,18 +36,18 @@ PATCHES: list[tuple[str, str, str, str]] = [
         "tpu_inference/utils.py",
         "    else:\n"
         "        for device in devices:\n"
-        "            hbm_used = device.memory_stats()[\"bytes_in_use\"]\n"
-        "            hbm_limit = device.memory_stats()[\"bytes_limit\"]\n"
+        '            hbm_used = device.memory_stats()["bytes_in_use"]\n'
+        '            hbm_limit = device.memory_stats()["bytes_limit"]\n'
         "            usage.append((hbm_used, hbm_limit))",
         "    else:\n"
         "        for device in devices:\n"
         "            # ot-agent patch (patch_tpu_inference.py):\n"
         "            # skip non-addressable devices on multi-host slices >v6e-8.\n"
-        "            if not getattr(device, \"is_addressable\", True):\n"
+        '            if not getattr(device, "is_addressable", True):\n'
         "                continue\n"
         "            try:\n"
-        "                hbm_used = device.memory_stats()[\"bytes_in_use\"]\n"
-        "                hbm_limit = device.memory_stats()[\"bytes_limit\"]\n"
+        '                hbm_used = device.memory_stats()["bytes_in_use"]\n'
+        '                hbm_limit = device.memory_stats()["bytes_limit"]\n'
         "            except Exception:\n"
         "                continue\n"
         "            usage.append((hbm_used, hbm_limit))",
@@ -59,7 +59,7 @@ PATCHES: list[tuple[str, str, str, str]] = [
         "        multihost_backend = envs.TPU_MULTIHOST_BACKEND\n"
         "        # If we are not in multi-host setup, or the tensor is not fully addressable,\n"
         "        # we can use jax.device_put directly.\n"
-        "        if multihost_backend != \"ray\" or (isinstance(t, jax.Array)\n"
+        '        if multihost_backend != "ray" or (isinstance(t, jax.Array)\n'
         "                                          and not t.is_fully_addressable):\n"
         "            if layout is not None:\n"
         "                return jax.device_put(t, Format(layout, sharding))\n"
@@ -95,7 +95,7 @@ PATCHES: list[tuple[str, str, str, str]] = [
         "        # make_array_from_callback (not plain device_put). Extended dtypes\n"
         "        # (PRNGKeys) are seeded identically and cannot be broadcast, so they\n"
         "        # skip the broadcast and go straight to make_array_from_callback.\n"
-        "        if multihost_backend == \"ray\":\n"
+        '        if multihost_backend == "ray":\n'
         "            if isinstance(t, jax.Array) and not t.is_fully_addressable:\n"
         "                if layout is not None:\n"
         "                    return jax.device_put(t, Format(layout, sharding))\n"
@@ -148,9 +148,7 @@ def _site_packages_root() -> Path:
         p = Path(path)
         if p.name == "site-packages":
             return p
-    raise RuntimeError(
-        "could not locate site-packages on PYTHONPATH; aborting patch"
-    )
+    raise RuntimeError("could not locate site-packages on PYTHONPATH; aborting patch")
 
 
 def _apply_one(site_pkg: Path, rel_path: str, old: str, new: str, label: str) -> str:

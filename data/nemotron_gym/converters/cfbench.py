@@ -61,57 +61,60 @@ _SCORE_THRESHOLD = 0.7
 
 # instruction_ids the hybrid verifier grades deterministically (must match the
 # CONSTRAINTS dict in verifiers/hybrid_ifeval_judge.py).
-DET_IMPLEMENTED = frozenset({
-    # length / counts
-    "length_constraints:number_words",
-    "length_constraints:number_characters",
-    "length_constraints:unique_words",
-    "length_constraints:word_repetition",
-    "length_constraints:sentence_length",
-    "length_constraints:word_length",
-    "length_constraints:paragraph_length",
-    "detectable_format:number_paragraphs",
-    "detectable_format:sentence_count",
-    "detectable_format:sentences_per_paragraph",
-    "detectable_format:max_paragraph_length",
-    # keywords
-    "keywords:frequency",
-    "keywords:word_count_different_numbers",
-    "keywords:existence",
-    "keywords:forbidden_words",
-    "keywords:letter_frequency",
-    "keywords:positioning",
-    "keywords:palindrome_word",
-    # startend
-    "startend:end_checker",
-    "startend:start_checker",
-    "startend:wrap_checker",
-    "startend:quotation",
-    # detectable_format
-    "detectable_format:title",
-    "detectable_format:number_bullet_lists",
-    "detectable_format:numbered_list",
-    "detectable_format:multiple_sections",
-    "detectable_format:table",
-    "detectable_format:nested_list",
-    "detectable_format:heading_depth",
-    "detectable_format:json_format",
-    # detectable_content
-    "detectable_content:postscript",
-    "detectable_content:number_placeholders",
-    "detectable_content:numeric_inclusion",
-    # punctuation
-    "punctuation:no_comma",
-    "punctuation:no_period",
-    "punctuation:end_rule",
-    "punctuation:question_exclaim",
-    # change_case
-    "change_case:lowercase",
-    "change_case:all_caps",
-    "change_case:first_letter_cap",
-    "change_case:last_letter",
-    "change_case:capital_word_frequency",
-})
+DET_IMPLEMENTED = frozenset(
+    {
+        # length / counts
+        "length_constraints:number_words",
+        "length_constraints:number_characters",
+        "length_constraints:unique_words",
+        "length_constraints:word_repetition",
+        "length_constraints:sentence_length",
+        "length_constraints:word_length",
+        "length_constraints:paragraph_length",
+        "detectable_format:number_paragraphs",
+        "detectable_format:sentence_count",
+        "detectable_format:sentences_per_paragraph",
+        "detectable_format:max_paragraph_length",
+        # keywords
+        "keywords:frequency",
+        "keywords:word_count_different_numbers",
+        "keywords:existence",
+        "keywords:forbidden_words",
+        "keywords:letter_frequency",
+        "keywords:positioning",
+        "keywords:palindrome_word",
+        # startend
+        "startend:end_checker",
+        "startend:start_checker",
+        "startend:wrap_checker",
+        "startend:quotation",
+        # detectable_format
+        "detectable_format:title",
+        "detectable_format:number_bullet_lists",
+        "detectable_format:numbered_list",
+        "detectable_format:multiple_sections",
+        "detectable_format:table",
+        "detectable_format:nested_list",
+        "detectable_format:heading_depth",
+        "detectable_format:json_format",
+        # detectable_content
+        "detectable_content:postscript",
+        "detectable_content:number_placeholders",
+        "detectable_content:numeric_inclusion",
+        # punctuation
+        "punctuation:no_comma",
+        "punctuation:no_period",
+        "punctuation:end_rule",
+        "punctuation:question_exclaim",
+        # change_case
+        "change_case:lowercase",
+        "change_case:all_caps",
+        "change_case:first_letter_cap",
+        "change_case:last_letter",
+        "change_case:capital_word_frequency",
+    }
+)
+
 
 # Human-readable phrasings for routing subjective / ambiguous instruction_ids
 # into LLM-judge yes/no questions. `kw` is the inline constraint dict.
@@ -125,54 +128,137 @@ def _judge_question(iid: str, kw: dict) -> str:
     g = kw.get
     # Tone / style / situation / linguistic families — describe the target.
     simple = {
-        "stylistic:tone_formality": lambda: f"Does the response use a {g('tone_level','formal')} tone?",
-        "stylistic:voice": lambda: f"Is the response written in the {g('voice_type','active')} voice?",
-        "stylistic:literary_style": lambda: f"Is the response written in a {g('style_type','')} literary style?",
-        "stylistic:sentence_tone_consistency": lambda: f"Does the response maintain a consistent {g('tone_type','')} tone across sentences?",
-        "stylistic:emotional_tone": lambda: f"Does the response convey a {g('emotion_type','')} emotional tone?",
-        "stylistic:politeness": lambda: f"Does the response use a {g('politeness_degree','')} level of politeness?",
-        "stylistic:rhythm_pattern": lambda: f"Does the response follow a {g('rhythm_type','')} rhythmic pattern?",
-        "stylistic:figurative_language": lambda: f"Does the response use {g('figure_type','figurative language')} ({_rel_phrase(kw)} {g('num_occurrences','')} times)?",
-        "stylistic:emotive_adjectives": lambda: f"Does the response use {_rel_phrase(kw)} {g('num_adjectives', g('num_emotive_adjectives',''))} emotive adjectives?",
-        "stylistic:sensory_detail": lambda: f"Does the response include {_rel_phrase(kw)} {g('num_details','')} {g('sense_type','sensory')} sensory details?",
-        "situation:task_specific": lambda: f"Does the response correctly perform the '{g('task_type','')}' task as described in the instruction?",
-        "situation:role_based": lambda: f"Does the response stay in the '{g('role_type', g('scenario_type',''))}' role described in the instruction?",
-        "situation:audience_alignment": lambda: f"Is the response appropriately tailored for a '{g('audience_type','')}' audience?",
-        "situation:perspective": lambda: f"Is the response written from a '{g('perspective_type','')}' perspective?",
-        "situation:emotional_alignment": lambda: f"Does the response align with a '{g('emotion_type','')}' emotional state?",
-        "situation:environment_setting": lambda: f"Is the response consistent with a '{g('environment_type','')}' environment/setting?",
-        "situation:temporal_context": lambda: f"Is the response consistent with the '{g('time_frame','')}' time frame?",
-        "situation:contextual_scenario": lambda: f"Is the response consistent with the '{g('scenario_type','')}' scenario?",
-        "situation:cultural_context": lambda: f"Is the response adapted to the '{g('culture_type','')}' cultural context?",
-        "linguistic:speech_act": lambda: f"Does the response perform a '{g('act_type', g('speech_act_type',''))}' speech act?",
-        "linguistic:pragmatic_context": lambda: f"Is the response appropriate for a '{g('context_type','')}' pragmatic context?",
-        "linguistic:grammatical_mood": lambda: f"Is the response written in the '{g('mood_type','')}' grammatical mood?",
-        "linguistic:phonological_pattern": lambda: f"Does the response follow a '{g('phonology_type','')}' phonological pattern?",
-        "linguistic:syntactic_pattern": lambda: f"Does the response follow a '{g('pattern_type','')}' syntactic pattern?",
-        "linguistic:sound_symbolism": lambda: f"Does the response use sound symbolism ({_rel_phrase(kw)} {g('num_symbolisms','')} times)?",
-        "linguistic:morphological_form": lambda: f"Does the response use the '{g('form_type','')}' morphological form?",
+        "stylistic:tone_formality": lambda: (
+            f"Does the response use a {g('tone_level', 'formal')} tone?"
+        ),
+        "stylistic:voice": lambda: (
+            f"Is the response written in the {g('voice_type', 'active')} voice?"
+        ),
+        "stylistic:literary_style": lambda: (
+            f"Is the response written in a {g('style_type', '')} literary style?"
+        ),
+        "stylistic:sentence_tone_consistency": lambda: (
+            f"Does the response maintain a consistent {g('tone_type', '')} tone across sentences?"
+        ),
+        "stylistic:emotional_tone": lambda: (
+            f"Does the response convey a {g('emotion_type', '')} emotional tone?"
+        ),
+        "stylistic:politeness": lambda: (
+            f"Does the response use a {g('politeness_degree', '')} level of politeness?"
+        ),
+        "stylistic:rhythm_pattern": lambda: (
+            f"Does the response follow a {g('rhythm_type', '')} rhythmic pattern?"
+        ),
+        "stylistic:figurative_language": lambda: (
+            f"Does the response use {g('figure_type', 'figurative language')} ({_rel_phrase(kw)} {g('num_occurrences', '')} times)?"
+        ),
+        "stylistic:emotive_adjectives": lambda: (
+            f"Does the response use {_rel_phrase(kw)} {g('num_adjectives', g('num_emotive_adjectives', ''))} emotive adjectives?"
+        ),
+        "stylistic:sensory_detail": lambda: (
+            f"Does the response include {_rel_phrase(kw)} {g('num_details', '')} {g('sense_type', 'sensory')} sensory details?"
+        ),
+        "situation:task_specific": lambda: (
+            f"Does the response correctly perform the '{g('task_type', '')}' task as described in the instruction?"
+        ),
+        "situation:role_based": lambda: (
+            f"Does the response stay in the '{g('role_type', g('scenario_type', ''))}' role described in the instruction?"
+        ),
+        "situation:audience_alignment": lambda: (
+            f"Is the response appropriately tailored for a '{g('audience_type', '')}' audience?"
+        ),
+        "situation:perspective": lambda: (
+            f"Is the response written from a '{g('perspective_type', '')}' perspective?"
+        ),
+        "situation:emotional_alignment": lambda: (
+            f"Does the response align with a '{g('emotion_type', '')}' emotional state?"
+        ),
+        "situation:environment_setting": lambda: (
+            f"Is the response consistent with a '{g('environment_type', '')}' environment/setting?"
+        ),
+        "situation:temporal_context": lambda: (
+            f"Is the response consistent with the '{g('time_frame', '')}' time frame?"
+        ),
+        "situation:contextual_scenario": lambda: (
+            f"Is the response consistent with the '{g('scenario_type', '')}' scenario?"
+        ),
+        "situation:cultural_context": lambda: (
+            f"Is the response adapted to the '{g('culture_type', '')}' cultural context?"
+        ),
+        "linguistic:speech_act": lambda: (
+            f"Does the response perform a '{g('act_type', g('speech_act_type', ''))}' speech act?"
+        ),
+        "linguistic:pragmatic_context": lambda: (
+            f"Is the response appropriate for a '{g('context_type', '')}' pragmatic context?"
+        ),
+        "linguistic:grammatical_mood": lambda: (
+            f"Is the response written in the '{g('mood_type', '')}' grammatical mood?"
+        ),
+        "linguistic:phonological_pattern": lambda: (
+            f"Does the response follow a '{g('phonology_type', '')}' phonological pattern?"
+        ),
+        "linguistic:syntactic_pattern": lambda: (
+            f"Does the response follow a '{g('pattern_type', '')}' syntactic pattern?"
+        ),
+        "linguistic:sound_symbolism": lambda: (
+            f"Does the response use sound symbolism ({_rel_phrase(kw)} {g('num_symbolisms', '')} times)?"
+        ),
+        "linguistic:morphological_form": lambda: (
+            f"Does the response use the '{g('form_type', '')}' morphological form?"
+        ),
         # Ambiguous-unicode counting → judge instead of a brittle det check.
-        "keywords:vowel_count": lambda: f"Does the response contain {_rel_phrase(kw)} {g('num_vowels','')} vowels?",
-        "keywords:consonant_count": lambda: f"Does the response contain {_rel_phrase(kw)} {g('num_consonants','')} consonants?",
-        "keywords:alliteration": lambda: f"Does the response use alliteration with '{g('target_letter','')}' ({_rel_phrase(kw)} {g('num_alliteration','')} times)?",
-        "change_case:case_ratio": lambda: f"Is the fraction of uppercase letters in the response between {g('min_fraction','')}% and {g('max_fraction','')}%?",
-        "change_case:vowel_consonant_balance": lambda: f"Is the vowel-to-consonant ratio of the response between {g('min_fraction','')} and {g('max_fraction','')}?",
-        "change_case:alternating": lambda: "Does the response use alternating upper/lower case across its letters?",
-        "change_case:alternating_target": lambda: f"Does the response render the word '{g('target_string','')}' in alternating case?",
-        "change_case:first_letter_sentence": lambda: "Does the first letter of every sentence in the response follow the required casing rule?",
-        "change_case:all_caps_target": lambda: f"Does the response render the word '{g('target_string','')}' in ALL CAPS?",
-        "change_case:lowercase_target": lambda: f"Does the response render the phrase '{g('target_string','')}' entirely in lowercase?",
-        "change_case:first_letter_cap_target": lambda: f"Does the response capitalize the first letter of each word in '{g('target_string','')}'?",
-        "length_constraints:avg_word_length": lambda: f"Is the average word length of the response between {g('min_ratio','')} and {g('max_ratio','')} characters?",
-        "detectable_format:sentence_endings": lambda: f"Does the response use at least {g('min_variants','')} distinct sentence-ending punctuation marks?",
+        "keywords:vowel_count": lambda: (
+            f"Does the response contain {_rel_phrase(kw)} {g('num_vowels', '')} vowels?"
+        ),
+        "keywords:consonant_count": lambda: (
+            f"Does the response contain {_rel_phrase(kw)} {g('num_consonants', '')} consonants?"
+        ),
+        "keywords:alliteration": lambda: (
+            f"Does the response use alliteration with '{g('target_letter', '')}' ({_rel_phrase(kw)} {g('num_alliteration', '')} times)?"
+        ),
+        "change_case:case_ratio": lambda: (
+            f"Is the fraction of uppercase letters in the response between {g('min_fraction', '')}% and {g('max_fraction', '')}%?"
+        ),
+        "change_case:vowel_consonant_balance": lambda: (
+            f"Is the vowel-to-consonant ratio of the response between {g('min_fraction', '')} and {g('max_fraction', '')}?"
+        ),
+        "change_case:alternating": lambda: (
+            "Does the response use alternating upper/lower case across its letters?"
+        ),
+        "change_case:alternating_target": lambda: (
+            f"Does the response render the word '{g('target_string', '')}' in alternating case?"
+        ),
+        "change_case:first_letter_sentence": lambda: (
+            "Does the first letter of every sentence in the response follow the required casing rule?"
+        ),
+        "change_case:all_caps_target": lambda: (
+            f"Does the response render the word '{g('target_string', '')}' in ALL CAPS?"
+        ),
+        "change_case:lowercase_target": lambda: (
+            f"Does the response render the phrase '{g('target_string', '')}' entirely in lowercase?"
+        ),
+        "change_case:first_letter_cap_target": lambda: (
+            f"Does the response capitalize the first letter of each word in '{g('target_string', '')}'?"
+        ),
+        "length_constraints:avg_word_length": lambda: (
+            f"Is the average word length of the response between {g('min_ratio', '')} and {g('max_ratio', '')} characters?"
+        ),
+        "detectable_format:sentence_endings": lambda: (
+            f"Does the response use at least {g('min_variants', '')} distinct sentence-ending punctuation marks?"
+        ),
     }
     fn = simple.get(iid)
     if fn is not None:
         return fn()
     # Generic fallback for any other id: describe it from its kwargs.
-    kv = ", ".join(f"{k}={v}" for k, v in kw.items()
-                   if k not in ("instruction_id", "source", "is_misalignment_check", "uid"))
-    return f"Does the response satisfy the constraint '{iid}'" + (f" ({kv})?" if kv else "?")
+    kv = ", ".join(
+        f"{k}={v}"
+        for k, v in kw.items()
+        if k not in ("instruction_id", "source", "is_misalignment_check", "uid")
+    )
+    return f"Does the response satisfy the constraint '{iid}'" + (
+        f" ({kv})?" if kv else "?"
+    )
 
 
 def _clean_kwargs(inst: dict) -> dict:
@@ -220,7 +306,9 @@ def convert_cfbench(row: dict, row_idx: int) -> HarborTask | None:
             det_constraints.append(kw)
             n_det += 1
         else:
-            q = sanitize_text(_judge_question(iid, kw), field_name="routed_q", max_len=1024)
+            q = sanitize_text(
+                _judge_question(iid, kw), field_name="routed_q", max_len=1024
+            )
             judge_questions.append(q)
             n_routed += 1
 
@@ -260,7 +348,9 @@ def convert_cfbench(row: dict, row_idx: int) -> HarborTask | None:
     # If there are judge questions we need litellm + the judge TOML (key
     # propagation). A det-only row needs neither — keep it self-contained.
     if judge_questions:
-        dockerfile = render_dockerfile(base=_BASE_IMAGE, pip_packages=("litellm==1.51.3",))
+        dockerfile = render_dockerfile(
+            base=_BASE_IMAGE, pip_packages=("litellm==1.51.3",)
+        )
         task_toml = LLM_JUDGE_TASK_TOML
     else:
         dockerfile = render_dockerfile(base=_BASE_IMAGE)
@@ -293,7 +383,8 @@ def convert_cfbench(row: dict, row_idx: int) -> HarborTask | None:
     # the very end of the instruction. ASCII-only, appends cleanly to CJK/non-
     # English CFBench prompts.
     instruction_md = (
-        header + prompt
+        header
+        + prompt
         + answer_delivery_guidance("/app/answer.txt", what="your full response")
     )
 
@@ -314,7 +405,9 @@ def convert_cfbench(row: dict, row_idx: int) -> HarborTask | None:
                 "n_det_constraints": n_det,
                 "n_routed_to_judge": n_routed,
                 "n_subjective_judge": n_subjective,
-                "judge": "litellm:default(openai/gpt-4o-mini)" if judge_questions else "none",
+                "judge": "litellm:default(openai/gpt-4o-mini)"
+                if judge_questions
+                else "none",
                 "score_threshold": _SCORE_THRESHOLD,
             },
         ),

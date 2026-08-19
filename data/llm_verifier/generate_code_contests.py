@@ -11,10 +11,11 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from data.commons import (
     upload_tasks_to_hf,
     subsample_tasks_directory,
-    generate_tasks_from_questions
+    generate_tasks_from_questions,
 )
 from data.code_contests.generate import load_code_contests_questions
 from data.llm_verifier.utils import add_llm_verifier_tests_to_questions
+
 
 def main() -> None:
     """Main function - coordinates the pipeline"""
@@ -24,14 +25,18 @@ def main() -> None:
     questions_with_tests = add_llm_verifier_tests_to_questions(code_contests_questions)
 
     # Generate tasks with LLM verifier using commons function
-    final_dataset_dir = generate_tasks_from_questions(questions_with_tests, "llm_verifier")
+    final_dataset_dir = generate_tasks_from_questions(
+        questions_with_tests, "llm_verifier"
+    )
 
     # Subsample to manageable size
     subsampled_dataset_dir = subsample_tasks_directory(final_dataset_dir, 10_000)
 
     print(subsampled_dataset_dir)
     # # Upload to HuggingFace
-    upload_tasks_to_hf(subsampled_dataset_dir, "DCAgent/exp_llmve_llm-verifier-code-contests")
+    upload_tasks_to_hf(
+        subsampled_dataset_dir, "DCAgent/exp_llmve_llm-verifier-code-contests"
+    )
 
     # # Run dataset to generate traces
     # hf_dataset = run_dataset_to_traces(

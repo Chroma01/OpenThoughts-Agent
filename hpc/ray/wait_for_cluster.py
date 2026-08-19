@@ -15,8 +15,12 @@ def log(msg: str) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Wait for Ray cluster resources to become available.")
-    parser.add_argument("--address", required=True, help="Ray head address (e.g., 10.0.0.1:6379)")
+    parser = argparse.ArgumentParser(
+        description="Wait for Ray cluster resources to become available."
+    )
+    parser.add_argument(
+        "--address", required=True, help="Ray head address (e.g., 10.0.0.1:6379)"
+    )
     parser.add_argument(
         "--expected-gpus",
         type=float,
@@ -44,11 +48,19 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def wait_for_cluster(address: str, expected_gpus: float, expected_nodes: int, timeout: int, poll_interval: int) -> None:
+def wait_for_cluster(
+    address: str,
+    expected_gpus: float,
+    expected_nodes: int,
+    timeout: int,
+    poll_interval: int,
+) -> None:
     """Poll the Ray head until the desired resources are visible."""
     deadline = time.time() + timeout
 
-    log(f"Connecting to Ray at {address} (expecting {expected_nodes} nodes, {expected_gpus} GPUs)")
+    log(
+        f"Connecting to Ray at {address} (expecting {expected_nodes} nodes, {expected_gpus} GPUs)"
+    )
 
     # Retry the initial connection - ray.init() has its own 30s timeout
     # and the Ray head may not be ready immediately after ray start

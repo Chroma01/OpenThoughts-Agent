@@ -99,19 +99,21 @@ def recover_system_content(teacher_system: str) -> str:
     """
     idx = teacher_system.find("</IMPORTANT>")
     if idx != -1:
-        return teacher_system[idx + len("</IMPORTANT>"):].lstrip()
+        return teacher_system[idx + len("</IMPORTANT>") :].lstrip()
     idx = teacher_system.find("You are opencode")
     if idx != -1:
         return teacher_system[idx:].lstrip()
     idx = teacher_system.find("</tools>")
     if idx != -1:
-        return teacher_system[idx + len("</tools>"):].lstrip()
+        return teacher_system[idx + len("</tools>") :].lstrip()
     return teacher_system.strip()
 
 
 def leading_turns(prompt0_text: str) -> list[dict]:
     """All fully-closed templated turns in the first-step prompt (system + task user turn)."""
-    return [{"role": r, "content": c.strip()} for r, c in _TURN_RE.findall(prompt0_text)]
+    return [
+        {"role": r, "content": c.strip()} for r, c in _TURN_RE.findall(prompt0_text)
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -157,8 +159,15 @@ def parse_tool_calls(asst_text: str, type_map: dict) -> list[dict]:
             args = {}
             for pk, pv in _PARAM_RE.findall(fm.group(2)):
                 args[pk.strip()] = _coerce_arg(name, pk.strip(), pv, type_map)
-            calls.append({"type": "function",
-                          "function": {"name": name, "arguments": json.dumps(args, ensure_ascii=False)}})
+            calls.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps(args, ensure_ascii=False),
+                    },
+                }
+            )
             continue
         jm = _TOOL_CALL_JSON_RE.search(block)
         if jm:
@@ -167,9 +176,17 @@ def parse_tool_calls(asst_text: str, type_map: dict) -> list[dict]:
                 name = j.get("name")
                 a = j.get("arguments", {})
                 if name:
-                    calls.append({"type": "function",
-                                  "function": {"name": name,
-                                               "arguments": a if isinstance(a, str) else json.dumps(a, ensure_ascii=False)}})
+                    calls.append(
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": a
+                                if isinstance(a, str)
+                                else json.dumps(a, ensure_ascii=False),
+                            },
+                        }
+                    )
             except json.JSONDecodeError:
                 pass
     return calls
@@ -228,7 +245,9 @@ def build_row(row: dict, tok, *, drop_reasoning: bool = False) -> dict | None:
         content = strip_tool_calls(asst)
         if drop_reasoning and "</think>" in content:
             content = content.split("</think>")[-1].lstrip("\n")
-        messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
+        messages.append(
+            {"role": "assistant", "content": content, "tool_calls": tool_calls}
+        )
         n_tool_calls += len(tool_calls)
         if k < n - 1 and (k + 1) < len(conv_users):
             obs = (conv_users[k + 1].get("content") or "").strip()
@@ -248,13 +267,21 @@ def build_row(row: dict, tok, *, drop_reasoning: bool = False) -> dict | None:
 # --------------------------------------------------------------------------- #
 # I/O boundary
 # --------------------------------------------------------------------------- #
-def resolve_tokenizer_ref(source_repo: str, revision: str | None, override: str | None, token) -> str:
+def resolve_tokenizer_ref(
+    source_repo: str, revision: str | None, override: str | None, token
+) -> str:
     if override:
         return override
     from huggingface_hub import hf_hub_download
+
     try:
-        path = hf_hub_download(source_repo, TOKENIZER_PROVENANCE_FILE, repo_type="dataset",
-                               revision=revision, token=token)
+        path = hf_hub_download(
+            source_repo,
+            TOKENIZER_PROVENANCE_FILE,
+            repo_type="dataset",
+            revision=revision,
+            token=token,
+        )
         served = json.load(open(path)).get("served_model")
         if served:
             return served
@@ -265,20 +292,32 @@ def resolve_tokenizer_ref(source_repo: str, revision: str | None, override: str 
 
 def _features():
     from datasets import Features, Value
-    tc = [{"type": Value("string"),
-           "function": {"name": Value("string"), "arguments": Value("string")}}]
-    return Features({
-        "messages": [{"role": Value("string"), "content": Value("string"), "tool_calls": tc}],
-        "tools": Value("string"),
-        "task": Value("string"),
-        "num_turns": Value("int32"),
-        "num_tool_calls": Value("int32"),
-    })
+
+    tc = [
+        {
+            "type": Value("string"),
+            "function": {"name": Value("string"), "arguments": Value("string")},
+        }
+    ]
+    return Features(
+        {
+            "messages": [
+                {"role": Value("string"), "content": Value("string"), "tool_calls": tc}
+            ],
+            "tools": Value("string"),
+            "task": Value("string"),
+            "num_turns": Value("int32"),
+            "num_tool_calls": Value("int32"),
+        }
+    )
 
 
 def convert(source_repo, revision, tok, *, limit, token, drop_reasoning=False):
     from datasets import load_dataset
-    ds = load_dataset(source_repo, split="train", revision=revision, streaming=True, token=token)
+
+    ds = load_dataset(
+        source_repo, split="train", revision=revision, streaming=True, token=token
+    )
     records = []
     seen = literal = converted = skipped = 0
     for row in ds:
@@ -296,14 +335,22 @@ def convert(source_repo, revision, tok, *, limit, token, drop_reasoning=False):
             print(f"  … {converted} converted ({seen} seen)")
         if limit and converted >= limit:
             break
-    stats = {"seen": seen, "literal": literal, "converted": converted, "skipped_alignment": skipped}
+    stats = {
+        "seen": seen,
+        "literal": literal,
+        "converted": converted,
+        "skipped_alignment": skipped,
+    }
     return records, stats
 
 
 def _render_check(rec, student_model, token):
     """Render one rebuilt row under the STUDENT tools-aware template + report the parity signals."""
     from transformers import AutoTokenizer
-    stok = AutoTokenizer.from_pretrained(student_model, token=token, trust_remote_code=True)
+
+    stok = AutoTokenizer.from_pretrained(
+        student_model, token=token, trust_remote_code=True
+    )
     tools = json.loads(rec["tools"])
     # String tool_call arguments must be parsed to dict before templating; mirror that here.
     msgs = json.loads(json.dumps(rec["messages"]))
@@ -317,71 +364,144 @@ def _render_check(rec, student_model, token):
                     pass
         if not m.get("tool_calls"):
             m.pop("tool_calls", None)
-    rendered = stok.apply_chat_template(msgs, tools=tools, tokenize=False, add_generation_prompt=False)
+    rendered = stok.apply_chat_template(
+        msgs, tools=tools, tokenize=False, add_generation_prompt=False
+    )
     return rendered
 
 
 def main():
     import os
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--source_repo", required=True)
     p.add_argument("--source_revision", default=None)
     p.add_argument("--target_repo", default=None)
-    p.add_argument("--target_revision_message", default="serve-parity rebuild from literal tokens")
-    p.add_argument("--tokenizer", default=None, help="teacher tokenizer override (decodes literals)")
-    p.add_argument("--student_model", default="Qwen/Qwen3-30B-A3B-Thinking-2507",
-                   help="student model whose tools-aware template renders the parity check")
+    p.add_argument(
+        "--target_revision_message", default="serve-parity rebuild from literal tokens"
+    )
+    p.add_argument(
+        "--tokenizer",
+        default=None,
+        help="teacher tokenizer override (decodes literals)",
+    )
+    p.add_argument(
+        "--student_model",
+        default="Qwen/Qwen3-30B-A3B-Thinking-2507",
+        help="student model whose tools-aware template renders the parity check",
+    )
     p.add_argument("--private", action="store_true")
     p.add_argument("--limit", type=int, default=None)
-    p.add_argument("--validate", type=int, default=0, help="convert+check+render N rows, no upload")
-    p.add_argument("--drop_reasoning", action="store_true",
-                   help="drop <think> from assistant content (default: keep verbatim reasoning)")
+    p.add_argument(
+        "--validate", type=int, default=0, help="convert+check+render N rows, no upload"
+    )
+    p.add_argument(
+        "--drop_reasoning",
+        action="store_true",
+        help="drop <think> from assistant content (default: keep verbatim reasoning)",
+    )
     args = p.parse_args()
     token = os.environ.get("HF_TOKEN")
 
     from transformers import AutoTokenizer
-    tref = resolve_tokenizer_ref(args.source_repo, args.source_revision, args.tokenizer, token)
+
+    tref = resolve_tokenizer_ref(
+        args.source_repo, args.source_revision, args.tokenizer, token
+    )
     print(f"[teacher tokenizer] {tref}")
     tok = AutoTokenizer.from_pretrained(tref, token=token, trust_remote_code=True)
 
     if args.validate:
-        records, stats = convert(args.source_repo, args.source_revision, tok,
-                                 limit=args.validate, token=token, drop_reasoning=args.drop_reasoning)
+        records, stats = convert(
+            args.source_repo,
+            args.source_revision,
+            tok,
+            limit=args.validate,
+            token=token,
+            drop_reasoning=args.drop_reasoning,
+        )
         for i, rec in enumerate(records, 1):
             roles = [m["role"] for m in rec["messages"]]
-            print(f"\n===== row {i} | {len(rec['messages'])} msgs | task={rec['task']!r} "
-                  f"| tool_calls={rec['num_tool_calls']} =====")
+            print(
+                f"\n===== row {i} | {len(rec['messages'])} msgs | task={rec['task']!r} "
+                f"| tool_calls={rec['num_tool_calls']} ====="
+            )
             print("roles:", roles)
-            assert rec["messages"][0]["role"] == "system" and rec["messages"][0]["content"], "no system content"
-            assert rec["messages"][1]["role"] == "user" and rec["messages"][1]["content"], "no task turn"
-            assert any(m["role"] == "assistant" for m in rec["messages"]), "no assistant"
-            assert any(m["role"] == "assistant" and m["tool_calls"] for m in rec["messages"]), "no structured tool_calls"
-            assert "<tools>" not in rec["messages"][0]["content"], "system still carries a <tools> block"
+            assert (
+                rec["messages"][0]["role"] == "system" and rec["messages"][0]["content"]
+            ), "no system content"
+            assert (
+                rec["messages"][1]["role"] == "user" and rec["messages"][1]["content"]
+            ), "no task turn"
+            assert any(m["role"] == "assistant" for m in rec["messages"]), (
+                "no assistant"
+            )
+            assert any(
+                m["role"] == "assistant" and m["tool_calls"] for m in rec["messages"]
+            ), "no structured tool_calls"
+            assert "<tools>" not in rec["messages"][0]["content"], (
+                "system still carries a <tools> block"
+            )
             rendered = _render_check(rec, args.student_model, token)
             print("[render] len:", len(rendered))
-            for probe in ["<|im_start|>system", "<tools>", "You may call one or more functions",
-                          "<|im_start|>user", "<tool_call>", '"arguments"', "<tool_response>", "<think>"]:
+            for probe in [
+                "<|im_start|>system",
+                "<tools>",
+                "You may call one or more functions",
+                "<|im_start|>user",
+                "<tool_call>",
+                '"arguments"',
+                "<tool_response>",
+                "<think>",
+            ]:
                 print(f"   rendered has {probe!r}: {probe in rendered}")
             print("[render HEAD :700]\n", rendered[:700])
-            print("[render around first tool_call]\n",
-                  rendered[max(0, rendered.find('<tool_call>') - 120): rendered.find('<tool_call>') + 320])
-            print("[render around first tool_response]\n",
-                  rendered[max(0, rendered.find('<tool_response>') - 60): rendered.find('<tool_response>') + 200])
+            print(
+                "[render around first tool_call]\n",
+                rendered[
+                    max(0, rendered.find("<tool_call>") - 120) : rendered.find(
+                        "<tool_call>"
+                    )
+                    + 320
+                ],
+            )
+            print(
+                "[render around first tool_response]\n",
+                rendered[
+                    max(0, rendered.find("<tool_response>") - 60) : rendered.find(
+                        "<tool_response>"
+                    )
+                    + 200
+                ],
+            )
         print(f"\n[validate] {stats}")
         return
 
     if not args.target_repo:
         raise SystemExit("--target_repo required unless --validate")
     from datasets import Dataset
-    records, stats = convert(args.source_repo, args.source_revision, tok, limit=args.limit, token=token,
-                             drop_reasoning=args.drop_reasoning)
+
+    records, stats = convert(
+        args.source_repo,
+        args.source_revision,
+        tok,
+        limit=args.limit,
+        token=token,
+        drop_reasoning=args.drop_reasoning,
+    )
     print(f"[convert] {stats}")
     if not records:
         raise SystemExit("[convert] 0 rows converted — nothing to upload.")
     out = Dataset.from_list(records, features=_features())
     print(f"[upload] {len(out)} rows -> {args.target_repo} (private={args.private})")
-    out.push_to_hub(args.target_repo, private=args.private, token=token,
-                    commit_message=args.target_revision_message)
+    out.push_to_hub(
+        args.target_repo,
+        private=args.private,
+        token=token,
+        commit_message=args.target_revision_message,
+    )
     print(f"[done] https://huggingface.co/datasets/{args.target_repo} rows={len(out)}")
 
 

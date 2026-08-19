@@ -30,6 +30,7 @@ Usage:
     python -m data.rl_converters.fix_llm_judge smoke    --workdir <dir> [--source NAME]
     python -m data.rl_converters.fix_llm_judge upload   --workdir <dir>
 """
+
 from __future__ import annotations
 
 import argparse
@@ -314,9 +315,18 @@ SOURCES = {
             "\\boxed{<score>} on the last line."
         ),
         "rubric": [
-            {"id": "correctness", "criteria": "The response is factually correct and directly addresses what the task asks."},
-            {"id": "completeness", "criteria": "The response is complete and covers all aspects of the task without omitting key information."},
-            {"id": "relevance", "criteria": "The response is relevant and on-topic, free of unnecessary or off-topic content."},
+            {
+                "id": "correctness",
+                "criteria": "The response is factually correct and directly addresses what the task asks.",
+            },
+            {
+                "id": "completeness",
+                "criteria": "The response is complete and covers all aspects of the task without omitting key information.",
+            },
+            {
+                "id": "relevance",
+                "criteria": "The response is relevant and on-topic, free of unnecessary or off-topic content.",
+            },
         ],
         "notes": (
             "General instruction-following tasks (system + instruction from the\n"
@@ -337,9 +347,18 @@ SOURCES = {
             "line."
         ),
         "rubric": [
-            {"id": "correctness", "criteria": "The code answer is correct and would actually solve the stated programming problem."},
-            {"id": "completeness", "criteria": "The answer is complete, including any necessary imports, context, or explanation needed to be usable."},
-            {"id": "clarity", "criteria": "The code and any explanation are clear, readable, and well-presented."},
+            {
+                "id": "correctness",
+                "criteria": "The code answer is correct and would actually solve the stated programming problem.",
+            },
+            {
+                "id": "completeness",
+                "criteria": "The answer is complete, including any necessary imports, context, or explanation needed to be usable.",
+            },
+            {
+                "id": "clarity",
+                "criteria": "The code and any explanation are clear, readable, and well-presented.",
+            },
         ],
         "notes": (
             "Stack Overflow question->code pairs (STAQC). The agent is asked to\n"
@@ -360,9 +379,18 @@ SOURCES = {
             "final score in \\boxed{<score>} on the last line."
         ),
         "rubric": [
-            {"id": "correctness", "criteria": "The answer is correct given the paper and the question."},
-            {"id": "completeness", "criteria": "The answer fully addresses the question, covering the relevant information from the paper."},
-            {"id": "groundedness", "criteria": "The answer is grounded in and supported by the provided paper text, not fabricated or hallucinated."},
+            {
+                "id": "correctness",
+                "criteria": "The answer is correct given the paper and the question.",
+            },
+            {
+                "id": "completeness",
+                "criteria": "The answer fully addresses the question, covering the relevant information from the paper.",
+            },
+            {
+                "id": "groundedness",
+                "criteria": "The answer is grounded in and supported by the provided paper text, not fabricated or hallucinated.",
+            },
         ],
         "notes": (
             "QASPER paper-QA tasks. Each task names a paper and asks a question\n"
@@ -420,7 +448,7 @@ def _clean_instruction(raw: str) -> str:
     # Only strip a short trailing hint line, never the whole body.
     m = _OLD_HINT_RE.search(txt[-160:])
     if m:
-        txt = (txt[: -160] + txt[-160:][: m.start()]).rstrip()
+        txt = (txt[:-160] + txt[-160:][: m.start()]).rstrip()
     return txt
 
 
@@ -443,6 +471,7 @@ def transform(files: dict[str, bytes], cfg: dict) -> dict[str, bytes]:
 
 def _verifier_data(instruction: str, cfg: dict) -> str:
     import json
+
     return json.dumps(
         {
             "instruction": instruction,
@@ -457,6 +486,7 @@ def _verifier_data(instruction: str, cfg: dict) -> str:
 
 def _metadata(cfg: dict) -> str:
     import json
+
     return json.dumps(
         {
             "source": "nemotron_gym llm_judge",
@@ -571,13 +601,26 @@ def _docker_run_verifier(
         # API call, but keep parity with the runtime contract).
         try:
             r = subprocess.run(
-                ["docker", "run", "--rm",
-                 "-v", f"{app}:/app",
-                 "-v", f"{tests}:/tests",
-                 "-v", f"{wd}/logs:/logs",
-                 "-e", f"OPENAI_API_KEY={env.get('OPENAI_API_KEY', '')}",
-                 image, "bash", "-c", cmd],
-                capture_output=True, text=True, timeout=timeout,
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{app}:/app",
+                    "-v",
+                    f"{tests}:/tests",
+                    "-v",
+                    f"{wd}/logs:/logs",
+                    "-e",
+                    f"OPENAI_API_KEY={env.get('OPENAI_API_KEY', '')}",
+                    image,
+                    "bash",
+                    "-c",
+                    cmd,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
             )
             out = (r.stdout or "") + (r.stderr or "")
             m = re.search(r"---REWARD---\s*\n?\s*([0-9.]+)", out)
@@ -603,7 +646,9 @@ def smoke(workdir: Path, source: str | None = None, sample: int = 2) -> None:
 
         df = pd.read_parquet(pq_path)
         n = min(sample, len(df))
-        print(f"\n=== SMOKE {key} ({n} of {len(df)} tasks) — empty /app -> reward ~0.0 ===")
+        print(
+            f"\n=== SMOKE {key} ({n} of {len(df)} tasks) — empty /app -> reward ~0.0 ==="
+        )
         ok_low = 0
         for i in range(n):
             blob = df.iloc[i]["task_binary"]

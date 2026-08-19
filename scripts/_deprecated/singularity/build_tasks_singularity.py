@@ -50,8 +50,14 @@ def sanitize_component(text: str) -> str:
     return text or "task"
 
 
-def build_to_tar(task_dir: Path, tag: str, output_images_dir: Path, skip_migrate: bool, verbose: bool) -> Path:
-    run(["podman-hpc", "build", "-t", tag, "-f", "Dockerfile", "."], cwd=task_dir, verbose=verbose)
+def build_to_tar(
+    task_dir: Path, tag: str, output_images_dir: Path, skip_migrate: bool, verbose: bool
+) -> Path:
+    run(
+        ["podman-hpc", "build", "-t", tag, "-f", "Dockerfile", "."],
+        cwd=task_dir,
+        verbose=verbose,
+    )
     if not skip_migrate:
         run(["podman-hpc", "migrate", tag], cwd=task_dir, verbose=verbose)
     output_images_dir.mkdir(parents=True, exist_ok=True)
@@ -61,7 +67,9 @@ def build_to_tar(task_dir: Path, tag: str, output_images_dir: Path, skip_migrate
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Prebuild Harbor tasks into tar archives for Apptainer backend.")
+    ap = argparse.ArgumentParser(
+        description="Prebuild Harbor tasks into tar archives for Apptainer backend."
+    )
     ap.add_argument("--tasks-dir", required=True, type=Path)
     ap.add_argument("--output-images-dir", required=True, type=Path)
     ap.add_argument("--output-tasks-dir", required=True, type=Path)
@@ -87,12 +95,16 @@ def main():
         env_rel = env_dir.relative_to(task_root)
 
         task_slug = sanitize_component(task_root_rel)
-        env_slug = sanitize_component("-".join(env_rel.parts)) if env_rel.parts else "env"
+        env_slug = (
+            sanitize_component("-".join(env_rel.parts)) if env_rel.parts else "env"
+        )
         tag = f"{args.tag_prefix}-{task_slug}-{env_slug}:latest"
 
         print(f"[task] {task_root_rel} (env {env_rel}) -> tag {tag}")
 
-        tar_path = build_to_tar(env_dir, tag, args.output_images_dir, args.skip_migrate, args.verbose)
+        tar_path = build_to_tar(
+            env_dir, tag, args.output_images_dir, args.skip_migrate, args.verbose
+        )
 
         dest_task_dir = args.output_tasks_dir / task_root_rel
         if dest_task_dir.exists():

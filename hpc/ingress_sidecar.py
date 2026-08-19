@@ -102,7 +102,9 @@ def _extract_bearer(request: Request) -> Optional[str]:
     return parts[1].strip()
 
 
-def _filtered_upstream_headers(request: Request, controller_auth: Optional[str]) -> dict:
+def _filtered_upstream_headers(
+    request: Request, controller_auth: Optional[str]
+) -> dict:
     """Copy request headers minus hop-by-hop/auth, then attach the controller cred."""
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _HOP_BY_HOP}
     if controller_auth:
@@ -124,10 +126,14 @@ def create_app(upstream_client: Optional[httpx.AsyncClient] = None) -> FastAPI:
     @asynccontextmanager
     async def _lifespan(app: FastAPI):
         if app.state.upstream_client is None:
-            base = os.environ.get("CONTROLLER_PROXY_BASE", DEFAULT_CONTROLLER_PROXY_BASE)
+            base = os.environ.get(
+                "CONTROLLER_PROXY_BASE", DEFAULT_CONTROLLER_PROXY_BASE
+            )
             # Generous read timeout: generation can be long-running.
             timeout = httpx.Timeout(connect=10.0, read=None, write=60.0, pool=10.0)
-            app.state.upstream_client = httpx.AsyncClient(base_url=base, timeout=timeout)
+            app.state.upstream_client = httpx.AsyncClient(
+                base_url=base, timeout=timeout
+            )
         try:
             yield
         finally:
@@ -158,7 +164,11 @@ def create_app(upstream_client: Optional[httpx.AsyncClient] = None) -> FastAPI:
         # 1. AuthN — constant-time bearer compare against IRIS_INGRESS_API_KEY.
         expected = os.environ.get("IRIS_INGRESS_API_KEY")
         presented = _extract_bearer(request)
-        if not expected or not presented or not hmac.compare_digest(presented, expected):
+        if (
+            not expected
+            or not presented
+            or not hmac.compare_digest(presented, expected)
+        ):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         # 2. AuthZ — only the inference path is forwardable.
@@ -188,7 +198,9 @@ def create_app(upstream_client: Optional[httpx.AsyncClient] = None) -> FastAPI:
 
         # Drop hop-by-hop from the response too; preserve content-type (SSE).
         resp_headers = {
-            k: v for k, v in upstream_resp.headers.items() if k.lower() not in _HOP_BY_HOP
+            k: v
+            for k, v in upstream_resp.headers.items()
+            if k.lower() not in _HOP_BY_HOP
         }
         return StreamingResponse(
             _body_iter(),
@@ -204,7 +216,9 @@ def main() -> int:
     import uvicorn
 
     if not os.environ.get("IRIS_INGRESS_API_KEY"):
-        raise SystemExit("IRIS_INGRESS_API_KEY must be set (name-only secret; see secrets.env).")
+        raise SystemExit(
+            "IRIS_INGRESS_API_KEY must be set (name-only secret; see secrets.env)."
+        )
     host = os.environ.get("SIDECAR_HOST", "0.0.0.0")
     port = int(os.environ.get("SIDECAR_PORT", "8443"))
     cert = os.environ.get("SIDECAR_TLS_CERT")

@@ -14,6 +14,7 @@ Procedure:
      writes cand/<id>/result.txt = "<gold> <empty>"
   4. KEEP iff gold==1 AND empty==0; assemble kept Harbor task dirs; upload.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -61,8 +62,20 @@ echo SHARD_DONE
 
 def run_shard(image: str, shard_dir: Path) -> None:
     subprocess.run(
-        ["docker", "run", "--rm", "-v", f"{shard_dir}:/cand", image, "bash", "-c", CONTAINER_SCRIPT],
-        capture_output=True, text=True, timeout=7200,
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{shard_dir}:/cand",
+            image,
+            "bash",
+            "-c",
+            CONTAINER_SCRIPT,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=7200,
     )
 
 
@@ -109,7 +122,9 @@ def main() -> None:
         (td / "test_solution.cpp").write_text(art["new_test"])
         (td / "gold" / art["hdr"]).write_text(art["header_src"])
         (td / "hdr.txt").write_text(art["hdr"])
-    print(f"materialized {len(cands)} candidates across {args.shards} shards", flush=True)
+    print(
+        f"materialized {len(cands)} candidates across {args.shards} shards", flush=True
+    )
 
     # validate shards in parallel (one long-lived container each)
     with ThreadPoolExecutor(max_workers=args.shards) as ex:
@@ -141,7 +156,10 @@ def main() -> None:
                 fail["gold_not_1"] = fail.get("gold_not_1", 0) + 1
             else:
                 fail["empty_not_0"] = fail.get("empty_not_0", 0) + 1
-    print(f"\nKEPT (gold->1 AND empty->0): {len(kept)}/{len(cands)}  fail={fail}", flush=True)
+    print(
+        f"\nKEPT (gold->1 AND empty->0): {len(kept)}/{len(cands)}  fail={fail}",
+        flush=True,
+    )
 
     # assemble
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -149,24 +167,41 @@ def main() -> None:
         G.write_task_dir(args.out_dir, tid, instr, meta, art)
     print(f"wrote {len(kept)} task dirs to {args.out_dir}", flush=True)
 
-    report = {"source_repo": G.SRC_REPO, "processed": n, "transformed": len(cands),
-              "skip_reasons": skip, "kept": len(kept), "fail_reasons": fail,
-              "target_repo": args.target_repo}
+    report = {
+        "source_repo": G.SRC_REPO,
+        "processed": n,
+        "transformed": len(cands),
+        "skip_reasons": skip,
+        "kept": len(kept),
+        "fail_reasons": fail,
+        "target_repo": args.target_repo,
+    }
     if args.report:
         args.report.write_text(json.dumps(report, indent=2))
 
     if not args.no_upload and kept:
         from scripts.harbor import tasks_parquet_converter as tpc
         from huggingface_hub import HfApi
+
         tasks = tpc.find_tasks(args.out_dir, recursive=True)
         pq = args.out_dir.parent / "nemotron_cpp_v2.parquet"
         tpc.to_parquet(args.out_dir, pq, tasks, compression="gz")
-        print(f"parquet: {pq} ({pq.stat().st_size/1e6:.1f} MB, {len(tasks)} tasks)", flush=True)
+        print(
+            f"parquet: {pq} ({pq.stat().st_size / 1e6:.1f} MB, {len(tasks)} tasks)",
+            flush=True,
+        )
         api = HfApi()
         api.create_repo(args.target_repo, repo_type="dataset", exist_ok=True)
-        api.upload_file(path_or_fileobj=str(pq), path_in_repo="tasks.parquet",
-                        repo_id=args.target_repo, repo_type="dataset")
-        print(f"uploaded -> https://huggingface.co/datasets/{args.target_repo}", flush=True)
+        api.upload_file(
+            path_or_fileobj=str(pq),
+            path_in_repo="tasks.parquet",
+            repo_id=args.target_repo,
+            repo_type="dataset",
+        )
+        print(
+            f"uploaded -> https://huggingface.co/datasets/{args.target_repo}",
+            flush=True,
+        )
 
     print("\nDONE.", json.dumps(report, indent=2), flush=True)
 

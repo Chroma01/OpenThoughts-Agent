@@ -154,6 +154,17 @@ exclude = [
     "tmp*",
 ]
 
+[tool.ruff]
+# Submodules carry their own tooling and are never formatted from this repo.
+line-length = 88
+extend-exclude = [
+    "sft/llamafactory",
+    "sft/axolotl",
+    # Deliberately-buggy sample repos used by the tokviz analyzer fixtures.
+    "scripts/analysis/tokviz/repos",
+    "OpenThoughts_Agent.egg-info",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["few-shots", "templates", "*.egg-info", ".git"]

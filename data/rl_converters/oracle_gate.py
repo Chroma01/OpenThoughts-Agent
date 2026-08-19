@@ -76,12 +76,19 @@ class OracleGate:
             try:
                 r = subprocess.run(
                     [
-                        "docker", "run", "--rm",
-                        "-v", f"{wd}:/work",
-                        "-v", f"{tests_mount}:/tests",
-                        "-v", f"{wd}/logs:/logs",
+                        "docker",
+                        "run",
+                        "--rm",
+                        "-v",
+                        f"{wd}:/work",
+                        "-v",
+                        f"{tests_mount}:/tests",
+                        "-v",
+                        f"{wd}/logs:/logs",
                         self.image,
-                        "bash", "-c", cmd,
+                        "bash",
+                        "-c",
+                        cmd,
                     ],
                     capture_output=True,
                     text=True,
@@ -122,9 +129,7 @@ class OracleGate:
 
         results = []
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            futures = {
-                ex.submit(self.validate, td): td for td in task_dirs
-            }
+            futures = {ex.submit(self.validate, td): td for td in task_dirs}
             for fut in as_completed(futures):
                 td = futures[fut]
                 try:

@@ -146,9 +146,10 @@ def render_solve_sh(hdr: str, header_src: str) -> str:
     # Use a randomized heredoc sentinel-free approach: base64 to avoid any
     # delimiter collision with C++ source content.
     import base64
+
     b64 = base64.b64encode(header_src.encode("utf-8")).decode("ascii")
     # chunk to keep lines reasonable
-    chunks = "\n".join(b64[i:i + 100] for i in range(0, len(b64), 100))
+    chunks = "\n".join(b64[i : i + 100] for i in range(0, len(b64), 100))
     return (
         "#!/bin/bash\n"
         "set -e\n"
@@ -156,5 +157,5 @@ def render_solve_sh(hdr: str, header_src: str) -> str:
         f"base64 -d > '/app/{hdr}' <<'B64EOF'\n"
         f"{chunks}\n"
         "B64EOF\n"
-        f"echo \"wrote /app/{hdr}\"\n"
+        f'echo "wrote /app/{hdr}"\n'
     )

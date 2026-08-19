@@ -126,7 +126,9 @@ def convert_citation_formatting(row: dict, row_idx: int) -> HarborTask | None:
     san_markers: list[str] = []
     for i, m in enumerate(markers):
         san_markers.append(
-            sanitize_text(m, field_name=f"expected_markers[{i}]", max_len=_MARKER_MAX_LEN)
+            sanitize_text(
+                m, field_name=f"expected_markers[{i}]", max_len=_MARKER_MAX_LEN
+            )
         )
     # Sanitization must not have altered the markers (control chars in a
     # citation marker would mean we can't faithfully check it).

@@ -31,6 +31,7 @@ ready to upload to ``laion/exp_rpt_codenet-python-v3``.
 Idempotent / snapshot-safe: environment/ is never touched, so the unique-Dockerfile
 (snapshot) count is identical to v2.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -60,6 +61,7 @@ def _build_solve_sh(code: str) -> bytes:
     (the path the verifier runs). Embedded via base64 so arbitrary code bytes survive
     the heredoc/quoting unscathed."""
     import base64
+
     b64 = base64.b64encode(code.encode("utf-8")).decode("ascii")
     script = (
         "#!/bin/bash\n"
@@ -117,7 +119,9 @@ def rebuild_task(
         if m.name in ("tests/inputs", "tests/outputs"):
             continue
         # When writing a fresh oracle, drop any stale solution/ members (recreated below).
-        if solve_sh is not None and (name == "solution" or name.startswith("solution/")):
+        if solve_sh is not None and (
+            name == "solution" or name.startswith("solution/")
+        ):
             continue
         if m.isdir():
             dst.addfile(m)
@@ -238,7 +242,7 @@ def main() -> int:
         rows.append({"path": path, "task_binary": new_bin})
         if (idx + 1) % 1000 == 0:
             print(
-                f"[{idx+1}/{len(df)}] kept={len(rows)} matched={n_matched} zero_io={n_zero}",
+                f"[{idx + 1}/{len(df)}] kept={len(rows)} matched={n_matched} zero_io={n_zero}",
                 flush=True,
             )
 

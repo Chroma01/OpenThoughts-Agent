@@ -33,7 +33,9 @@ def _filter_supported_metrics(raw: Any) -> Any:
     for entry in metrics:
         if isinstance(entry, dict):
             mtype = entry.get("type")
-            if mtype in _UNSUPPORTED_METRIC_TYPES or (mtype is not None and mtype not in allowed):
+            if mtype in _UNSUPPORTED_METRIC_TYPES or (
+                mtype is not None and mtype not in allowed
+            ):
                 dropped.append(mtype)
                 continue
         filtered.append(entry)
@@ -64,6 +66,7 @@ def load_job_config(config_path: Path | str) -> JobConfig:
         config = JobConfig.model_validate(raw)
     elif suffix == ".json":
         import json as _json
+
         raw = _filter_supported_metrics(_json.loads(path.read_text()))
         config = JobConfig.model_validate(raw)
     else:

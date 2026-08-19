@@ -27,7 +27,7 @@ _INSTRUCTION_HEADER = (
     "You are scheduling events on a calendar. Read the conversation below and "
     "write your final calendar as a JSON list to `/app/answer.txt`. Each event "
     "must include `event_id` (int), `event_name` (str), `start_time` "
-    "(\"HH:MM\"), and `duration` (minutes). The verifier checks duration, "
+    '("HH:MM"), and `duration` (minutes). The verifier checks duration, '
     "time-window, and any natural-language constraint per event.\n\n"
     "---\n\n"
 )
@@ -67,7 +67,9 @@ def _build(row: dict, source_dataset: str, *, row_idx: int) -> HarborTask | None
         "agent-calendar",
         (uuid or str(rid) or prompt[:128]) + "|" + json.dumps(expected, sort_keys=True),
     )
-    instr = sanitize_text(_INSTRUCTION_HEADER + prompt, field_name="instruction", max_len=128 * 1024)
+    instr = sanitize_text(
+        _INSTRUCTION_HEADER + prompt, field_name="instruction", max_len=128 * 1024
+    )
     return HarborTask(
         task_id=task_id,
         instruction_md=instr,
@@ -94,4 +96,6 @@ def convert_agent_calendar(row: dict, row_idx: int) -> HarborTask | None:
 
 @register("nvidia/Nemotron-RL-Instruction-Following-Calendar-v2")
 def convert_if_calendar(row: dict, row_idx: int) -> HarborTask | None:
-    return _build(row, "nvidia/Nemotron-RL-Instruction-Following-Calendar-v2", row_idx=row_idx)
+    return _build(
+        row, "nvidia/Nemotron-RL-Instruction-Following-Calendar-v2", row_idx=row_idx
+    )

@@ -14,6 +14,7 @@ Run from the repo root:
     python scripts/generate_eval_registry.py             # regenerate
     python scripts/generate_eval_registry.py --check     # CI gate: nonzero if stale
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,8 +28,12 @@ SRC_DIR = REPO / "model_config"
 DST = REPO / "eval" / "configs" / "model_configs.yaml"
 
 INTRINSIC = {
-    "trust_remote_code", "hf_overrides", "limit_mm_per_prompt",
-    "max_model_len", "tool_call_parser", "reasoning_parser",
+    "trust_remote_code",
+    "hf_overrides",
+    "limit_mm_per_prompt",
+    "max_model_len",
+    "tool_call_parser",
+    "reasoning_parser",
 }
 
 
@@ -97,13 +102,18 @@ def _dump(data: dict) -> str:
         "# Source of truth: model_config/ (file-per-model, layered schema).\n"
         "\n"
     )
-    return header + yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True)
+    return header + yaml.safe_dump(
+        data, sort_keys=False, default_flow_style=False, allow_unicode=True
+    )
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--check", action="store_true",
-                    help="exit nonzero if the committed mono-file is stale vs model_config/")
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="exit nonzero if the committed mono-file is stale vs model_config/",
+    )
     args = ap.parse_args()
 
     data = generate()
@@ -111,15 +121,20 @@ def main() -> int:
     if args.check:
         existing = yaml.safe_load(DST.read_text()) if DST.is_file() else {}
         if existing != data:
-            print(f"STALE: {DST.relative_to(REPO)} does not match model_config/. "
-                  f"Run: python scripts/generate_eval_registry.py", file=sys.stderr)
+            print(
+                f"STALE: {DST.relative_to(REPO)} does not match model_config/. "
+                f"Run: python scripts/generate_eval_registry.py",
+                file=sys.stderr,
+            )
             return 1
         print(f"OK: {DST.relative_to(REPO)} is up to date vs model_config/.")
         return 0
 
     DST.write_text(_dump(data))
-    print(f"WROTE {DST.relative_to(REPO)}: "
-          f"{len(data['models'])} models, {len(data['patterns'])} patterns.")
+    print(
+        f"WROTE {DST.relative_to(REPO)}: "
+        f"{len(data['models'])} models, {len(data['patterns'])} patterns."
+    )
     return 0
 
 

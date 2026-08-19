@@ -37,6 +37,7 @@ if str(PROJECT_ROOT) not in sys.path:
 @dataclass
 class Resolved:
     """Result of an autofill resolve. Any field may be ``None`` if not found."""
+
     post_rl_eval: Optional[str] = None
     post_rl_eval_ts: Optional[str] = None  # ISO 8601
     baseline_eval: Optional[str] = None
@@ -69,7 +70,7 @@ def parse_hf_url(value: str) -> str:
     if not value.startswith("http"):
         # Assume bare "owner/name" — strip leading "datasets/" if present.
         if value.startswith("datasets/"):
-            value = value[len("datasets/"):]
+            value = value[len("datasets/") :]
         return value
     parsed = urlparse(value)
     parts = [p for p in parsed.path.split("/") if p]
@@ -90,6 +91,7 @@ def parse_hf_url(value: str) -> str:
 def _supabase_client(use_admin: bool = False):
     """Return a Supabase client via the existing unified_db helper."""
     from database.unified_db.utils import get_supabase_client
+
     return get_supabase_client(use_admin=use_admin)
 
 
@@ -108,7 +110,15 @@ def _model_by_id(client, model_id: str) -> Optional[Dict[str, Any]]:
 # Fallback chain for extracting a primary numeric score from the ``metrics``
 # JSONB column. ``metrics`` is a list of ``{"name": str, "value": float}``
 # entries on this schema; we walk the keys in this order, first hit wins.
-DEFAULT_SCORE_KEYS: tuple = ("accuracy", "mean_reward", "Mean", "MeanDropEI", "reward", "score", "pass_rate")
+DEFAULT_SCORE_KEYS: tuple = (
+    "accuracy",
+    "mean_reward",
+    "Mean",
+    "MeanDropEI",
+    "reward",
+    "score",
+    "pass_rate",
+)
 
 
 def _score_of_job(job: Dict[str, Any], key: Optional[str] = None) -> Optional[float]:
@@ -153,7 +163,11 @@ def _recency_key(job: Dict[str, Any]) -> tuple:
     null-``ended_at`` row falls to the end instead of masquerading as "latest".
     (ISO-8601 UTC strings compare correctly lexicographically.)
     """
-    return (job.get("ended_at") or "", job.get("started_at") or "", job.get("created_at") or "")
+    return (
+        job.get("ended_at") or "",
+        job.get("started_at") or "",
+        job.get("created_at") or "",
+    )
 
 
 def _eval_jobs_for_model(client, model_id: str) -> List[Dict[str, Any]]:
@@ -168,7 +182,9 @@ def _eval_jobs_for_model(client, model_id: str) -> List[Dict[str, Any]]:
     """
     resp = (
         client.table("sandbox_jobs")
-        .select("id,hf_traces_link,benchmark_id,started_at,ended_at,created_at,job_status,metrics")
+        .select(
+            "id,hf_traces_link,benchmark_id,started_at,ended_at,created_at,job_status,metrics"
+        )
         .eq("model_id", model_id)
         .execute()
     )
@@ -181,7 +197,13 @@ def _benchmark_name_to_id(client, name_or_id: str) -> Optional[str]:
     """Accept either a benchmark UUID or a benchmark name; return the UUID."""
     if "-" in name_or_id and len(name_or_id) == 36:
         return name_or_id  # already a UUID
-    resp = client.table("benchmarks").select("id").eq("name", name_or_id).limit(1).execute()
+    resp = (
+        client.table("benchmarks")
+        .select("id")
+        .eq("name", name_or_id)
+        .limit(1)
+        .execute()
+    )
     return resp.data[0]["id"] if resp.data else None
 
 
@@ -245,7 +267,9 @@ def _pick_eval_pair(
 
     if selection == "benchmark":
         if not benchmark:
-            return _info({}, "selection=benchmark requires --eval-benchmark; none supplied")
+            return _info(
+                {}, "selection=benchmark requires --eval-benchmark; none supplied"
+            )
         # Resolve name → id if a client+name was supplied (handled by caller).
         target = benchmark
         pair = by_benchmark.get(target, {"post": None, "baseline": None})
@@ -262,7 +286,9 @@ def _pick_eval_pair(
                     break
         if base is None and baseline_jobs:
             base = baseline_jobs[0]
-        return _info({"post": post, "baseline": base}, "selection=latest (most recent post-RL)")
+        return _info(
+            {"post": post, "baseline": base}, "selection=latest (most recent post-RL)"
+        )
 
     # Default: largest-delta / largest-abs-delta — both need a matched pair.
     pairs_with_delta = []
@@ -276,11 +302,16 @@ def _pick_eval_pair(
     if not pairs_with_delta:
         # Fall back to latest if no matched pair has numeric scores.
         return _pick_eval_pair(
-            post_jobs, baseline_jobs,
-            selection="latest", score_key=score_key, benchmark=benchmark,
+            post_jobs,
+            baseline_jobs,
+            selection="latest",
+            score_key=score_key,
+            benchmark=benchmark,
         ) | {"selection_strategy": f"{selection}→latest (no matched scored pair)"}
 
-    rank_key = (lambda t: abs(t[2])) if selection == "largest-abs-delta" else (lambda t: t[2])
+    rank_key = (
+        (lambda t: abs(t[2])) if selection == "largest-abs-delta" else (lambda t: t[2])
+    )
     bid, pair, delta = max(pairs_with_delta, key=rank_key)
     return _info(
         pair,
@@ -342,7 +373,9 @@ def list_evals_for_model(
             post_only.append(row)
         elif base:
             baseline_only.append(row)
-    matched.sort(key=lambda r: (r["delta"] if r["delta"] is not None else -1e9), reverse=True)
+    matched.sort(
+        key=lambda r: r["delta"] if r["delta"] is not None else -1e9, reverse=True
+    )
     return {
         "model_id": model["id"],
         "base_model_id": model.get("base_model_id"),
@@ -386,7 +419,9 @@ def _download_training_logs(model_repo: str, dest_dir: Path) -> Optional[Path]:
             local_dir=str(dest_dir),
         )
     except Exception as exc:
-        logger.warning("snapshot_download(%s, training_logs/**) failed: %s", model_repo, exc)
+        logger.warning(
+            "snapshot_download(%s, training_logs/**) failed: %s", model_repo, exc
+        )
         return None
     log_dir = Path(local) / "training_logs"
     return log_dir if log_dir.exists() else None
@@ -492,7 +527,9 @@ def resolve(
                 except Exception as exc:
                     out.notes.append(f"base-model lookup failed: {exc}")
             else:
-                out.notes.append("models.base_model_id is null; baseline_eval can't be auto-resolved")
+                out.notes.append(
+                    "models.base_model_id is null; baseline_eval can't be auto-resolved"
+                )
 
             # baseline_eval_ts: prefer the BASE model's training_end
             # (when the snapshot we forked from finished training), then
@@ -512,9 +549,13 @@ def resolve(
                     out.baseline_eval_ts = fallback
                     ts_source = "model.training_start (fallback; no base-model row or all base ts are null)"
             if ts_source:
-                out.notes.append(f"baseline_eval_ts ← {ts_source} = {out.baseline_eval_ts}")
+                out.notes.append(
+                    f"baseline_eval_ts ← {ts_source} = {out.baseline_eval_ts}"
+                )
             else:
-                out.notes.append("baseline_eval_ts unresolved (no base model and no model.training_start)")
+                out.notes.append(
+                    "baseline_eval_ts unresolved (no base model and no model.training_start)"
+                )
 
             # Resolve a benchmark name → id if the caller passed a name.
             bench_target = eval_benchmark
@@ -522,13 +563,16 @@ def resolve(
                 try:
                     resolved_bid = _benchmark_name_to_id(client, bench_target)
                     if resolved_bid is None:
-                        out.notes.append(f"benchmark name={bench_target!r} not found in benchmarks table")
+                        out.notes.append(
+                            f"benchmark name={bench_target!r} not found in benchmarks table"
+                        )
                     bench_target = resolved_bid or bench_target
                 except Exception as exc:
                     out.notes.append(f"benchmark name lookup failed: {exc}")
 
             pick = _pick_eval_pair(
-                post_jobs, base_jobs,
+                post_jobs,
+                base_jobs,
                 selection=eval_selection,
                 score_key=eval_score_key,
                 benchmark=bench_target,
@@ -566,7 +610,9 @@ def resolve(
         log_dir = _download_training_logs(model_name, training_log_cache)
         if log_dir is not None:
             out.training_log_dir = str(log_dir)
-            out.notes.append(f"training_log_dir ← snapshotted {model_name}/training_logs/ to {log_dir}")
+            out.notes.append(
+                f"training_log_dir ← snapshotted {model_name}/training_logs/ to {log_dir}"
+            )
         else:
             out.notes.append(
                 f"no training_logs/ in HF repo {model_name} "

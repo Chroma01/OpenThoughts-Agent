@@ -74,7 +74,7 @@ _HEADER = (
     "called and their results, plus the catalogue of tools available to you. "
     "Decide the SINGLE next tool call to make.\n\n"
     "Write a JSON object to `/app/answer.txt` of exactly this form:\n\n"
-    "    {\"name\": \"<tool_name>\", \"arguments\": { ... }}\n\n"
+    '    {"name": "<tool_name>", "arguments": { ... }}\n\n'
     "`name` must be one of the available tools (e.g. `execute_bash`, "
     "`str_replace_editor`, `grep_files`, `read_file`); `arguments` must be a "
     "JSON object with the exact argument keys/values that tool needs for this "
@@ -138,10 +138,7 @@ def convert_agentic_swe_pivot(row: dict, row_idx: int) -> HarborTask | None:
     info = row.get("info") if isinstance(row.get("info"), dict) else {}
     meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
 
-    body = (
-        f"Available tools:\n{tools_md}\n\n"
-        f"Conversation so far:\n{transcript}"
-    )
+    body = f"Available tools:\n{tools_md}\n\nConversation so far:\n{transcript}"
     if len(body) > _TRANSCRIPT_MAX:
         body = body[:_TRANSCRIPT_MAX] + "\n\n[... transcript truncated ...]"
 

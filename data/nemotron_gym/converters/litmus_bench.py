@@ -103,8 +103,12 @@ def convert_litmus_bench(row: dict, row_idx: int) -> HarborTask | None:
                 "family": "numeric_compare",
                 "property_type": property_type,
                 "property": prop,
-                "chembl_id": row.get("chembl_id") if isinstance(row.get("chembl_id"), str) else None,
-                "method": row.get("method") if isinstance(row.get("method"), str) else None,
+                "chembl_id": row.get("chembl_id")
+                if isinstance(row.get("chembl_id"), str)
+                else None,
+                "method": row.get("method")
+                if isinstance(row.get("method"), str)
+                else None,
                 "use_box_format": use_box,
             },
         ),

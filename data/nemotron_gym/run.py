@@ -59,7 +59,9 @@ def _ensure_converters_loaded() -> None:
     )
 
 
-def _load_dataset(hf_path: str, split: str, limit: int | None, config: str | None = None):
+def _load_dataset(
+    hf_path: str, split: str, limit: int | None, config: str | None = None
+):
     """Load rows. Tries materialized load first; on ujson big-int failures
     (`ValueError: Value is too big!`), falls back to pyarrow-backed streaming.
 
@@ -76,8 +78,10 @@ def _load_dataset(hf_path: str, split: str, limit: int | None, config: str | Non
     except DatasetGenerationError as e:
         cause = e.__cause__
         msg = str(cause) if cause else str(e)
-        print(f"  load_dataset failed: {type(cause).__name__ if cause else 'DatasetGenerationError'}: "
-              f"{msg[:160]!r}; trying streaming")
+        print(
+            f"  load_dataset failed: {type(cause).__name__ if cause else 'DatasetGenerationError'}: "
+            f"{msg[:160]!r}; trying streaming"
+        )
         try:
             ds = load_dataset(hf_path, *name_args, split=split, streaming=True)
             rows: list[dict] = []
@@ -91,7 +95,9 @@ def _load_dataset(hf_path: str, split: str, limit: int | None, config: str | Non
             # when JSONL rows have inconsistent struct fields (e.g. SysBench's
             # llm_judge entries where some carry an extra `frequency` key) — the
             # raw stdlib-json loader handles these uniformly.
-            print(f"  streaming also failed: {type(e2).__name__}: {str(e2)[:160]!r}; trying raw file download")
+            print(
+                f"  streaming also failed: {type(e2).__name__}: {str(e2)[:160]!r}; trying raw file download"
+            )
             return _load_raw_jsonl(hf_path, split, limit)
     if limit is not None:
         ds = ds.select(range(min(limit, len(ds))))
@@ -110,9 +116,9 @@ def _load_raw_jsonl(hf_path: str, split: str, limit: int | None) -> list[dict]:
     files = api.list_repo_files(hf_path, repo_type="dataset")
     # Match split=train -> train.jsonl, train.json, train-*.jsonl, etc.
     candidates = [
-        f for f in files
-        if (f.endswith(".jsonl") or f.endswith(".json"))
-        and split in f.lower()
+        f
+        for f in files
+        if (f.endswith(".jsonl") or f.endswith(".json")) and split in f.lower()
     ]
     if not candidates:
         raise RuntimeError(
@@ -171,8 +177,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dataset", required=True, help="HuggingFace dataset path")
     ap.add_argument("--output", required=True, type=Path)
     ap.add_argument("--split", default="train")
-    ap.add_argument("--config", default=None,
-                    help="named dataset config (for multi-config datasets)")
+    ap.add_argument(
+        "--config",
+        default=None,
+        help="named dataset config (for multi-config datasets)",
+    )
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--smoke", action="store_true")
     args = ap.parse_args(argv)
@@ -183,8 +192,10 @@ def main(argv: list[str] | None = None) -> int:
     convert = get_converter(args.dataset)
     t0 = time.time()
     ds = _load_dataset(args.dataset, args.split, args.limit, args.config)
-    print(f"loaded {len(ds)} rows from {args.dataset} "
-          f"(split={args.split}{', config=' + args.config if args.config else ''})")
+    print(
+        f"loaded {len(ds)} rows from {args.dataset} "
+        f"(split={args.split}{', config=' + args.config if args.config else ''})"
+    )
     records: list[dict] = []
     skipped: Counter = Counter()
     seen_ids: set[str] = set()

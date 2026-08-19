@@ -182,6 +182,7 @@ class HPC(BaseModel):
             if isinstance(obj, list):
                 return [_expand(v) for v in obj]
             return obj
+
         expanded = _expand(view)
         # load_cluster_config sets DCFT from paths.project_root as a side effect;
         # mirror that so baseline-yaml extra_args ('${DCFT}/...') expand against
@@ -212,7 +213,11 @@ class HPC(BaseModel):
                 return max_time
 
         # If num_nodes exceeds all bins, return the last (largest) bin's limit
-        return self.time_limit_by_nodes[-1][1] if self.time_limit_by_nodes else self.max_time_limit
+        return (
+            self.time_limit_by_nodes[-1][1]
+            if self.time_limit_by_nodes
+            else self.max_time_limit
+        )
 
     @computed_field
     def dotenv_path(self) -> str:
@@ -304,7 +309,11 @@ class HPC(BaseModel):
             if not resolved_type:
                 # If no type specified and format requires it, fall back to removing the type placeholder
                 # This handles cases where a type is optional
-                directive = directive.replace("{type}:", "").replace(":{type}", "").replace("{type}", "")
+                directive = (
+                    directive.replace("{type}:", "")
+                    .replace(":{type}", "")
+                    .replace("{type}", "")
+                )
             else:
                 directive = directive.replace("{type}", resolved_type)
         return f"#SBATCH {directive}"
@@ -325,7 +334,11 @@ class HPC(BaseModel):
         return f"#SBATCH --mem={mem_value}"
 
     def get_sbatch_directives(
-        self, qos: str = "", gpus: int = 0, gpu_type: str | None = None, mem: str | None = None
+        self,
+        qos: str = "",
+        gpus: int = 0,
+        gpu_type: str | None = None,
+        mem: str | None = None,
     ) -> str:
         """Generate cluster-specific SBATCH directives.
 
@@ -449,7 +462,7 @@ class HPC(BaseModel):
             "# The spike settles after init; Ray's default 0.95 threshold kills",
             "# workers during this transient phase. Already disabled for GH200",
             "# (unified memory), now disabled universally.",
-            'export RAY_memory_monitor_refresh_ms=0',
+            "export RAY_memory_monitor_refresh_ms=0",
             "# Force Ray (and every worker/actor it spawns) onto CPython stock",
             "# asyncio instead of uvloop. Ray installs uvloop in every worker by",
             "# default (RAY_USE_UVLOOP defaults True -> ray/_private/async_compat.py",
@@ -462,7 +475,7 @@ class HPC(BaseModel):
             "# suspenders: the harbor run_async chokepoint also resets the policy.",
             "# Datagen is network-RTT-bound (vLLM/Daytona) so uvloop's throughput",
             "# edge is moot here.",
-            'export RAY_USE_UVLOOP=0',
+            "export RAY_USE_UVLOOP=0",
         ]
 
         lines += [
@@ -494,7 +507,7 @@ class HPC(BaseModel):
         if not self.needs_ssh_tunnel:
             return "# No SSH tunnel needed for this cluster"
 
-        return r'''# ============================================================================
+        return r"""# ============================================================================
 # SSH Tunnel + Proxychains Setup for No-Internet Clusters (JSC)
 # Wrapped in a function so `return` works correctly in sbatch scripts.
 # ============================================================================
@@ -694,7 +707,7 @@ PCEOF
 fi
 }
 _setup_proxy
-'''
+"""
 
     def get_proxy_setup(self) -> str:
         """Generate SOCKS5 proxy setup script for no-internet clusters (JSC).
@@ -873,7 +886,7 @@ jureca = HPC(
     # JSC-specific setup (disable core dumps to save disk space)
     pre_run_commands=["ulimit -c 0"],
     # Ray tmpdir on scratch (JSC /tmp is limited on compute nodes)
-    #ray_tmpdir_base="$SCRATCH/ray",
+    # ray_tmpdir_base="$SCRATCH/ray",
     # Job scaling (from jureca.env)
     default_time_limit="24:00:00",
     num_nodes_default=1,
@@ -1020,7 +1033,7 @@ jupiter = HPC(
     disable_cpu_bind=True,
     pre_run_commands=["ulimit -c 0"],
     # Ray tmpdir on scratch (JSC /tmp is limited on compute nodes)
-    #ray_tmpdir_base="$SCRATCH/ray",
+    # ray_tmpdir_base="$SCRATCH/ray",
     default_time_limit="12:00:00",
     max_time_limit="23:59:00",
     num_nodes_slow=1,
@@ -1109,7 +1122,7 @@ juwels = HPC(
     # JSC-specific setup (disable core dumps to save disk space)
     pre_run_commands=["ulimit -c 0"],
     # Ray tmpdir on scratch (JSC /tmp is limited on compute nodes but $SCRATCH path is too long)
-    #ray_tmpdir_base="$SCRATCH/ray",
+    # ray_tmpdir_base="$SCRATCH/ray",
     # Job scaling (from juwels.env)
     default_time_limit="24:00:00",
     num_nodes_default=4,
@@ -1787,7 +1800,12 @@ frontier = HPC(
     # See: https://docs.olcf.ornl.gov/software/analytics/pytorch_frontier.html
     # Note: cray-mpich removed - not needed for vLLM/Ray and causes libmpi_cxx.so.40 errors
     # rocm/7.0.2 required for vLLM wheel compatibility
-    modules=["PrgEnv-gnu/8.6.0", "gcc-native/14.2", "rocm/7.0.2", "craype-accel-amd-gfx90a"],
+    modules=[
+        "PrgEnv-gnu/8.6.0",
+        "gcc-native/14.2",
+        "rocm/7.0.2",
+        "craype-accel-amd-gfx90a",
+    ],
     env_vars={
         "ROCM_PATH": "/opt/rocm",
         "HIP_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7",
@@ -1866,7 +1884,27 @@ marenostrum = HPC(
     num_nodes_fast=16,
 )
 
-clusters = [jureca, jupiter, juwels, leonardo, capella, alpha, dip, lrz, vista, empireai, lonestar, claix, nyugreene, nyutorch, oumi, perlmutter, frontier, polaris, marenostrum]
+clusters = [
+    jureca,
+    jupiter,
+    juwels,
+    leonardo,
+    capella,
+    alpha,
+    dip,
+    lrz,
+    vista,
+    empireai,
+    lonestar,
+    claix,
+    nyugreene,
+    nyutorch,
+    oumi,
+    perlmutter,
+    frontier,
+    polaris,
+    marenostrum,
+]
 
 
 def detect_hpc() -> HPC:

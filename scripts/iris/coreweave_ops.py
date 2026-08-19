@@ -106,7 +106,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cluster", choices=sorted(CLUSTERS), default="cw-rno2a")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--sample-size", type=int, default=100)
-    parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducible sampling.")
+    parser.add_argument(
+        "--seed", type=int, default=0, help="Random seed for reproducible sampling."
+    )
     parser.add_argument(
         "--max-trial-file-bytes",
         type=int,
@@ -119,7 +121,9 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_MAX_VLLM_LOG_BYTES,
         help="Skip individual Ray/vLLM log files larger than this bound (default: 100 MiB).",
     )
-    parser.add_argument("--pod", help="Exact pod name. Required when job matching is ambiguous.")
+    parser.add_argument(
+        "--pod", help="Exact pod name. Required when job matching is ambiguous."
+    )
     parser.add_argument("--container", default="task")
     parser.add_argument(
         "--trials-s3",
@@ -150,7 +154,9 @@ def command(
             return result.stdout
         stderr = result.stderr.strip()
         if not is_transient_kubectl_exec_failure(stderr) or attempt == DNS_ATTEMPTS - 1:
-            raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(args)}\n{stderr}")
+            raise RuntimeError(
+                f"Command failed ({result.returncode}): {' '.join(args)}\n{stderr}"
+            )
         time.sleep(DNS_INITIAL_BACKOFF * 2**attempt)
     raise AssertionError("unreachable")
 
@@ -171,7 +177,9 @@ def task_short_name(job: str) -> str:
 def find_pod(base: list[str], args: argparse.Namespace) -> str:
     if args.pod:
         return args.pod
-    pods = json.loads(command([*base, "-n", NAMESPACE, "get", "pods", "-o", "json"]))["items"]
+    pods = json.loads(command([*base, "-n", NAMESPACE, "get", "pods", "-o", "json"]))[
+        "items"
+    ]
     needle = task_short_name(args.job).lower()
     # Kubernetes truncates long Iris job names in pod names. The controller's
     # canonical identity survives in this label, with the leading slash changed
@@ -183,7 +191,8 @@ def find_pod(base: list[str], args: argparse.Namespace) -> str:
         if pod.get("status", {}).get("phase") == "Running"
         and (
             needle in pod["metadata"]["name"].lower()
-            or pod.get("metadata", {}).get("labels", {}).get("iris.job_id") == labeled_job_id
+            or pod.get("metadata", {}).get("labels", {}).get("iris.job_id")
+            == labeled_job_id
         )
     )
     # Iris stores the canonical job id in ``iris.job_id``, but Kubernetes label
@@ -197,15 +206,20 @@ def find_pod(base: list[str], args: argparse.Namespace) -> str:
             pod["metadata"]["name"]
             for pod in pods
             if pod.get("status", {}).get("phase") == "Running"
-            and pod.get("metadata", {}).get("labels", {}).get("iris.job_id", "").startswith(
-                truncated_label
-            )
+            and pod.get("metadata", {})
+            .get("labels", {})
+            .get("iris.job_id", "")
+            .startswith(truncated_label)
         )
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:
-        raise RuntimeError(f"No running Iris pod found for {args.job!r}; pass --pod if it is not running.")
-    raise RuntimeError(f"Ambiguous running pods for {args.job!r}: {', '.join(candidates)}. Pass --pod.")
+        raise RuntimeError(
+            f"No running Iris pod found for {args.job!r}; pass --pod if it is not running."
+        )
+    raise RuntimeError(
+        f"Ambiguous running pods for {args.job!r}: {', '.join(candidates)}. Pass --pod."
+    )
 
 
 def pod_command_line(base: list[str], pod: str, container: str) -> list[str]:
@@ -301,7 +315,9 @@ def discover_trials_prefix(command_line: list[str]) -> str:
 
 
 def object_store_client(base: list[str], cluster: ClusterConfig) -> Any:
-    secret = json.loads(command([*base, "-n", NAMESPACE, "get", "secret", TASK_SECRET, "-o", "json"]))
+    secret = json.loads(
+        command([*base, "-n", NAMESPACE, "get", "secret", TASK_SECRET, "-o", "json"])
+    )
     data = secret.get("data", {})
 
     def decode(name: str) -> str | None:
@@ -311,7 +327,9 @@ def object_store_client(base: list[str], cluster: ClusterConfig) -> Any:
     access_key = decode("AWS_ACCESS_KEY_ID")
     secret_key = decode("AWS_SECRET_ACCESS_KEY")
     if not access_key or not secret_key:
-        raise RuntimeError(f"{TASK_SECRET} does not contain AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY")
+        raise RuntimeError(
+            f"{TASK_SECRET} does not contain AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+        )
     return boto3.session.Session(
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
@@ -405,14 +423,30 @@ print(json.dumps([
 """.replace("__PATTERNS__", serialized_patterns)
     runtime_python = python_executable or resolve_container_python(base, pod, container)
     raw = command(
-        [*base, "-n", NAMESPACE, "exec", pod, "-c", container, "--", runtime_python, "-c", script]
+        [
+            *base,
+            "-n",
+            NAMESPACE,
+            "exec",
+            pod,
+            "-c",
+            container,
+            "--",
+            runtime_python,
+            "-c",
+            script,
+        ]
     )
     return json.loads(raw)
 
 
 def _safe_ray_log_path(value: str) -> Path:
     path = PurePosixPath(value)
-    if path.is_absolute() or not path.parts or any(part in {"", ".", ".."} for part in path.parts):
+    if (
+        path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
         raise RuntimeError(f"Refusing unsafe Ray/vLLM log path {value!r}")
     return Path(*path.parts)
 
@@ -438,7 +472,9 @@ def _read_ray_log_sync_manifest(destination: Path) -> dict[str, dict[str, int]]:
     }
 
 
-def _write_ray_log_sync_manifest(destination: Path, inventory: list[dict[str, Any]]) -> None:
+def _write_ray_log_sync_manifest(
+    destination: Path, inventory: list[dict[str, Any]]
+) -> None:
     files = {
         str(item["path"]): {"inode": int(item["inode"]), "size": int(item["size"])}
         for item in inventory
@@ -521,14 +557,20 @@ with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as archive:
 def _extract_ray_log_delta(archive: tarfile.TarFile, destination: Path) -> None:
     for member in archive:
         if not member.isfile():
-            raise RuntimeError(f"Refusing non-file Ray/vLLM archive member {member.name!r}")
+            raise RuntimeError(
+                f"Refusing non-file Ray/vLLM archive member {member.name!r}"
+            )
         offset_text = member.pax_headers.get("otagent.offset")
         if offset_text is None:
-            raise RuntimeError(f"Ray/vLLM delta member {member.name!r} has no append offset")
+            raise RuntimeError(
+                f"Ray/vLLM delta member {member.name!r} has no append offset"
+            )
         try:
             offset = int(offset_text)
         except ValueError as error:
-            raise RuntimeError(f"Invalid append offset for Ray/vLLM log {member.name!r}") from error
+            raise RuntimeError(
+                f"Invalid append offset for Ray/vLLM log {member.name!r}"
+            ) from error
         target = destination / _safe_ray_log_path(member.name)
         target.parent.mkdir(parents=True, exist_ok=True)
         source = archive.extractfile(member)
@@ -573,11 +615,30 @@ def save_ray_logs(
     return_code = 0
     for attempt in range(DNS_ATTEMPTS):
         remote_command = (
-            [python_executable or resolve_container_python(base, pod, container), "-c", _delta_archive_script(transfers)]
+            [
+                python_executable or resolve_container_python(base, pod, container),
+                "-c",
+                _delta_archive_script(transfers),
+            ]
             if incremental
-            else ["tar", "-C", RAY_LOG_DIR, "-cf", "-", *(item["path"] for item in transfers)]
+            else [
+                "tar",
+                "-C",
+                RAY_LOG_DIR,
+                "-cf",
+                "-",
+                *(item["path"] for item in transfers),
+            ]
         )
-        exec_args = ["exec", *( ["-i"] if incremental else []), pod, "-c", container, "--", *remote_command]
+        exec_args = [
+            "exec",
+            *(["-i"] if incremental else []),
+            pod,
+            "-c",
+            container,
+            "--",
+            *remote_command,
+        ]
         process = subprocess.Popen(
             [*base, "-n", NAMESPACE, *exec_args],
             stdin=subprocess.PIPE if incremental else None,
@@ -638,7 +699,9 @@ def sync_trials(
         for item in iter_objects(client, bucket, f"{root_prefix}{trial}/"):
             key = item["Key"]
             if item["Size"] > max_file_bytes:
-                skipped.append({"key": key, "size": item["Size"], "reason": "size_limit"})
+                skipped.append(
+                    {"key": key, "size": item["Size"], "reason": "size_limit"}
+                )
                 continue
             local_path = destination / safe_relative_path(key, root_prefix)
             local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -658,7 +721,9 @@ def main() -> None:
     bucket, prefix = split_s3_uri(trials_uri)
 
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    collection_dir = args.output_dir / "diagnostics" / f"{task_short_name(args.job)}-{timestamp}"
+    collection_dir = (
+        args.output_dir / "diagnostics" / f"{task_short_name(args.job)}-{timestamp}"
+    )
     collection_dir.mkdir(parents=True, exist_ok=False)
     (collection_dir / "vllm-logs").mkdir()
     (collection_dir / "trials").mkdir()
@@ -680,7 +745,12 @@ def main() -> None:
     save_task_log(base, pod, args.container, collection_dir / "pod-task-tail.log")
     inventory = ray_log_inventory(base, pod, args.container)
     saved_logs, skipped_logs = save_ray_logs(
-        base, pod, args.container, inventory, args.max_vllm_log_bytes, collection_dir / "vllm-logs"
+        base,
+        pod,
+        args.container,
+        inventory,
+        args.max_vllm_log_bytes,
+        collection_dir / "vllm-logs",
     )
     manifest["ray_logs"] = {"saved": saved_logs, "skipped": skipped_logs}
     write_json(collection_dir / "manifest.json", manifest)
@@ -689,8 +759,12 @@ def main() -> None:
     client = object_store_client(base, cluster)
     available_trials = completed_trials(client, bucket, prefix)
     sample_size = min(args.sample_size, len(available_trials))
-    selected_trials = sorted(random.Random(args.seed).sample(available_trials, sample_size))
-    LOGGER.info("Syncing %d of %d completed trials", len(selected_trials), len(available_trials))
+    selected_trials = sorted(
+        random.Random(args.seed).sample(available_trials, sample_size)
+    )
+    LOGGER.info(
+        "Syncing %d of %d completed trials", len(selected_trials), len(available_trials)
+    )
     copied, skipped_objects = sync_trials(
         client,
         bucket,

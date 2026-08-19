@@ -42,10 +42,15 @@ class TrialContext:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Batch failure-mode analysis via GPT-5 judge")
+    parser = argparse.ArgumentParser(
+        description="Batch failure-mode analysis via GPT-5 judge"
+    )
     parser.add_argument("repo_id", help="HuggingFace repo id containing eval traces")
     parser.add_argument(
-        "--repo-type", default="dataset", choices=["dataset", "model"], help="Repo type for snapshot download"
+        "--repo-type",
+        default="dataset",
+        choices=["dataset", "model"],
+        help="Repo type for snapshot download",
     )
     parser.add_argument("--revision", default=None, help="Optional HF revision")
     parser.add_argument(
@@ -95,7 +100,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def snapshot_repo(repo_id: str, repo_type: str, revision: str | None, cache_dir: str | None) -> Path:
+def snapshot_repo(
+    repo_id: str, repo_type: str, revision: str | None, cache_dir: str | None
+) -> Path:
     target_dir = snapshot_download(
         repo_id,
         repo_type=repo_type,
@@ -163,7 +170,11 @@ def gather_trial_context(trial_dir: Path) -> TrialContext | None:
     else:
         agent_excerpt = "[missing agent transcript]"
 
-    verifier_excerpt = read_text(verifier_dir / "test-stdout.txt") if verifier_dir.exists() else "[no verifier output]"
+    verifier_excerpt = (
+        read_text(verifier_dir / "test-stdout.txt")
+        if verifier_dir.exists()
+        else "[no verifier output]"
+    )
     status = None
     if result_json:
         agent_result = result_json.get("verifier_result") or {}
@@ -201,7 +212,7 @@ def build_user_prompt(batch: Sequence[TrialContext]) -> str:
             f"""
             ### Trial ID: {trial.trial_id}
             Task Name: {trial.task_name}
-            Additional Status: {trial.status or 'n/a'}
+            Additional Status: {trial.status or "n/a"}
 
             Task Prompt (excerpt):
             {trial.prompt_excerpt}
@@ -242,7 +253,9 @@ def judge_batch(
     )
 
 
-def write_markdown_report(repo_id: str, output_path: Path, analyses: List[dict]) -> None:
+def write_markdown_report(
+    repo_id: str, output_path: Path, analyses: List[dict]
+) -> None:
     lines = [
         "# Failure Mode Analysis",
         "",
@@ -274,9 +287,13 @@ def write_markdown_report(repo_id: str, output_path: Path, analyses: List[dict])
 
 def main() -> None:
     args = parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
 
-    snapshot_path = snapshot_repo(args.repo_id, args.repo_type, args.revision, args.cache_dir)
+    snapshot_path = snapshot_repo(
+        args.repo_id, args.repo_type, args.revision, args.cache_dir
+    )
     trial_dirs = [path for path in iter_trial_dirs(snapshot_path)]
     if not trial_dirs:
         raise RuntimeError(f"No trial directories discovered under {snapshot_path}")
@@ -296,7 +313,9 @@ def main() -> None:
 
     api_key = args.openai_api_key or os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("OpenAI API key not provided. Use --openai-api-key or set OPENAI_API_KEY.")
+        raise RuntimeError(
+            "OpenAI API key not provided. Use --openai-api-key or set OPENAI_API_KEY."
+        )
 
     client = OpenAI(api_key=api_key)
     analyses: List[dict] = []

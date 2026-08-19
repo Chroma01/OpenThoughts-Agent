@@ -136,7 +136,9 @@ def _load_truth_hint(task_dir: Path) -> str:
     return meta.get("truth_hint") or ""
 
 
-def synthesize_one(task_dir, *, model, client, overwrite=False, dry_run=False, max_retries=3):
+def synthesize_one(
+    task_dir, *, model, client, overwrite=False, dry_run=False, max_retries=3
+):
     result = {"task": task_dir.name}
     instruction_path = task_dir / "instruction.md"
     if not instruction_path.exists():
@@ -179,7 +181,7 @@ def synthesize_one(task_dir, *, model, client, overwrite=False, dry_run=False, m
             return result
         except Exception as exc:  # noqa: BLE001
             last_error = exc
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
 
     result["status"] = "error"
     result["error"] = str(last_error)
@@ -195,15 +197,19 @@ def main() -> None:
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--api-key", default=None)
-    parser.add_argument("--only-tasks", default=None,
-                        help="Comma-separated task dir names to (re)generate (subset).")
+    parser.add_argument(
+        "--only-tasks",
+        default=None,
+        help="Comma-separated task dir names to (re)generate (subset).",
+    )
     args = parser.parse_args()
 
     if not args.tasks_dir.is_dir():
         raise SystemExit(f"Not a directory: {args.tasks_dir}")
 
     task_dirs = sorted(
-        d for d in args.tasks_dir.iterdir()
+        d
+        for d in args.tasks_dir.iterdir()
         if d.is_dir() and (d / "instruction.md").exists()
     )
     if args.only_tasks:
@@ -218,6 +224,7 @@ def main() -> None:
 
     if not args.dry_run:
         from openai import OpenAI
+
         api_key = args.api_key or os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise SystemExit("OPENAI_API_KEY not set")
@@ -229,8 +236,14 @@ def main() -> None:
     errors = []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(synthesize_one, td, model=args.model, client=client,
-                        overwrite=args.overwrite, dry_run=args.dry_run): td
+            pool.submit(
+                synthesize_one,
+                td,
+                model=args.model,
+                client=client,
+                overwrite=args.overwrite,
+                dry_run=args.dry_run,
+            ): td
             for td in task_dirs
         }
         completed = 0
@@ -243,11 +256,15 @@ def main() -> None:
             if status == "error":
                 errors.append(f"  {result['task']}: {result.get('error', '?')}")
             if completed % 50 == 0 or completed == total:
-                print(f"  [{completed}/{total}] ok={counts['ok']} "
-                      f"skipped={counts['skipped']} error={counts['error']}")
+                print(
+                    f"  [{completed}/{total}] ok={counts['ok']} "
+                    f"skipped={counts['skipped']} error={counts['error']}"
+                )
 
-    print(f"\nDone: generated={counts['ok']} skipped={counts['skipped']} "
-          f"dry_run={counts['dry_run']} errors={counts['error']}")
+    print(
+        f"\nDone: generated={counts['ok']} skipped={counts['skipped']} "
+        f"dry_run={counts['dry_run']} errors={counts['error']}"
+    )
     for e in errors[:20]:
         print(e)
 

@@ -11,7 +11,7 @@ SBATCH_DIR = ABLATION_DIR / "sbatch"
 SBATCH_DIR.mkdir(exist_ok=True)
 
 # Base sbatch template
-SBATCH_TEMPLATE = '''#!/bin/bash
+SBATCH_TEMPLATE = """#!/bin/bash
 #SBATCH -p gh
 #SBATCH --time=24:00:00
 #SBATCH --nodes 32
@@ -386,7 +386,7 @@ fi
 echo "============================================"
 
 exit $FAILED
-'''
+"""
 
 
 def generate_sbatch(config_path: Path):
@@ -407,8 +407,12 @@ def generate_sbatch(config_path: Path):
     # Build extra_completion_params line if present
     extra_comp_line = ""
     if "extra_completion_params" in kwargs:
-        extra_comp = json.dumps(kwargs["extra_completion_params"], separators=(",", ":"))
-        extra_comp_line = f" \\\n            --agent-kwarg 'extra_completion_params={extra_comp}'"
+        extra_comp = json.dumps(
+            kwargs["extra_completion_params"], separators=(",", ":")
+        )
+        extra_comp_line = (
+            f" \\\n            --agent-kwarg 'extra_completion_params={extra_comp}'"
+        )
 
     sbatch_content = SBATCH_TEMPLATE.format(
         exp_name=exp_name,

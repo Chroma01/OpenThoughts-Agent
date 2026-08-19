@@ -312,7 +312,7 @@ def get_config_json() -> str:
 def get_task_toml(tags: list[str] | None = None) -> str:
     if tags:
         tag_str = ", ".join(f'"{t}"' for t in tags)
-        return TASK_TOML.replace('tags = ["sandbox"]', f'tags = [{tag_str}]')
+        return TASK_TOML.replace('tags = ["sandbox"]', f"tags = [{tag_str}]")
     return TASK_TOML
 
 

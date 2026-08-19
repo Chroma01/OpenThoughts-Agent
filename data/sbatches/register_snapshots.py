@@ -84,6 +84,7 @@ def get_snapshot_name(env_hash: str) -> str:
 
 # ---- Snapshot operations (modeled after harbor's daytona.py) ----
 
+
 @retry(
     retry=get_snapshot_retry_callback,
     wait=get_snapshot_wait_callback,
@@ -189,7 +190,9 @@ async def ensure_snapshot(
 
     # === SLOW PATH: create ===
     try:
-        status = await create_snapshot_with_retry(client, snapshot_name, env_dir_path, org_name)
+        status = await create_snapshot_with_retry(
+            client, snapshot_name, env_dir_path, org_name
+        )
         print(f"  [{org_name}] {snapshot_name}: {status}")
         return status
     except Exception as e:
@@ -198,6 +201,7 @@ async def ensure_snapshot(
 
 
 # ---- Discovery ----
+
 
 def discover_unique_envs(records: list[dict]) -> dict[str, str]:
     """Download datasets one at a time, save env dirs to cache, clean up.
@@ -240,13 +244,17 @@ def discover_unique_envs(records: list[dict]) -> dict[str, str]:
     actionable.sort(key=lambda r: r["unique_envs"])
 
     for i, rec in enumerate(actionable, 1):
-        needed_from_this = set(rec["hash_counts"].keys()) & missing - set(hash_to_env_dir.keys())
+        needed_from_this = set(rec["hash_counts"].keys()) & missing - set(
+            hash_to_env_dir.keys()
+        )
         if not needed_from_this:
             continue
 
         repo_id = rec["repo_id"]
         len(missing) - (len(hash_to_env_dir) - (len(all_needed) - len(missing)))
-        print(f"  [{i}/{len(actionable)}] {repo_id} (need {len(needed_from_this)} hashes) ...")
+        print(
+            f"  [{i}/{len(actionable)}] {repo_id} (need {len(needed_from_this)} hashes) ..."
+        )
 
         task_base = None
         try:
@@ -273,8 +281,10 @@ def discover_unique_envs(records: list[dict]) -> dict[str, str]:
         finally:
             if task_base and Path(task_base).exists():
                 shutil.rmtree(task_base, ignore_errors=True)
-            for d in [os.path.join(PLAYGROUND_TMP, "hf_datasets"),
-                      os.path.join(PLAYGROUND_TMP, "hf_cache")]:
+            for d in [
+                os.path.join(PLAYGROUND_TMP, "hf_datasets"),
+                os.path.join(PLAYGROUND_TMP, "hf_cache"),
+            ]:
                 if os.path.exists(d):
                     shutil.rmtree(d, ignore_errors=True)
                     os.makedirs(d, exist_ok=True)
@@ -285,7 +295,9 @@ def discover_unique_envs(records: list[dict]) -> dict[str, str]:
 
     still_missing = all_needed - set(hash_to_env_dir.keys())
     if still_missing:
-        print(f"  WARNING: missing env dirs for {len(still_missing)} hashes: {still_missing}")
+        print(
+            f"  WARNING: missing env dirs for {len(still_missing)} hashes: {still_missing}"
+        )
 
     return {h: hash_to_env_dir[h] for h in all_needed if h in hash_to_env_dir}
 
@@ -304,6 +316,7 @@ def load_needed_hashes() -> set[str]:
 
 
 # ---- CLI modes ----
+
 
 async def list_all_snapshots(client: AsyncDaytona) -> list:
     """List all snapshots with pagination and rate-limit retries."""
@@ -462,11 +475,18 @@ async def cmd_register():
 
                 # Check if already done on this org
                 reg_key = f"{env_hash}_{org_name}"
-                if reg_key in registered and registered[reg_key].get("status") == "ACTIVE":
-                    print(f"  [{org_name}] {snap_name}: already registered ACTIVE, skipping")
+                if (
+                    reg_key in registered
+                    and registered[reg_key].get("status") == "ACTIVE"
+                ):
+                    print(
+                        f"  [{org_name}] {snap_name}: already registered ACTIVE, skipping"
+                    )
                     continue
 
-                status = await ensure_snapshot(client, snap_name, env_dir_path, org_name)
+                status = await ensure_snapshot(
+                    client, snap_name, env_dir_path, org_name
+                )
 
                 # Save to registry
                 reg_record = {

@@ -77,7 +77,9 @@ class S3StorageConfig:
             missing.append("LAION_ENDPOINT")
 
         if missing:
-            raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+            raise ValueError(
+                f"Missing required environment variables: {', '.join(missing)}"
+            )
 
         # Auto-add https:// prefix if missing from endpoint
         if endpoint_url and not endpoint_url.startswith(("http://", "https://")):
@@ -143,7 +145,9 @@ class S3Storage:
             # boto3 will use session token from env even when explicit creds are provided,
             # causing "InvalidTokenId" errors with S3-compatible storage (MinIO, JSC S3).
             if "AWS_SESSION_TOKEN" in os.environ:
-                logger.debug("Unsetting AWS_SESSION_TOKEN to use explicit S3 credentials")
+                logger.debug(
+                    "Unsetting AWS_SESSION_TOKEN to use explicit S3 credentials"
+                )
                 del os.environ["AWS_SESSION_TOKEN"]
 
             self._client = boto3.client(
@@ -163,7 +167,9 @@ class S3Storage:
 
             # Unset AWS_SESSION_TOKEN to prevent conflicts (same reason as boto3 client)
             if "AWS_SESSION_TOKEN" in os.environ:
-                logger.debug("Unsetting AWS_SESSION_TOKEN to use explicit S3 credentials")
+                logger.debug(
+                    "Unsetting AWS_SESSION_TOKEN to use explicit S3 credentials"
+                )
                 del os.environ["AWS_SESSION_TOKEN"]
 
             self._s3fs = s3fs.S3FileSystem(
@@ -209,14 +215,18 @@ class S3Storage:
             self.client.put_object(
                 Bucket=self.config.bucket_name,
                 Key=marker_key,
-                Body=json.dumps({
-                    "created_at": time.time(),
-                    "namespace": self.config.namespace,
-                    "description": "Beam cluster artifact cache",
-                }).encode(),
+                Body=json.dumps(
+                    {
+                        "created_at": time.time(),
+                        "namespace": self.config.namespace,
+                        "description": "Beam cluster artifact cache",
+                    }
+                ).encode(),
                 ContentType="application/json",
             )
-            logger.info(f"Namespace '{self.config.namespace}' is ready in bucket '{self.config.bucket_name}'")
+            logger.info(
+                f"Namespace '{self.config.namespace}' is ready in bucket '{self.config.bucket_name}'"
+            )
             return True
         except Exception as e:
             logger.error(f"Failed to access/create namespace: {e}")
@@ -348,7 +358,9 @@ class S3Storage:
 
         try:
             # Upload tarball
-            logger.info(f"Uploading artifact: {image_name} -> s3://{self.config.bucket_name}/{tar_key}")
+            logger.info(
+                f"Uploading artifact: {image_name} -> s3://{self.config.bucket_name}/{tar_key}"
+            )
             file_size = local_path.stat().st_size
             with open(local_path, "rb") as f:
                 self.client.upload_fileobj(
@@ -362,7 +374,9 @@ class S3Storage:
             artifact_metadata = {
                 "image_name": image_name,
                 "image_hash": image_hash,
-                "dockerfile_hash": hashlib.sha256((dockerfile_content or "").encode()).hexdigest()
+                "dockerfile_hash": hashlib.sha256(
+                    (dockerfile_content or "").encode()
+                ).hexdigest()
                 if dockerfile_content
                 else None,
                 "size_bytes": file_size,
@@ -380,12 +394,16 @@ class S3Storage:
             manifest = self._load_manifest()
             # Remove existing entry for this image if present
             manifest["artifacts"] = [
-                a for a in manifest.get("artifacts", []) if a.get("image_hash") != image_hash
+                a
+                for a in manifest.get("artifacts", [])
+                if a.get("image_hash") != image_hash
             ]
             manifest["artifacts"].append(artifact_metadata)
             self._save_manifest(manifest)
 
-            logger.info(f"Artifact uploaded successfully: {image_name} ({file_size / 1024 / 1024:.1f} MB)")
+            logger.info(
+                f"Artifact uploaded successfully: {image_name} ({file_size / 1024 / 1024:.1f} MB)"
+            )
             return True
 
         except Exception as e:
@@ -463,7 +481,9 @@ class S3Storage:
             # Update manifest
             manifest = self._load_manifest()
             manifest["artifacts"] = [
-                a for a in manifest.get("artifacts", []) if a.get("image_hash") != image_hash
+                a
+                for a in manifest.get("artifacts", [])
+                if a.get("image_hash") != image_hash
             ]
             self._save_manifest(manifest)
 
@@ -521,15 +541,23 @@ class S3Storage:
                 if image_hash:
                     # Delete the artifact
                     tar_key = self._full_key(f"{self.IMAGES_PREFIX}{image_hash}.tar")
-                    metadata_key = self._full_key(f"{self.METADATA_PREFIX}{image_hash}.json")
+                    metadata_key = self._full_key(
+                        f"{self.METADATA_PREFIX}{image_hash}.json"
+                    )
                     try:
-                        self.client.delete_object(Bucket=self.config.bucket_name, Key=tar_key)
-                        self.client.delete_object(Bucket=self.config.bucket_name, Key=metadata_key)
+                        self.client.delete_object(
+                            Bucket=self.config.bucket_name, Key=tar_key
+                        )
+                        self.client.delete_object(
+                            Bucket=self.config.bucket_name, Key=metadata_key
+                        )
                         manifest["artifacts"].remove(artifact)
                         deleted_count += 1
                         logger.info(f"Deleted old artifact: {image_name}")
                     except Exception as e:
-                        logger.warning(f"Failed to delete old artifact {image_name}: {e}")
+                        logger.warning(
+                            f"Failed to delete old artifact {image_name}: {e}"
+                        )
 
         if deleted_count > 0:
             self._save_manifest(manifest)
@@ -543,7 +571,12 @@ def check_s3_configured() -> bool:
     Returns:
         True if all required environment variables are set.
     """
-    required_vars = ["LAION_BUCKET_NAME", "LAION_ACCESS_KEY", "LAION_SECRET_KEY", "LAION_ENDPOINT"]
+    required_vars = [
+        "LAION_BUCKET_NAME",
+        "LAION_ACCESS_KEY",
+        "LAION_SECRET_KEY",
+        "LAION_ENDPOINT",
+    ]
     return all(os.environ.get(var) for var in required_vars)
 
 
@@ -609,7 +642,9 @@ def cleanup_juicefs_storage(
                 objects_to_delete.append({"Key": obj["Key"]})
 
         if not objects_to_delete:
-            logger.info(f"JuiceFS storage s3://{bucket}/{juicefs_prefix}/ is already empty")
+            logger.info(
+                f"JuiceFS storage s3://{bucket}/{juicefs_prefix}/ is already empty"
+            )
             return True
 
         # Delete in batches of 1000 (S3 limit)
@@ -625,7 +660,9 @@ def cleanup_juicefs_storage(
 
             if response.get("Errors"):
                 for error in response["Errors"]:
-                    logger.warning(f"Failed to delete {error['Key']}: {error['Message']}")
+                    logger.warning(
+                        f"Failed to delete {error['Key']}: {error['Message']}"
+                    )
 
         logger.info(
             f"Cleaned up JuiceFS storage: deleted {total_deleted} objects from "

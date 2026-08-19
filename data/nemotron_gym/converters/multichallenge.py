@@ -141,7 +141,9 @@ def _build_prompt(row: dict) -> str | None:
             if not fallback:
                 continue
             try:
-                return sanitize_text(fallback, field_name="prompt", max_len=PROMPT_MAX_LEN)
+                return sanitize_text(
+                    fallback, field_name="prompt", max_len=PROMPT_MAX_LEN
+                )
             except SanitizationError:
                 continue
         return None
@@ -230,7 +232,9 @@ def convert_multichallenge(row: dict, row_idx: int) -> HarborTask | None:
                 "judge": "litellm:default(openai/gpt-4o-mini)",
                 "aggregation": "all_criteria_must_pass",
                 "n_criteria": len(criteria),
-                "language": row.get("language") if isinstance(row.get("language"), str) else None,
+                "language": row.get("language")
+                if isinstance(row.get("language"), str)
+                else None,
                 "agent_ref": (
                     row.get("agent_ref", {}).get("name")
                     if isinstance(row.get("agent_ref"), dict)

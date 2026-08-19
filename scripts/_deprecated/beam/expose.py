@@ -64,8 +64,9 @@ def load_secrets_env(secrets_path: Optional[str] = None) -> dict[str, str]:
                     key = key.strip()
                     value = value.strip()
                     # Remove surrounding quotes if present
-                    if (value.startswith('"') and value.endswith('"')) or \
-                       (value.startswith("'") and value.endswith("'")):
+                    if (value.startswith('"') and value.endswith('"')) or (
+                        value.startswith("'") and value.endswith("'")
+                    ):
                         value = value[1:-1]
                     os.environ[key] = value
                     loaded[key] = value
@@ -73,6 +74,7 @@ def load_secrets_env(secrets_path: Optional[str] = None) -> dict[str, str]:
         logger.warning(f"Failed to load secrets from {secrets_path}: {e}")
 
     return loaded
+
 
 logger = logging.getLogger(__name__)
 
@@ -120,17 +122,21 @@ def start_port_forward(
         Popen process or None if dry_run.
     """
     cmd = [
-        "kubectl", "port-forward",
+        "kubectl",
+        "port-forward",
         f"service/{service}",
         f"{local_port}:{remote_port}",
-        "--namespace", namespace,
+        "--namespace",
+        namespace,
     ]
 
     if dry_run:
         logger.info(f"[DRY RUN] Would execute: {' '.join(cmd)}")
         return None
 
-    logger.info(f"Starting port-forward: localhost:{local_port} -> {service}:{remote_port}")
+    logger.info(
+        f"Starting port-forward: localhost:{local_port} -> {service}:{remote_port}"
+    )
 
     proc = subprocess.Popen(
         cmd,
@@ -152,7 +158,9 @@ def start_port_forward(
     return proc
 
 
-def start_pinggy_tunnel(config: PinggyConfig, dry_run: bool = False, secrets_path: Optional[str] = None) -> Optional[subprocess.Popen]:
+def start_pinggy_tunnel(
+    config: PinggyConfig, dry_run: bool = False, secrets_path: Optional[str] = None
+) -> Optional[subprocess.Popen]:
     """Start Pinggy SSH tunnel.
 
     Args:
@@ -169,12 +177,18 @@ def start_pinggy_tunnel(config: PinggyConfig, dry_run: bool = False, secrets_pat
     # Token identifies the persistent URL endpoint (SSH username)
     token = config.token
     if not token:
-        logger.error("No Pinggy token provided (identifies which persistent URL to use)")
+        logger.error(
+            "No Pinggy token provided (identifies which persistent URL to use)"
+        )
         return None
 
     logger.info(f"Using Pinggy token: {token}")
 
-    identity_file = config.identity_file or os.environ.get("PINGGY_IDENTITY_FILE") or os.environ.get("PINGGY_SSH_KEY")
+    identity_file = (
+        config.identity_file
+        or os.environ.get("PINGGY_IDENTITY_FILE")
+        or os.environ.get("PINGGY_SSH_KEY")
+    )
     if identity_file:
         identity_file = os.path.expanduser(identity_file)
         if not os.path.exists(identity_file):
@@ -191,16 +205,28 @@ def start_pinggy_tunnel(config: PinggyConfig, dry_run: bool = False, secrets_pat
 
     # Match Pinggy's documented example and avoid interactive password prompts.
     ssh_cmd = [
-        "ssh", "-v", "-p", "443",
-        "-R", f"0:{config.local_host}:{config.local_port}",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "ServerAliveInterval=30",
-        "-o", "ServerAliveCountMax=3",
-        "-o", "ExitOnForwardFailure=yes",
-        "-o", "BatchMode=yes",
-        "-o", "PasswordAuthentication=no",
-        "-o", "KbdInteractiveAuthentication=no",
-        "-o", "IdentitiesOnly=yes",
+        "ssh",
+        "-v",
+        "-p",
+        "443",
+        "-R",
+        f"0:{config.local_host}:{config.local_port}",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "ServerAliveInterval=30",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "PasswordAuthentication=no",
+        "-o",
+        "KbdInteractiveAuthentication=no",
+        "-o",
+        "IdentitiesOnly=yes",
     ]
 
     if identity_file:
@@ -214,17 +240,15 @@ def start_pinggy_tunnel(config: PinggyConfig, dry_run: bool = False, secrets_pat
         logger.info(f"[DRY RUN] Would execute: {' '.join(ssh_cmd)}")
         return None
 
-    logger.info(f"Starting Pinggy tunnel: {config.local_host}:{config.local_port} -> {config.persistent_url}")
+    logger.info(
+        f"Starting Pinggy tunnel: {config.local_host}:{config.local_port} -> {config.persistent_url}"
+    )
 
     # Pass through environment variables including any loaded secrets
     env = os.environ.copy()
 
     # Mirror Pinggy's recommended auto-reconnect loop.
-    loop_cmd = (
-        "while true; do "
-        + " ".join(ssh_cmd)
-        + " ; sleep 10; done"
-    )
+    loop_cmd = "while true; do " + " ".join(ssh_cmd) + " ; sleep 10; done"
 
     proc = subprocess.Popen(
         ["bash", "-lc", loop_cmd],
@@ -315,10 +339,16 @@ def patch_service_to_loadbalancer(
     patch_json = json.dumps(patch)
 
     cmd = [
-        "kubectl", "patch", "service", service,
-        "--namespace", namespace,
-        "--type", "merge",
-        "--patch", patch_json,
+        "kubectl",
+        "patch",
+        "service",
+        service,
+        "--namespace",
+        namespace,
+        "--type",
+        "merge",
+        "--patch",
+        patch_json,
     ]
 
     if dry_run:
@@ -356,10 +386,14 @@ def wait_for_external_ip(
     while time.time() - start_time < timeout:
         result = subprocess.run(
             [
-                "kubectl", "get", "service",
+                "kubectl",
+                "get",
+                "service",
                 config.service_name,
-                "--namespace", config.namespace,
-                "-o", "jsonpath={.status.loadBalancer.ingress[0].ip}",
+                "--namespace",
+                config.namespace,
+                "-o",
+                "jsonpath={.status.loadBalancer.ingress[0].ip}",
             ],
             capture_output=True,
             text=True,
@@ -416,7 +450,9 @@ def setup_loadbalancer_exposure(
 # =============================================================================
 
 
-def verify_endpoint_health(public_url: str, timeout: int = 30, grpc_port: int = 1993) -> bool:
+def verify_endpoint_health(
+    public_url: str, timeout: int = 30, grpc_port: int = 1993
+) -> bool:
     """Verify the public endpoint is reachable and healthy.
 
     Args:
@@ -435,6 +471,7 @@ def verify_endpoint_health(public_url: str, timeout: int = 30, grpc_port: int = 
         logger.info(f"Verifying endpoint health via gRPC: {host}:{grpc_port}")
         try:
             from scripts.beam.validate_cluster import get_or_create_token
+
             token = get_or_create_token(host, grpc_port)
             if token:
                 logger.info("gRPC endpoint is healthy")

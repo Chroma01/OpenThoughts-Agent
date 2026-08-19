@@ -106,7 +106,7 @@ def add_harbor_env_arg(
         default=default,
         choices=["daytona", "docker", "modal", None],
         help="Harbor environment backend: daytona (cloud), docker (local/podman), modal. "
-             "If not specified, inferred from Harbor config YAML.",
+        "If not specified, inferred from Harbor config YAML.",
     )
 
     # Support legacy names as hidden aliases for backwards compatibility
@@ -514,7 +514,10 @@ def add_ingress_literal_args(parser: ArgTarget) -> None:
         "--ingress_mode controller (no pinggy tunnel here to expose a loopback proxy).",
     )
     parser.add_argument(
-        "--record-literal", dest="record_literal", action="store_true", help=argparse.SUPPRESS
+        "--record-literal",
+        dest="record_literal",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     _add_arg_with_alias(
         parser,

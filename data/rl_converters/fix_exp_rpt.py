@@ -22,6 +22,7 @@ Usage:
     python -m data.rl_converters.fix_exp_rpt smoke     --workdir <dir> [--source NAME]
     python -m data.rl_converters.fix_exp_rpt upload    --workdir <dir>
 """
+
 from __future__ import annotations
 
 import argparse
@@ -72,6 +73,7 @@ RUN apt-get update && apt-get install -y python3-pytest && rm -rf /var/lib/apt/l
 # --------------------------------------------------------------------------- #
 # tar <-> dict helpers
 # --------------------------------------------------------------------------- #
+
 
 def read_task(task_binary: bytes) -> dict[str, bytes]:
     """Decompress a gzip-tar task binary into {path: content}."""
@@ -334,6 +336,7 @@ def test_post_valid_url_returns_value():
 # per-source transformers
 # --------------------------------------------------------------------------- #
 
+
 def _common_verifier(files: dict[str, bytes], language: str) -> None:
     """Drop in the shared default-fail scaffolding shared by all tasks."""
     files["environment/Dockerfile"] = T.get_dockerfile(language).encode("utf-8")
@@ -344,9 +347,13 @@ def _common_verifier(files: dict[str, bytes], language: str) -> None:
 
 def transform_quixbugs(files: dict[str, bytes], idx: int) -> dict[str, bytes]:
     name = ALGOS[idx]
-    out = {k: v for k, v in files.items()
-           if not k.startswith("tests/") and not k.startswith("environment/")
-           and not k.startswith("solution/")}
+    out = {
+        k: v
+        for k, v in files.items()
+        if not k.startswith("tests/")
+        and not k.startswith("environment/")
+        and not k.startswith("solution/")
+    }
     # keep instruction.md / task.toml / metadata.json from upstream
     _common_verifier(out, "python")
     out["environment/Dockerfile"] = PYTHON_DOCKERFILE.encode("utf-8")
@@ -359,9 +366,13 @@ def transform_quixbugs(files: dict[str, bytes], idx: int) -> dict[str, bytes]:
 def transform_bugswarm(files: dict[str, bytes], idx: int) -> dict[str, bytes]:
     md = _parse_metadata(files)
     lang = md.get("language", "").lower()
-    out = {k: v for k, v in files.items()
-           if not k.startswith("tests/") and not k.startswith("environment/")
-           and not k.startswith("solution/")}
+    out = {
+        k: v
+        for k, v in files.items()
+        if not k.startswith("tests/")
+        and not k.startswith("environment/")
+        and not k.startswith("solution/")
+    }
 
     # Make the agent path consistent (/app), drop the synthetic /workspace ref.
     instr = out.get("instruction.md", b"").decode("utf-8", "replace")
@@ -391,7 +402,9 @@ def transform_stack_rspec(files: dict[str, bytes], idx: int) -> dict[str, bytes]
     # the verifier scaffolding we own.
     drop = {
         "environment/Dockerfile",
-        "tests/test.sh", "tests/test_state.py", "tests/config.json",
+        "tests/test.sh",
+        "tests/test_state.py",
+        "tests/config.json",
         "task.toml",
     }
     out = {k: v for k, v in files.items() if k not in drop}
@@ -412,6 +425,7 @@ TRANSFORMS = {
 
 def _parse_metadata(files: dict[str, bytes]) -> dict:
     import json
+
     raw = files.get("metadata.json", b"{}")
     try:
         return json.loads(raw.decode("utf-8", "replace"))
@@ -423,11 +437,15 @@ def _parse_metadata(files: dict[str, bytes]) -> dict:
 # pipeline
 # --------------------------------------------------------------------------- #
 
+
 def _load_source(src_repo: str, cache: Path) -> "list[tuple[str, bytes]]":
     import pandas as pd
     from huggingface_hub import hf_hub_download
+
     pq = hf_hub_download(
-        repo_id=src_repo, filename="tasks.parquet", repo_type="dataset",
+        repo_id=src_repo,
+        filename="tasks.parquet",
+        repo_type="dataset",
         local_dir=str(cache / src_repo.replace("/", "__")),
     )
     df = pd.read_parquet(pq)
@@ -456,16 +474,20 @@ def process(workdir: Path) -> dict[str, Path]:
 def _write_parquet(rows: list[tuple[str, bytes]], path: Path) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
-    table = pa.table({
-        "path": [p for p, _ in rows],
-        "task_binary": [b for _, b in rows],
-    })
+
+    table = pa.table(
+        {
+            "path": [p for p, _ in rows],
+            "task_binary": [b for _, b in rows],
+        }
+    )
     pq.write_table(table, str(path))
 
 
 # --------------------------------------------------------------------------- #
 # docker smoke (empty /app -> reward 0) + gold gate where a solution exists
 # --------------------------------------------------------------------------- #
+
 
 def _materialize_task(files: dict[str, bytes], dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
@@ -475,14 +497,21 @@ def _materialize_task(files: dict[str, bytes], dest: Path) -> None:
         p.write_bytes(content)
 
 
-def _docker_run_verifier(image: str, task_dir: Path, populate_gold: bool, timeout: int = 240) -> tuple[int, str]:
+def _docker_run_verifier(
+    image: str, task_dir: Path, populate_gold: bool, timeout: int = 240
+) -> tuple[int, str]:
     import shutil
     import subprocess
     import tempfile
+
     with tempfile.TemporaryDirectory() as wd:
         wd = Path(wd)
-        app = wd / "app"; tests = wd / "tests"; logs = wd / "logs" / "verifier"  # noqa: E702
-        app.mkdir(); tests.mkdir(); logs.mkdir(parents=True)  # noqa: E702
+        app = wd / "app"
+        tests = wd / "tests"
+        logs = wd / "logs" / "verifier"  # noqa: E702
+        app.mkdir()
+        tests.mkdir()
+        logs.mkdir(parents=True)  # noqa: E702
         src_tests = task_dir / "tests"
         if src_tests.exists():
             for f in src_tests.iterdir():
@@ -502,12 +531,24 @@ def _docker_run_verifier(image: str, task_dir: Path, populate_gold: bool, timeou
         )
         try:
             r = subprocess.run(
-                ["docker", "run", "--rm",
-                 "-v", f"{app}:/app",
-                 "-v", f"{tests}:/tests",
-                 "-v", f"{wd}/logs:/logs",
-                 image, "bash", "-c", cmd],
-                capture_output=True, text=True, timeout=timeout,
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{app}:/app",
+                    "-v",
+                    f"{tests}:/tests",
+                    "-v",
+                    f"{wd}/logs:/logs",
+                    image,
+                    "bash",
+                    "-c",
+                    cmd,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
             )
             out = (r.stdout or "") + (r.stderr or "")
             m = re.search(r"---REWARD---\s*\n?\s*([01])", out)
@@ -522,10 +563,12 @@ def _docker_run_verifier(image: str, task_dir: Path, populate_gold: bool, timeou
 def _build_image(dockerfile_text: str, tag: str) -> str:
     import subprocess
     import tempfile
+
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "Dockerfile").write_text(dockerfile_text)
-        subprocess.run(["docker", "build", "-q", "-t", tag, d], check=True,
-                       capture_output=True)
+        subprocess.run(
+            ["docker", "build", "-q", "-t", tag, d], check=True, capture_output=True
+        )
     return tag
 
 
@@ -535,6 +578,7 @@ def smoke(workdir: Path, source: str | None = None, sample: int = 3) -> None:
         SOURCES[key]
         pq_path = workdir / "out" / f"{key}.parquet"
         import pandas as pd
+
         df = pd.read_parquet(pq_path)
         n = min(sample, len(df))
         print(f"\n=== SMOKE {key} ({n} of {len(df)} tasks) ===")
@@ -549,15 +593,19 @@ def smoke(workdir: Path, source: str | None = None, sample: int = 3) -> None:
                 _materialize_task(files, task_dir)
                 # Pick Dockerfile text + image tag.
                 if key == "quixbugs":
-                    df_text = PYTHON_DOCKERFILE; tag = "smoke_quixbugs"  # noqa: E702
+                    df_text = PYTHON_DOCKERFILE
+                    tag = "smoke_quixbugs"  # noqa: E702
                 elif key == "bugswarm":
                     lang = _parse_metadata(files).get("language", "").lower()
                     if lang == "java":
-                        df_text = BUGSWARM_JAVA_DOCKERFILE; tag = "smoke_bs_java"  # noqa: E702
+                        df_text = BUGSWARM_JAVA_DOCKERFILE
+                        tag = "smoke_bs_java"  # noqa: E702
                     else:
-                        df_text = PYTHON_DOCKERFILE; tag = "smoke_bs_py"  # noqa: E702
+                        df_text = PYTHON_DOCKERFILE
+                        tag = "smoke_bs_py"  # noqa: E702
                 else:
-                    df_text = STACK_RSPEC_DOCKERFILE; tag = "smoke_rspec"  # noqa: E702
+                    df_text = STACK_RSPEC_DOCKERFILE
+                    tag = "smoke_rspec"  # noqa: E702
                 _build_image(df_text, tag)
                 # empty /app -> must be reward 0
                 r0, out0 = _docker_run_verifier(tag, task_dir, populate_gold=False)
@@ -568,17 +616,23 @@ def smoke(workdir: Path, source: str | None = None, sample: int = 3) -> None:
                     r1, out1 = _docker_run_verifier(tag, task_dir, populate_gold=True)
                 else:
                     r1, out1 = -2, "no-solution"
-                print(f"  [{key}#{i}] empty_reward={r0} gold_reward={r1}"
-                      + ("" if r0 == 0 else f"  <<< EMPTY NOT 0\n    {out0[-300:]}"))
+                print(
+                    f"  [{key}#{i}] empty_reward={r0} gold_reward={r1}"
+                    + ("" if r0 == 0 else f"  <<< EMPTY NOT 0\n    {out0[-300:]}")
+                )
                 if r0 == 0:
                     ok_empty0 += 1
                 if r1 == 1:
                     ok_gold1 += 1
                 if r0 != 0 or (has_gold and r1 != 1):
-                    print("    --- empty out tail ---"); print(out0[-500:])  # noqa: E702
+                    print("    --- empty out tail ---")
+                    print(out0[-500:])  # noqa: E702
                     if has_gold:
-                        print("    --- gold out tail ---"); print(out1[-700:])  # noqa: E702
-        print(f"  summary: empty->0 ok {ok_empty0}/{n}; gold->1 ok {ok_gold1}/{gold_exists}")
+                        print("    --- gold out tail ---")
+                        print(out1[-700:])  # noqa: E702
+        print(
+            f"  summary: empty->0 ok {ok_empty0}/{n}; gold->1 ok {ok_gold1}/{gold_exists}"
+        )
 
 
 import contextlib  # noqa: E402
@@ -587,6 +641,7 @@ import contextlib  # noqa: E402
 @contextlib.contextmanager
 def tempfile_dir():
     import tempfile
+
     with tempfile.TemporaryDirectory() as d:
         yield Path(d)
 
@@ -617,6 +672,7 @@ Each task follows the canonical RL verifier contract:
 
 def upload(workdir: Path) -> None:
     from huggingface_hub import HfApi, create_repo
+
     token = os.environ.get("HF_TOKEN")
     api = HfApi(token=token)
     notes = {
@@ -644,18 +700,28 @@ def upload(workdir: Path) -> None:
     for key, cfg in SOURCES.items():
         pq_path = workdir / "out" / f"{key}.parquet"
         import pandas as pd
+
         n = len(pd.read_parquet(pq_path))
         readme = README_BODY.format(
-            dst=cfg["dst_repo"], src=cfg["src_repo"], notes=notes[key], n_tasks=n,
+            dst=cfg["dst_repo"],
+            src=cfg["src_repo"],
+            notes=notes[key],
+            n_tasks=n,
         )
         create_repo(cfg["dst_repo"], repo_type="dataset", token=token, exist_ok=True)
         api.upload_file(
-            path_or_fileobj=str(pq_path), path_in_repo="tasks.parquet",
-            repo_id=cfg["dst_repo"], repo_type="dataset", token=token,
+            path_or_fileobj=str(pq_path),
+            path_in_repo="tasks.parquet",
+            repo_id=cfg["dst_repo"],
+            repo_type="dataset",
+            token=token,
         )
         api.upload_file(
-            path_or_fileobj=readme.encode("utf-8"), path_in_repo="README.md",
-            repo_id=cfg["dst_repo"], repo_type="dataset", token=token,
+            path_or_fileobj=readme.encode("utf-8"),
+            path_in_repo="README.md",
+            repo_id=cfg["dst_repo"],
+            repo_type="dataset",
+            token=token,
         )
         print(f"[{key}] uploaded -> https://huggingface.co/datasets/{cfg['dst_repo']}")
 

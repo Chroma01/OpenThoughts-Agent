@@ -122,9 +122,11 @@ def _coerce(cfg: dict) -> dict:
 
 def _build_patched_dir(src_dir: Path, patched_cfg: dict, model: str) -> Path:
     safe = model.replace("/", "__").replace(":", "_")
-    base = os.environ.get("SERVE_TOK_PREP_DIR") or os.environ.get(
-        "VLLM_CACHE_ROOT"
-    ) or (os.environ.get("TMPDIR") or "/tmp")
+    base = (
+        os.environ.get("SERVE_TOK_PREP_DIR")
+        or os.environ.get("VLLM_CACHE_ROOT")
+        or (os.environ.get("TMPDIR") or "/tmp")
+    )
     out = Path(base) / "serve_tok_prep" / safe
     out.mkdir(parents=True, exist_ok=True)
 

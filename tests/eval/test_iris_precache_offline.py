@@ -278,7 +278,9 @@ def test_gcs_model_credentials_are_scoped_to_vllm(monkeypatch):
     assert args._vllm_env_vars["KEEP"] == "value"
 
 
-def test_launcher_selector_keeps_dataset_online_while_serving_cached_model(monkeypatch, no_hf):
+def test_launcher_selector_keeps_dataset_online_while_serving_cached_model(
+    monkeypatch, no_hf
+):
     from eval.cloud.launch_eval_iris import EvalIrisLauncher
 
     model_only = {

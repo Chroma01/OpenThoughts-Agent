@@ -52,6 +52,7 @@ def _gcs_fs():
     [datagen-tpu] extra (datasets/huggingface_hub pull them in).
     """
     import gcsfs
+
     return gcsfs.GCSFileSystem()
 
 
@@ -69,8 +70,11 @@ def _gcs_size(uri: str) -> int | None:
     except Exception as e:
         # Be lenient so a transient hiccup doesn't make the whole mirror
         # skip uploads; treat as "unknown / re-upload".
-        print(f"[mirror] _gcs_size({uri}) unexpected error: {e}",
-              file=sys.stderr, flush=True)
+        print(
+            f"[mirror] _gcs_size({uri}) unexpected error: {e}",
+            file=sys.stderr,
+            flush=True,
+        )
         return None
 
 
@@ -107,8 +111,13 @@ def _write_manifest(
         json.dump(manifest, f, indent=2)
 
 
-def mirror(repo_id: str, gcs_prefixes: list[str], *, verbose: bool = True,
-           iris_job_id: str | None = None) -> None:
+def mirror(
+    repo_id: str,
+    gcs_prefixes: list[str],
+    *,
+    verbose: bool = True,
+    iris_job_id: str | None = None,
+) -> None:
     """Mirror ``repo_id`` to ``<prefix>/<repo_id>/`` for every prefix in ``gcs_prefixes``.
 
     Mirrors one file at a time via huggingface_hub.hf_hub_download so the
@@ -142,8 +151,10 @@ def mirror(repo_id: str, gcs_prefixes: list[str], *, verbose: bool = True,
     # S3 route so the two mirrors cannot drift.
     keep = select_model_files(files)
     if verbose:
-        print(f"[mirror] mirroring {len(keep)} files to {len(dest_prefixes)} prefix(es)",
-              flush=True)
+        print(
+            f"[mirror] mirroring {len(keep)} files to {len(dest_prefixes)} prefix(es)",
+            flush=True,
+        )
         skipped = sorted(set(files) - set(keep))
         if skipped:
             print(f"[mirror] skipping {len(skipped)}: {', '.join(skipped)}", flush=True)
@@ -162,9 +173,11 @@ def mirror(repo_id: str, gcs_prefixes: list[str], *, verbose: bool = True,
             remote_size = _gcs_size(gcs_uri)
             if remote_size is not None and remote_size > 0:
                 if verbose:
-                    print(f"[mirror] [{idx}/{len(keep)}] skip "
-                          f"(already in GCS, {remote_size} bytes): {gcs_uri}",
-                          flush=True)
+                    print(
+                        f"[mirror] [{idx}/{len(keep)}] skip "
+                        f"(already in GCS, {remote_size} bytes): {gcs_uri}",
+                        flush=True,
+                    )
                 skipped_size = remote_size
             else:
                 targets.append(gcs_uri)
@@ -178,8 +191,7 @@ def mirror(repo_id: str, gcs_prefixes: list[str], *, verbose: bool = True,
         with tempfile.TemporaryDirectory(prefix="hf_mirror_") as tmp:
             tmp_path = Path(tmp)
             if verbose:
-                print(f"[mirror] [{idx}/{len(keep)}] download: {fname}",
-                      flush=True)
+                print(f"[mirror] [{idx}/{len(keep)}] download: {fname}", flush=True)
             local_file = hf_hub_download(
                 repo_id=repo_id,
                 filename=fname,
@@ -192,8 +204,11 @@ def mirror(repo_id: str, gcs_prefixes: list[str], *, verbose: bool = True,
 
             for gcs_uri in targets:
                 if verbose:
-                    print(f"[mirror] [{idx}/{len(keep)}] upload "
-                          f"({local_size} bytes): {gcs_uri}", flush=True)
+                    print(
+                        f"[mirror] [{idx}/{len(keep)}] upload "
+                        f"({local_size} bytes): {gcs_uri}",
+                        flush=True,
+                    )
                 _upload(local_file, gcs_uri)
             files_mirrored.append((fname, local_size))
             # TemporaryDirectory will rm everything on exit, but be
@@ -215,41 +230,59 @@ def mirror(repo_id: str, gcs_prefixes: list[str], *, verbose: bool = True,
 
     if verbose:
         total = sum(sz for _, sz in files_mirrored)
-        print(f"[mirror] done: {repo_id} -> {len(dest_prefixes)} dest(s) "
-              f"({len(files_mirrored)} files, {total} bytes per dest); "
-              f"manifests at <dest>/{MANIFEST_FILENAME}", flush=True)
+        print(
+            f"[mirror] done: {repo_id} -> {len(dest_prefixes)} dest(s) "
+            f"({len(files_mirrored)} files, {total} bytes per dest); "
+            f"manifests at <dest>/{MANIFEST_FILENAME}",
+            flush=True,
+        )
 
 
 def _legacy_main() -> int:
     p = argparse.ArgumentParser(
         description="Stream one or more HuggingFace model repos into a GCS prefix.",
     )
-    p.add_argument("--repo", action="append", required=True,
-                   help="HF model repo id (org/name); repeatable.")
-    p.add_argument("--gcs-prefix", "--gcs_prefix", action="append", required=True,
-                   help="GCS prefix; each repo lands under <prefix>/<repo>/. "
-                        "Repeatable — every prefix gets a full mirror, so a "
-                        "single HF download fans out to every region. Default "
-                        "callsite (launch_mirror.py hf-to-gcs) passes both "
-                        "gs://marin-models-us/ot-agent/models and "
-                        "gs://marin-models-eu/ot-agent/models so iris workers "
-                        "in any region read locally.")
-    p.add_argument("--quiet", action="store_true",
-                   help="Suppress per-file progress lines.")
-    p.add_argument("--iris-job-id", default=os.environ.get("IRIS_JOB_ID"),
-                   help="Record this job id in each repo's manifest. "
-                        "Defaults to $IRIS_JOB_ID if set on the worker.")
+    p.add_argument(
+        "--repo",
+        action="append",
+        required=True,
+        help="HF model repo id (org/name); repeatable.",
+    )
+    p.add_argument(
+        "--gcs-prefix",
+        "--gcs_prefix",
+        action="append",
+        required=True,
+        help="GCS prefix; each repo lands under <prefix>/<repo>/. "
+        "Repeatable — every prefix gets a full mirror, so a "
+        "single HF download fans out to every region. Default "
+        "callsite (launch_mirror.py hf-to-gcs) passes both "
+        "gs://marin-models-us/ot-agent/models and "
+        "gs://marin-models-eu/ot-agent/models so iris workers "
+        "in any region read locally.",
+    )
+    p.add_argument(
+        "--quiet", action="store_true", help="Suppress per-file progress lines."
+    )
+    p.add_argument(
+        "--iris-job-id",
+        default=os.environ.get("IRIS_JOB_ID"),
+        help="Record this job id in each repo's manifest. "
+        "Defaults to $IRIS_JOB_ID if set on the worker.",
+    )
     args = p.parse_args()
 
     bad = [p for p in args.gcs_prefix if not p.startswith("gs://")]
     if bad:
-        print(f"error: --gcs-prefix must start with gs:// (got {bad!r})",
-              file=sys.stderr)
+        print(
+            f"error: --gcs-prefix must start with gs:// (got {bad!r})", file=sys.stderr
+        )
         return 2
 
     for repo in args.repo:
-        mirror(repo, args.gcs_prefix, verbose=not args.quiet,
-               iris_job_id=args.iris_job_id)
+        mirror(
+            repo, args.gcs_prefix, verbose=not args.quiet, iris_job_id=args.iris_job_id
+        )
     return 0
 
 

@@ -196,18 +196,28 @@ class RLPathManager:
         expected_world_sizes: Mapping[str, int] | None = None,
     ) -> RLRunPaths:
         cli_values = hydra_override_values(skyrl_overrides)
-        overrides = _configured_path_values(trainer_config or {}, terminal_bench_config or {})
+        overrides = _configured_path_values(
+            trainer_config or {}, terminal_bench_config or {}
+        )
         overrides.update(cli_values)
-        requested_mode, requested_resume_path = self._requested_resume(overrides, launch_intent)
+        requested_mode, requested_resume_path = self._requested_resume(
+            overrides, launch_intent
+        )
         resume_policy = (
             RLResumePolicy.AT_LINK_START
             if launch_intent is RLLaunchIntent.AUTO and requested_mode is None
             else RLResumePolicy.FIXED
         )
 
-        state_root = self.launch_root if launch_intent is RLLaunchIntent.FRESH else self.canonical_root
+        state_root = (
+            self.launch_root
+            if launch_intent is RLLaunchIntent.FRESH
+            else self.canonical_root
+        )
         checkpoint_dir = self._configured_checkpoint_dir(overrides, state_root)
-        state_root = self._state_root_for_checkpoint_dir(checkpoint_dir, state_root, overrides)
+        state_root = self._state_root_for_checkpoint_dir(
+            checkpoint_dir, state_root, overrides
+        )
 
         explicit = self._resolve_explicit_request(
             requested_mode,
@@ -239,7 +249,9 @@ class RLPathManager:
             )
 
         highest_step = max(candidate.step for candidate in candidates)
-        highest = [candidate for candidate in candidates if candidate.step == highest_step]
+        highest = [
+            candidate for candidate in candidates if candidate.step == highest_step
+        ]
         if len(highest) != 1:
             paths = ", ".join(str(candidate.checkpoint_path) for candidate in highest)
             raise AmbiguousCheckpointError(
@@ -269,12 +281,21 @@ class RLPathManager:
         if requested_resume_path in HYDRA_NULL_VALUES:
             requested_resume_path = None
 
-        if launch_intent is RLLaunchIntent.FRESH and requested_mode not in (None, RLResumeMode.NONE.value):
-            raise CheckpointLayoutError("A fresh start cannot also request checkpoint resume")
+        if launch_intent is RLLaunchIntent.FRESH and requested_mode not in (
+            None,
+            RLResumeMode.NONE.value,
+        ):
+            raise CheckpointLayoutError(
+                "A fresh start cannot also request checkpoint resume"
+            )
         if requested_resume_path and requested_mode != RLResumeMode.FROM_PATH.value:
-            raise CheckpointLayoutError("trainer.resume_path requires trainer.resume_mode=from_path")
+            raise CheckpointLayoutError(
+                "trainer.resume_path requires trainer.resume_mode=from_path"
+            )
         if requested_mode not in {None, *(mode.value for mode in RLResumeMode)}:
-            raise CheckpointLayoutError(f"Unknown trainer.resume_mode: {requested_mode}")
+            raise CheckpointLayoutError(
+                f"Unknown trainer.resume_mode: {requested_mode}"
+            )
         return requested_mode, requested_resume_path
 
     def _resolve_explicit_request(
@@ -290,7 +311,10 @@ class RLPathManager:
     ) -> RLRunPaths | None:
         """Resolve a user-selected mode, or return None for automatic discovery."""
 
-        if launch_intent is RLLaunchIntent.FRESH or requested_mode == RLResumeMode.NONE.value:
+        if (
+            launch_intent is RLLaunchIntent.FRESH
+            or requested_mode == RLResumeMode.NONE.value
+        ):
             return self._resolved_paths(
                 state_root,
                 checkpoint_dir,
@@ -301,7 +325,9 @@ class RLPathManager:
             )
         if requested_mode == RLResumeMode.LATEST.value:
             candidate = self._required_checkpoint_candidate(state_root, checkpoint_dir)
-            _validate_checkpoint_world_size(candidate.checkpoint_path, expected_world_sizes)
+            _validate_checkpoint_world_size(
+                candidate.checkpoint_path, expected_world_sizes
+            )
             return self._resolved_paths(
                 state_root,
                 checkpoint_dir,
@@ -314,15 +340,21 @@ class RLPathManager:
             return None
 
         if not requested_resume_path:
-            raise CheckpointLayoutError("trainer.resume_mode=from_path requires trainer.resume_path")
-        resume_path = self._validate_explicit_resume_path(_absolute_path(requested_resume_path))
+            raise CheckpointLayoutError(
+                "trainer.resume_mode=from_path requires trainer.resume_path"
+            )
+        resume_path = self._validate_explicit_resume_path(
+            _absolute_path(requested_resume_path)
+        )
         _validate_checkpoint_world_size(resume_path, expected_world_sizes)
         if CKPT_PATH_KEY in overrides and checkpoint_dir != resume_path.parent:
             raise CheckpointLayoutError(
                 f"trainer.resume_path {resume_path} is not under trainer.ckpt_path {checkpoint_dir}"
             )
         checkpoint_dir = resume_path.parent
-        state_root = self._state_root_for_checkpoint_dir(checkpoint_dir, state_root, overrides)
+        state_root = self._state_root_for_checkpoint_dir(
+            checkpoint_dir, state_root, overrides
+        )
         return self._resolved_paths(
             state_root,
             checkpoint_dir,
@@ -332,7 +364,9 @@ class RLPathManager:
             resume_policy=resume_policy,
         )
 
-    def _configured_checkpoint_dir(self, overrides: dict[str, str], state_root: Path) -> Path:
+    def _configured_checkpoint_dir(
+        self, overrides: dict[str, str], state_root: Path
+    ) -> Path:
         configured = overrides.get(CKPT_PATH_KEY)
         if configured:
             return _absolute_path(configured)
@@ -341,9 +375,14 @@ class RLPathManager:
     def _state_root_for_checkpoint_dir(
         self, checkpoint_dir: Path, fallback: Path, overrides: dict[str, str]
     ) -> Path:
-        if checkpoint_dir.name == CHECKPOINTS_SUBDIR and checkpoint_dir.parent.name == self.job_name:
+        if (
+            checkpoint_dir.name == CHECKPOINTS_SUBDIR
+            and checkpoint_dir.parent.name == self.job_name
+        ):
             return checkpoint_dir.parent.parent
-        missing = [key for key in (EXPORT_PATH_KEY, TRIALS_DIR_KEY) if key not in overrides]
+        missing = [
+            key for key in (EXPORT_PATH_KEY, TRIALS_DIR_KEY) if key not in overrides
+        ]
         if missing:
             raise CheckpointLayoutError(
                 f"Nonstandard checkpoint directory {checkpoint_dir} requires explicit values for "
@@ -367,7 +406,9 @@ class RLPathManager:
             return roots
         fork_pattern = numbered_experiment_fork_pattern(self.canonical_root.name)
         roots.extend(
-            path.resolve() for path in parent.iterdir() if path.is_dir() and fork_pattern.fullmatch(path.name)
+            path.resolve()
+            for path in parent.iterdir()
+            if path.is_dir() and fork_pattern.fullmatch(path.name)
         )
         return roots
 
@@ -388,11 +429,15 @@ class RLPathManager:
         try:
             step = int(marker_path.read_text().strip())
         except (OSError, ValueError) as error:
-            raise CheckpointLayoutError(f"Invalid checkpoint marker: {marker_path}") from error
+            raise CheckpointLayoutError(
+                f"Invalid checkpoint marker: {marker_path}"
+            ) from error
 
         checkpoint_path = checkpoint_dir / f"{GLOBAL_STEP_PREFIX}{step}"
         if not checkpoint_path.is_dir():
-            raise CheckpointLayoutError(f"Checkpoint marker {marker_path} names missing {checkpoint_path.name}")
+            raise CheckpointLayoutError(
+                f"Checkpoint marker {marker_path} names missing {checkpoint_path.name}"
+            )
         if checkpoint_steps and max(checkpoint_steps) != step:
             raise CheckpointLayoutError(
                 f"Checkpoint marker {marker_path} names {GLOBAL_STEP_PREFIX}{step}, "
@@ -423,7 +468,10 @@ class RLPathManager:
 
     @staticmethod
     def _validate_explicit_resume_path(resume_path: Path) -> Path:
-        if not resume_path.is_dir() or GLOBAL_STEP_PATTERN.fullmatch(resume_path.name) is None:
+        if (
+            not resume_path.is_dir()
+            or GLOBAL_STEP_PATTERN.fullmatch(resume_path.name) is None
+        ):
             raise CheckpointLayoutError(
                 f"trainer.resume_path must be an existing global_step_<N> directory: {resume_path}"
             )

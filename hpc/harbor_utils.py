@@ -11,6 +11,7 @@ These utilities are shared across all execution paths:
 - Cloud launchers (data/cloud/launch_tracegen_cloud.py, eval/cloud/launch_eval_cloud.py)
 - HPC SLURM launchers (hpc/launch.py --job_type datagen/eval)
 """
+
 from __future__ import annotations
 
 import copy
@@ -73,8 +74,7 @@ def resolve_harbor_config_path(
 
     # Not found - raise with helpful message
     raise FileNotFoundError(
-        f"Harbor job config not found: {raw_value} "
-        f"(also checked {config_dir})"
+        f"Harbor job config not found: {raw_value} (also checked {config_dir})"
     )
 
 
@@ -96,6 +96,7 @@ def resolve_jobs_dir_path(
     if repo_root is None:
         try:
             from hpc.launch_utils import PROJECT_ROOT
+
             repo_root = PROJECT_ROOT
         except ImportError:
             repo_root = Path(__file__).resolve().parent.parent
@@ -111,12 +112,14 @@ def resolve_jobs_dir_path(
 # Harbor registry utilities
 # ---------------------------------------------------------------------------
 
+
 # Default locations to search for Harbor registry.json
 def _get_default_registry_hints() -> List[Optional[Path]]:
     """Get default paths to check for Harbor registry."""
     # Import here to avoid circular imports
     try:
         from hpc.launch_utils import PROJECT_ROOT
+
         project_parent = PROJECT_ROOT.parent
     except ImportError:
         project_parent = Path(__file__).resolve().parent.parent.parent
@@ -264,7 +267,9 @@ def get_harbor_env_from_config(
 # ---------------------------------------------------------------------------
 
 
-def build_endpoint_meta(endpoint_url: str, api_key: Optional[str] = None) -> Dict[str, str]:
+def build_endpoint_meta(
+    endpoint_url: str, api_key: Optional[str] = None
+) -> Dict[str, str]:
     """Build endpoint metadata dict from a vLLM endpoint URL.
 
     Handles both formats:
@@ -336,6 +341,7 @@ def derive_vllm_supports_tool_calling(vllm_cfg: Any) -> Optional[bool]:
 
     return False
 
+
 def load_endpoint_metadata(endpoint_json: Path) -> Dict[str, Any]:
     """Load and parse vLLM endpoint metadata from JSON file.
 
@@ -367,7 +373,9 @@ def load_endpoint_metadata(endpoint_json: Path) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def extract_agent_kwargs_from_config(harbor_config: dict, agent_name: Optional[str]) -> dict:
+def extract_agent_kwargs_from_config(
+    harbor_config: dict, agent_name: Optional[str]
+) -> dict:
     """Extract kwargs for the specified agent from harbor config.
 
     The Harbor YAML is the ground truth for agent configuration. This function
@@ -730,6 +738,7 @@ def build_harbor_command(
     # harbor reads back. Apply the filter here too — see commit 1ba6a4a7.
     try:
         from scripts.harbor.job_config_utils import _filter_supported_metrics
+
         modified_config = _filter_supported_metrics(modified_config)
     except ImportError:
         # _filter_supported_metrics lives under scripts.harbor; if we're
@@ -795,7 +804,9 @@ def build_harbor_command(
         with open(merged_config_path, "w") as f:
             yaml.safe_dump(modified_config, f)
         # gs://, s3:// etc. are remote schemes; never local.
-        looks_local = not dataset_path.startswith(("gs://", "s3://", "http://", "https://"))
+        looks_local = not dataset_path.startswith(
+            ("gs://", "s3://", "http://", "https://")
+        )
         if looks_local and Path(dataset_path).expanduser().exists():
             cmd.extend(["--path", str(Path(dataset_path).expanduser().resolve())])
         else:
@@ -807,7 +818,9 @@ def build_harbor_command(
         _placeholder = "/replace/with/tasks/path"
         yaml_datasets = modified_config.get("datasets") or []
         if yaml_datasets and any(
-            d.get("path", "") == _placeholder for d in yaml_datasets if isinstance(d, dict)
+            d.get("path", "") == _placeholder
+            for d in yaml_datasets
+            if isinstance(d, dict)
         ):
             modified_config.pop("datasets", None)
             modified_config.pop("tasks", None)
@@ -868,7 +881,10 @@ def build_harbor_command(
     # the post-run pipeline that uploads to Supabase / HF gets no inputs.
     if not (_flag_present("--export-traces") or _flag_present("--no-export-traces")):
         extra_args.append("--export-traces")
-    if not (_flag_present("--export-verifier-metadata") or _flag_present("--no-export-verifier-metadata")):
+    if not (
+        _flag_present("--export-verifier-metadata")
+        or _flag_present("--no-export-verifier-metadata")
+    ):
         extra_args.append("--export-verifier-metadata")
     if not _flag_present("--export-episodes"):
         extra_args.extend(["--export-episodes", "last"])
@@ -1130,13 +1146,20 @@ def _sync_runtime_fields_into_config_json(
     # the harbor_config.yaml were tweaked), the on-disk JSON must follow
     # so Harbor's self.config (which is just YAML+CLI overrides) matches.
     yaml_orchestrator = modified_config.get("orchestrator") or {}
-    yaml_retry = yaml_orchestrator.get("retry") if isinstance(yaml_orchestrator, dict) else None
+    yaml_retry = (
+        yaml_orchestrator.get("retry") if isinstance(yaml_orchestrator, dict) else None
+    )
     if isinstance(yaml_retry, dict):
         cj_retry = orchestrator.setdefault("retry", {})
         # Only sync the include/exclude exception lists — other retry fields
         # (max_retries, wait_multiplier, etc.) are not runtime-derived and
         # don't need re-syncing.
-        for k in ("include_exceptions", "exclude_exceptions", "mask_exceptions", "passthrough_exceptions"):
+        for k in (
+            "include_exceptions",
+            "exclude_exceptions",
+            "mask_exceptions",
+            "passthrough_exceptions",
+        ):
             if k in yaml_retry:
                 cj_retry[k] = yaml_retry[k]
 

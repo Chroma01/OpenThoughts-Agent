@@ -12,35 +12,40 @@ embeds at least one worked Input/Output example, in one of several markdown shap
 This module returns an ORDERED list of (input_text, output_text) example pairs. The first
 pair is the authoritative test case used by tests/test.sh (it diffs stdout against it).
 """
+
 from __future__ import annotations
 import re
 
-FENCE_RE = re.compile(r'```[^\n]*\n(.*?)```', re.S)
+FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.S)
 
 # An example Input/Output marker. We explicitly DISALLOW the spec-section headings
 # 'Input Format' / 'Output Format' / 'Input/Output Format' (those introduce prose, not
 # a worked example) by forbidding the word 'format' after the keyword on the line.
-INPUT_MARK = re.compile(r'(?i)(?:^|\n)[\s>*\-]*#{0,6}\s*\**\s*input\b(?![^\n]*\bformat\b)[^\n:`]*:?\s*\**')
-OUTPUT_MARK = re.compile(r'(?i)(?:^|\n)[\s>*\-]*#{0,6}\s*\**\s*output\b(?![^\n]*\bformat\b)[^\n:`]*:?\s*\**')
+INPUT_MARK = re.compile(
+    r"(?i)(?:^|\n)[\s>*\-]*#{0,6}\s*\**\s*input\b(?![^\n]*\bformat\b)[^\n:`]*:?\s*\**"
+)
+OUTPUT_MARK = re.compile(
+    r"(?i)(?:^|\n)[\s>*\-]*#{0,6}\s*\**\s*output\b(?![^\n]*\bformat\b)[^\n:`]*:?\s*\**"
+)
 
 
 def _label_for(prefix_text: str):
     lines = [l for l in prefix_text.split("\n") if l.strip()]  # noqa: E741
     if not lines:
         return None
-    last = re.sub(r'[#*`:>\-]', '', lines[-1].strip().lower()).strip()
+    last = re.sub(r"[#*`:>\-]", "", lines[-1].strip().lower()).strip()
     # 'Input Format' / 'Output Format' headings introduce a prose spec, not an example.
     if "format" in last:
         return None
-    if re.search(r'\boutput\b', last):
+    if re.search(r"\boutput\b", last):
         return "output"
-    if re.search(r'\binput\b', last):
+    if re.search(r"\binput\b", last):
         return "input"
     return None
 
 
 def _split_inline(body: str):
-    m = re.search(r'(?is)\binput\s*:?\s*\n(.*?)\n\s*output\s*:?\s*\n(.*)', body)
+    m = re.search(r"(?is)\binput\s*:?\s*\n(.*?)\n\s*output\s*:?\s*\n(.*)", body)
     if m:
         return m.group(1).strip("\n"), m.group(2).strip("\n")
     return None
@@ -93,14 +98,14 @@ def _value_after(text: str, start: int) -> str | None:
     """
     rest = text[start:]
     # leading whitespace/newlines
-    m = re.match(r'[ \t]*\n?', rest)
-    rest2 = rest[m.end():]
+    m = re.match(r"[ \t]*\n?", rest)
+    rest2 = rest[m.end() :]
     # fenced?
-    fm = re.match(r'```[^\n]*\n(.*?)```', rest2, re.S)
+    fm = re.match(r"```[^\n]*\n(.*?)```", rest2, re.S)
     if fm:
         return fm.group(1).strip("\n")
     # inline backticks (may span the marker line or next line)
-    bm = re.search(r'`([^`]+)`', rest2[:200])
+    bm = re.search(r"`([^`]+)`", rest2[:200])
     # only treat as inline-backtick if it appears before the next newline-blank gap
     if bm and bm.start() < 80:
         return bm.group(1).strip()
@@ -151,6 +156,7 @@ if __name__ == "__main__":
     import tarfile
     import sys
     import collections
+
     df = pd.read_parquet(sys.argv[1])
     n = len(df)
     dist = collections.Counter()

@@ -29,7 +29,9 @@ class DedupeSummary:
 
 
 def _result_paths(job_dir: Path) -> list[Path]:
-    return sorted(path for path in job_dir.rglob("result.json") if path.parent != job_dir)
+    return sorted(
+        path for path in job_dir.rglob("result.json") if path.parent != job_dir
+    )
 
 
 def _started_at(result: TrialResult) -> datetime:
@@ -44,7 +46,8 @@ def _started_at(result: TrialResult) -> datetime:
 def _has_numeric_rewards(result: TrialResult) -> bool:
     rewards = result.verifier_result.rewards if result.verifier_result else None
     return bool(rewards) and all(
-        isinstance(value, (int, float)) and math.isfinite(value) for value in rewards.values()
+        isinstance(value, (int, float)) and math.isfinite(value)
+        for value in rewards.values()
     )
 
 
@@ -93,7 +96,9 @@ def _canonical_attempts(
 
 def _eval_key(result: TrialResult) -> str:
     model = result.agent_info.model_info.name if result.agent_info.model_info else None
-    return JobStats.format_agent_evals_key(result.agent_info.name, model, result.source or "adhoc")
+    return JobStats.format_agent_evals_key(
+        result.agent_info.name, model, result.source or "adhoc"
+    )
 
 
 def _write_aggregates(job_dir: Path, kept: list[TrialResult]) -> None:
@@ -106,7 +111,11 @@ def _write_aggregates(job_dir: Path, kept: list[TrialResult]) -> None:
         stats.evals[key].metrics = [Mean().compute(rewards)]
 
     root_result = job_dir / "result.json"
-    existing = JobResult.model_validate_json(root_result.read_text()) if root_result.exists() else None
+    existing = (
+        JobResult.model_validate_json(root_result.read_text())
+        if root_result.exists()
+        else None
+    )
     starts = [result.started_at for result in kept if result.started_at is not None]
     finishes = [result.finished_at for result in kept if result.finished_at is not None]
     now = datetime.now(timezone.utc)
@@ -121,7 +130,9 @@ def _write_aggregates(job_dir: Path, kept: list[TrialResult]) -> None:
     root_result.write_text(aggregate.model_dump_json(indent=4))
 
     normalized_path = job_dir / "harbor_result.json"
-    normalized = json.loads(normalized_path.read_text()) if normalized_path.exists() else {}
+    normalized = (
+        json.loads(normalized_path.read_text()) if normalized_path.exists() else {}
+    )
     primary_rewards: list[float] = []
     solved = 0
     failed = 0
@@ -136,22 +147,32 @@ def _write_aggregates(job_dir: Path, kept: list[TrialResult]) -> None:
             "total_trials": len(kept),
             "solved_trials": solved,
             "failed_trials": failed,
-            "mean_reward": sum(primary_rewards) / len(primary_rewards) if primary_rewards else 0.0,
+            "mean_reward": sum(primary_rewards) / len(primary_rewards)
+            if primary_rewards
+            else 0.0,
             "accuracy": solved / len(kept) if kept else 0.0,
         }
     )
     normalized_path.write_text(json.dumps(normalized, indent=2, sort_keys=True))
 
 
-def _removal_actions(removed_paths: list[Path], kept_paths: set[Path]) -> dict[Path, str]:
+def _removal_actions(
+    removed_paths: list[Path], kept_paths: set[Path]
+) -> dict[Path, str]:
     actions: dict[Path, str] = {}
     removed_directories: list[Path] = []
     for path in sorted(removed_paths, key=lambda value: (len(value.parts), str(value))):
         directory = path.parent
-        if any(directory == ancestor or directory.is_relative_to(ancestor) for ancestor in removed_directories):
+        if any(
+            directory == ancestor or directory.is_relative_to(ancestor)
+            for ancestor in removed_directories
+        ):
             actions[path] = "covered"
             continue
-        if any(kept_path != path and kept_path.is_relative_to(directory) for kept_path in kept_paths):
+        if any(
+            kept_path != path and kept_path.is_relative_to(directory)
+            for kept_path in kept_paths
+        ):
             actions[path] = "file"
             continue
         actions[path] = "directory"
@@ -172,7 +193,10 @@ def deduplicate_job(job_dir: Path, n_rep: int, *, apply: bool = False) -> Dedupe
     if not job_dir.is_dir():
         raise ValueError(f"Job directory does not exist: {job_dir}")
 
-    parsed = [(path, TrialResult.model_validate_json(path.read_text())) for path in _result_paths(job_dir)]
+    parsed = [
+        (path, TrialResult.model_validate_json(path.read_text()))
+        for path in _result_paths(job_dir)
+    ]
     by_task: dict[str, list[tuple[Path, TrialResult]]] = defaultdict(list)
     for item in _canonical_attempts(parsed):
         by_task[item[1].task_name].append(item)
@@ -200,7 +224,9 @@ def deduplicate_job(job_dir: Path, n_rep: int, *, apply: bool = False) -> Dedupe
                 "task_name": result.task_name,
                 "result_path": str(path.relative_to(job_dir)),
                 "had_reward": _has_numeric_rewards(result),
-                "started_at": result.started_at.isoformat() if result.started_at else None,
+                "started_at": result.started_at.isoformat()
+                if result.started_at
+                else None,
                 "removal_action": removal_actions[path],
             }
             for path, result in removed

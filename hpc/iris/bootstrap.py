@@ -47,9 +47,7 @@ def wrap_task_command(
         if needs_tpu_runtime_patch
         else "true"
     )
-    py_invoke = shlex.join(
-        ["python", "-c", py_bootstrap, target, *target_argv]
-    )
+    py_invoke = shlex.join(["python", "-c", py_bootstrap, target, *target_argv])
     bash_cmd = (
         f"set -e; {resync_cmd}; "
         "export PATH=/app/.venv/bin:$PATH; "

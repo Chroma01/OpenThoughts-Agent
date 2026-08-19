@@ -8,6 +8,7 @@ outputs are computed at build time by executing these references, then baked as
 literals into the emitted pytest module so the verifier needs no reference at
 runtime -- only the ``Node`` fixture helper for graph/linked-list tasks.
 """
+
 from __future__ import annotations
 
 
@@ -26,6 +27,7 @@ class Node:
 # --------------------------------------------------------------------------- #
 # Correct reference implementations
 # --------------------------------------------------------------------------- #
+
 
 def bitcount(n):
     c = 0
@@ -68,6 +70,7 @@ def find_in_sorted(arr, x):
         elif x > arr[mid]:
             return binsearch(mid + 1, end)
         return mid
+
     return binsearch(0, len(arr))
 
 
@@ -88,7 +91,7 @@ def gcd(a, b):
 def get_factors(n):
     if n == 1:
         return []
-    for i in range(2, int(n ** 0.5) + 1):
+    for i in range(2, int(n**0.5) + 1):
         if n % i == 0:
             return [i] + get_factors(n // i)
     return [n]
@@ -118,6 +121,7 @@ def is_valid_parenthesization(parens):
 
 def kheapsort(arr, k):
     import heapq
+
     heap = arr[:k]
     heapq.heapify(heap)
     for x in arr[k:]:
@@ -128,6 +132,7 @@ def kheapsort(arr, k):
 
 def knapsack(capacity, items):
     from collections import defaultdict
+
     memo = defaultdict(int)
     for i in range(1, len(items) + 1):
         weight, value = items[i - 1]
@@ -153,6 +158,7 @@ def kth(arr, k):
 
 def lcs_length(s, t):
     from collections import Counter
+
     dp = Counter()
     for i in range(len(s)):
         for j in range(len(t)):
@@ -212,12 +218,15 @@ def mergesort(arr):
         i = j = 0
         while i < len(left) and j < len(right):
             if left[i] <= right[j]:
-                result.append(left[i]); i += 1  # noqa: E702
+                result.append(left[i])
+                i += 1  # noqa: E702
             else:
-                result.append(right[j]); j += 1  # noqa: E702
+                result.append(right[j])
+                j += 1  # noqa: E702
         result.extend(left[i:])
         result.extend(right[j:])
         return result
+
     if len(arr) <= 1:
         return arr
     middle = len(arr) // 2
@@ -249,7 +258,7 @@ def next_permutation(perm):
                 if perm[i] < perm[j]:
                     nxt = list(perm)
                     nxt[i], nxt[j] = perm[j], perm[i]
-                    nxt[i + 1:] = reversed(nxt[i + 1:])
+                    nxt[i + 1 :] = reversed(nxt[i + 1 :])
                     return nxt
     return list(perm)
 
@@ -294,8 +303,13 @@ def quicksort(arr):
 
 def rpn_eval(tokens):
     def op(symbol, a, b):
-        return {"+": lambda a, b: a + b, "-": lambda a, b: a - b,
-                "*": lambda a, b: a * b, "/": lambda a, b: a / b}[symbol](a, b)
+        return {
+            "+": lambda a, b: a + b,
+            "-": lambda a, b: a - b,
+            "*": lambda a, b: a * b,
+            "/": lambda a, b: a / b,
+        }[symbol](a, b)
+
     stack = []
     for token in tokens:
         if isinstance(token, (int, float)):
@@ -333,7 +347,7 @@ def sieve(max):
 
 def sqrt(x, epsilon):
     approx = x / 2
-    while abs(x - approx ** 2) > epsilon:
+    while abs(x - approx**2) > epsilon:
         approx = 0.5 * (approx + x / approx)
     return approx
 
@@ -371,6 +385,7 @@ def wrap(text, cols):
 
 def shortest_path_lengths(n, length_by_edge):
     from collections import defaultdict
+
     dist = defaultdict(lambda: float("inf"))
     dist.update({(i, i): 0 for i in range(n)})
     dist.update(length_by_edge)
@@ -392,8 +407,10 @@ def shortest_paths(source, weight_by_edge):
 
 # --- graph / linked-list references (take Node fixtures) -------------------- #
 
+
 def breadth_first_search(startnode, goalnode):
     from collections import deque
+
     queue = deque([startnode])
     seen = {startnode}
     while queue:
@@ -444,6 +461,7 @@ def reverse_linked_list(node):
 
 def shortest_path_length(length_by_edge, startnode, goalnode):
     from heapq import heappush, heappop
+
     unvisited = [(0, startnode)]
     visited = set()
     while unvisited:

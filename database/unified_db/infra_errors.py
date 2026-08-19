@@ -105,9 +105,7 @@ def filter_error_type_flags() -> str:
     empty string (callers rely on that — emitting zero flags would silently change
     harbor's resume scope to its `["CancelledError"]` default).
     """
-    return " ".join(
-        f"--filter-error-type {t}" for t in sorted(INFRA_ERROR_TYPES)
-    )
+    return " ".join(f"--filter-error-type {t}" for t in sorted(INFRA_ERROR_TYPES))
 
 
 def _main(argv) -> int:

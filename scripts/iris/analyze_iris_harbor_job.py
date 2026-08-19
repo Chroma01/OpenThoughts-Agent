@@ -34,6 +34,7 @@ python``) so ``finelog``/``rigging``/``duckdb`` import. The LIVE path needs an
 IAP session for the ``marin`` cluster (``marin-login login marin``); without it
 the recent-L0 window is reported as uncovered rather than silently dropped.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -399,7 +400,10 @@ def enumerate_attempts(job_id: str) -> tuple[list[Attempt], int]:
     job_rows = run_iris_query(job_sql)
     candidates: list[int] = []
     for jr in job_rows:
-        candidates += [_int_or_none(jr.get("submitted_at_ms")), _int_or_none(jr.get("started_at_ms"))]
+        candidates += [
+            _int_or_none(jr.get("submitted_at_ms")),
+            _int_or_none(jr.get("started_at_ms")),
+        ]
     for att in attempts:
         candidates += [att.started_at_ms, att.finished_at_ms]
     valid = [c for c in candidates if c]
@@ -425,7 +429,13 @@ def _key_predicate(prefix: str) -> str:
 
 
 def _data_predicate() -> str:
-    return "(" + " OR ".join(f"contains(data, {_sql_str(p)})" for p in FINELOG_CONTAINS_PATTERNS) + ")"
+    return (
+        "("
+        + " OR ".join(
+            f"contains(data, {_sql_str(p)})" for p in FINELOG_CONTAINS_PATTERNS
+        )
+        + ")"
+    )
 
 
 def _paginate(run_page: Callable[[int], list[dict]]) -> list[dict]:
@@ -472,7 +482,9 @@ def _open_live_client(cfg: FinelogConfig, finelog_name: str) -> "Iterator[LogCli
             )
         client = connect(
             cfg.client_url,
-            lambda ep: LogClient.connect(ep.url, interceptors=ep.interceptors, timeout_ms=LIVE_TIMEOUT_MS),
+            lambda ep: LogClient.connect(
+                ep.url, interceptors=ep.interceptors, timeout_ms=LIVE_TIMEOUT_MS
+            ),
             auth=IapAuth(provider),
             connect_timeout=60.0,
         )
@@ -507,13 +519,22 @@ def fetch_live(
         with _open_live_client(cfg, finelog_name) as client:
             rows = _paginate(
                 lambda last: client.query(
-                    _data_page_sql(key_pred, data_pred, last), max_rows=SEQ_PAGE_ROWS + 10_000
+                    _data_page_sql(key_pred, data_pred, last),
+                    max_rows=SEQ_PAGE_ROWS + 10_000,
                 ).to_pylist()
             )
-            bucket_rows = client.query(_bucket_sql(key_pred), max_rows=2_000_000).to_pylist()
+            bucket_rows = client.query(
+                _bucket_sql(key_pred), max_rows=2_000_000
+            ).to_pylist()
             buckets = {int(r["bkt"]) for r in bucket_rows}
         return rows, buckets, True, None
-    except (IapLoginRequired, StatsError, ConnectionError, OSError, TimeoutError) as exc:
+    except (
+        IapLoginRequired,
+        StatsError,
+        ConnectionError,
+        OSError,
+        TimeoutError,
+    ) as exc:
         reason = f"{type(exc).__name__}: {exc}"
         print(
             f"[live] UNAVAILABLE: {reason}\n"
@@ -553,7 +574,9 @@ def _fetch_gcs_once(
         )
         # _register_namespace_views skips the view entirely when the prune drops
         # every segment; referencing ``log`` then raises. Treat as nothing archived.
-        if not conn.execute("SELECT view_name FROM duckdb_views() WHERE view_name = 'log'").fetchall():
+        if not conn.execute(
+            "SELECT view_name FROM duckdb_views() WHERE view_name = 'log'"
+        ).fetchall():
             return [], set()
 
         key_pred = _key_predicate(prefix)
@@ -649,7 +672,10 @@ def rows_to_filtered_lines(rows: list[dict]) -> list[str]:
 
 
 def check_coverage(
-    attempts: list[Attempt], covered_buckets: set[int], now_ms: int, max_gap_seconds: float
+    attempts: list[Attempt],
+    covered_buckets: set[int],
+    now_ms: int,
+    max_gap_seconds: float,
 ) -> list[MissingWindow]:
     """Assert each attempt window is covered with no empty run > ``max_gap_seconds``.
 
@@ -681,7 +707,10 @@ def check_coverage(
             if run_len > worst_run:
                 worst_run = run_len
                 worst_span = (run_start, b)
-        if worst_span is not None and worst_run * (COVERAGE_BUCKET_MS / 1000.0) > max_gap_seconds:
+        if (
+            worst_span is not None
+            and worst_run * (COVERAGE_BUCKET_MS / 1000.0) > max_gap_seconds
+        ):
             gap_start_ms = worst_span[0] * COVERAGE_BUCKET_MS
             gap_end_ms = (worst_span[1] + 1) * COVERAGE_BUCKET_MS
             missing.append(
@@ -738,7 +767,9 @@ def acquire_complete_log(
     )
 
     print("[live] fetching filtered rows + coverage buckets ...", file=sys.stderr)
-    live_rows, live_buckets, live_available, live_reason = fetch_live(cfg, finelog_name, prefix)
+    live_rows, live_buckets, live_available, live_reason = fetch_live(
+        cfg, finelog_name, prefix
+    )
     print(
         f"[live] available={live_available} filtered_rows={len(live_rows)} "
         f"buckets={len(live_buckets)}",
@@ -768,14 +799,21 @@ def acquire_complete_log(
             file=sys.stderr,
         )
         for w in missing:
-            g0 = datetime.fromtimestamp(w.gap_start_ms / 1000, tz=timezone.utc).isoformat()
-            g1 = datetime.fromtimestamp(w.gap_end_ms / 1000, tz=timezone.utc).isoformat()
+            g0 = datetime.fromtimestamp(
+                w.gap_start_ms / 1000, tz=timezone.utc
+            ).isoformat()
+            g1 = datetime.fromtimestamp(
+                w.gap_end_ms / 1000, tz=timezone.utc
+            ).isoformat()
             print(
-                f"    {w.log_key}: {w.gap_seconds/60:.1f}min gap [{g0} .. {g1}]",
+                f"    {w.log_key}: {w.gap_seconds / 60:.1f}min gap [{g0} .. {g1}]",
                 file=sys.stderr,
             )
     else:
-        print("[coverage] COMPLETE: every enumerated attempt window covered", file=sys.stderr)
+        print(
+            "[coverage] COMPLETE: every enumerated attempt window covered",
+            file=sys.stderr,
+        )
 
     lines = rows_to_filtered_lines(merged)
     cache_path.write_text("\n".join(lines) + ("\n" if lines else ""))
@@ -874,7 +912,9 @@ def parse_log_lines(
             mo, dy = int(tm.group(1)), int(tm.group(2))
             th, tmin, tsec = int(tm.group(3)), int(tm.group(4)), int(tm.group(5))
             try:
-                ts = datetime(outer_ts.year, mo, dy, th, tmin, tsec, tzinfo=timezone.utc)
+                ts = datetime(
+                    outer_ts.year, mo, dy, th, tmin, tsec, tzinfo=timezone.utc
+                )
             except ValueError:
                 ts = outer_ts
             samples.append(
@@ -946,7 +986,9 @@ def build_cycles(
         for cycle in cycles:
             if cycle.cycle_start <= sample.ts < cycle.cycle_end:
                 sample.cycle_idx = cycle.idx
-                sample.elapsed_in_cycle_s = (sample.ts - cycle.cycle_start).total_seconds()
+                sample.elapsed_in_cycle_s = (
+                    sample.ts - cycle.cycle_start
+                ).total_seconds()
                 break
 
     return cycles
@@ -1080,7 +1122,22 @@ def pct(values: list[float], q: float) -> float:
 
 def stats_dict(values: list[float]) -> dict[str, float]:
     if not values:
-        return {k: float("nan") for k in ("n", "mean", "median", "p10", "p25", "p50", "p75", "p90", "p99", "min", "max")}
+        return {
+            k: float("nan")
+            for k in (
+                "n",
+                "mean",
+                "median",
+                "p10",
+                "p25",
+                "p50",
+                "p75",
+                "p90",
+                "p99",
+                "min",
+                "max",
+            )
+        }
     return {
         "n": float(len(values)),
         "mean": statistics.fmean(values),
@@ -1111,7 +1168,7 @@ def fmt_duration(seconds: float) -> str:
 def fmt_pct(x: float) -> str:
     if x != x:
         return "n/a"
-    return f"{100*x:.1f}%"
+    return f"{100 * x:.1f}%"
 
 
 def render_markdown(a: JobAnalysis, warmup_seconds: float) -> str:
@@ -1131,9 +1188,15 @@ def render_markdown(a: JobAnalysis, warmup_seconds: float) -> str:
             "window(s); stats below may be partial:"
         )
         for w in a.missing_windows:
-            g0 = datetime.fromtimestamp(w.gap_start_ms / 1000, tz=timezone.utc).isoformat()
-            g1 = datetime.fromtimestamp(w.gap_end_ms / 1000, tz=timezone.utc).isoformat()
-            lines.append(f"    - `{w.log_key}`: {w.gap_seconds/60:.1f}min gap [{g0} .. {g1}]")
+            g0 = datetime.fromtimestamp(
+                w.gap_start_ms / 1000, tz=timezone.utc
+            ).isoformat()
+            g1 = datetime.fromtimestamp(
+                w.gap_end_ms / 1000, tz=timezone.utc
+            ).isoformat()
+            lines.append(
+                f"    - `{w.log_key}`: {w.gap_seconds / 60:.1f}min gap [{g0} .. {g1}]"
+            )
     lines.append("")
 
     # §1
@@ -1147,24 +1210,35 @@ def render_markdown(a: JobAnalysis, warmup_seconds: float) -> str:
         f"(=> preempts from log = {a.preempt_count_from_log})"
     )
     lines.append(f"- **iris job summary preemptions=**: {a.iris_preemption_count}")
-    if a.iris_preemption_count is not None and a.iris_preemption_count != a.preempt_count_from_log:
+    if (
+        a.iris_preemption_count is not None
+        and a.iris_preemption_count != a.preempt_count_from_log
+    ):
         lines.append(
             f"  - **discrepancy**: log shows {a.preempt_count_from_log}, "
             f"iris shows {a.iris_preemption_count} "
             f"(diff={a.preempt_count_from_log - a.iris_preemption_count})"
         )
     lines.append(f"- **cycles that reached SERVING**: {n_serving}")
-    lines.append(f"- **cycles that died in compile (no throughput emission)**: {n_dead_in_compile}")
+    lines.append(
+        f"- **cycles that died in compile (no throughput emission)**: {n_dead_in_compile}"
+    )
     lines.append("")
     serving_durations = [c.duration_s for c in a.cycles if c.did_serve]
-    first_serve = [c.time_to_first_serve_s for c in a.cycles if c.did_serve and c.time_to_first_serve_s is not None]
+    first_serve = [
+        c.time_to_first_serve_s
+        for c in a.cycles
+        if c.did_serve and c.time_to_first_serve_s is not None
+    ]
     if serving_durations:
         sd_stats = stats_dict(serving_durations)
         lines.append("### Serving-cycle survival time (cycles that did_serve)")
         lines.append("")
         lines.append(f"- mean: {fmt_duration(sd_stats['mean'])}")
         lines.append(f"- median: {fmt_duration(sd_stats['median'])}")
-        lines.append(f"- p25 / p75: {fmt_duration(sd_stats['p25'])} / {fmt_duration(sd_stats['p75'])}")
+        lines.append(
+            f"- p25 / p75: {fmt_duration(sd_stats['p25'])} / {fmt_duration(sd_stats['p75'])}"
+        )
         lines.append(f"- max: {fmt_duration(sd_stats['max'])}")
         lines.append("")
     if first_serve:
@@ -1178,12 +1252,20 @@ def render_markdown(a: JobAnalysis, warmup_seconds: float) -> str:
     # cycle table (top 30 + bottom 5 if huge)
     lines.append("### Per-cycle table")
     lines.append("")
-    lines.append("| idx | cycle_start (UTC) | duration | did_serve | t_first_serve | samples | trials_finalized | cumulative_trials |")
-    lines.append("|-----|--------------------|----------|-----------|---------------|---------|------------------|-------------------|")
+    lines.append(
+        "| idx | cycle_start (UTC) | duration | did_serve | t_first_serve | samples | trials_finalized | cumulative_trials |"
+    )
+    lines.append(
+        "|-----|--------------------|----------|-----------|---------------|---------|------------------|-------------------|"
+    )
     cum_trials = 0
     for c in a.cycles:
         cum_trials += c.non_empty_trials_in_cycle
-        tfs = fmt_duration(c.time_to_first_serve_s) if c.time_to_first_serve_s is not None else "—"
+        tfs = (
+            fmt_duration(c.time_to_first_serve_s)
+            if c.time_to_first_serve_s is not None
+            else "—"
+        )
         lines.append(
             f"| {c.idx} | {c.cycle_start.strftime('%Y-%m-%d %H:%M:%S')} | "
             f"{fmt_duration(c.duration_s)} | {c.did_serve} | {tfs} | "
@@ -1195,7 +1277,9 @@ def render_markdown(a: JobAnalysis, warmup_seconds: float) -> str:
     lines.append("## §2 Trace progress")
     lines.append("")
     lines.append(f"- **harbor n_total_trials**: {a.harbor_n_total_trials}")
-    lines.append(f"- **harbor n_completed_trials**: {a.harbor_n_completed} (includes errored)")
+    lines.append(
+        f"- **harbor n_completed_trials**: {a.harbor_n_completed} (includes errored)"
+    )
     lines.append(f"- **harbor n_errored_trials**: {a.harbor_n_errored}")
     lines.append(f"- **harbor n_running_trials**: {a.harbor_n_running}")
     lines.append(f"- **harbor n_pending_trials**: {a.harbor_n_pending}")
@@ -1203,7 +1287,9 @@ def render_markdown(a: JobAnalysis, warmup_seconds: float) -> str:
     lines.append(f"- **harbor updated_at**: {a.harbor_updated_at}")
     lines.append("")
     lines.append(f"- **trial dirs on GCS**: {a.total_trial_dirs}")
-    lines.append(f"- **non-empty trials (trajectory.json exists)**: {a.non_empty_trials}")
+    lines.append(
+        f"- **non-empty trials (trajectory.json exists)**: {a.non_empty_trials}"
+    )
     empty = a.total_trial_dirs - a.non_empty_trials
     empty_rate = (empty / a.total_trial_dirs) if a.total_trial_dirs else float("nan")
     lines.append(f"- **empty trials (no trajectory.json)**: {empty}")
@@ -1229,16 +1315,36 @@ def render_markdown(a: JobAnalysis, warmup_seconds: float) -> str:
         waiting_full = [float(s.waiting) for s in all_samples]
         sat_full = sum(1 for s in all_samples if s.waiting > 0) / len(all_samples)
 
-        gen_warm = [s.gen_tps for s in all_samples if s.elapsed_in_cycle_s >= warmup_seconds]
-        prompt_warm = [s.prompt_tps for s in all_samples if s.elapsed_in_cycle_s >= warmup_seconds]
-        running_warm = [float(s.running) for s in all_samples if s.elapsed_in_cycle_s >= warmup_seconds]
-        waiting_warm = [float(s.waiting) for s in all_samples if s.elapsed_in_cycle_s >= warmup_seconds]
-        sat_warm = (
-            sum(1 for s in all_samples if s.elapsed_in_cycle_s >= warmup_seconds and s.waiting > 0)
-            / max(len(gen_warm), 1)
-        )
+        gen_warm = [
+            s.gen_tps for s in all_samples if s.elapsed_in_cycle_s >= warmup_seconds
+        ]
+        prompt_warm = [
+            s.prompt_tps for s in all_samples if s.elapsed_in_cycle_s >= warmup_seconds
+        ]
+        running_warm = [
+            float(s.running)
+            for s in all_samples
+            if s.elapsed_in_cycle_s >= warmup_seconds
+        ]
+        waiting_warm = [
+            float(s.waiting)
+            for s in all_samples
+            if s.elapsed_in_cycle_s >= warmup_seconds
+        ]
+        sat_warm = sum(
+            1
+            for s in all_samples
+            if s.elapsed_in_cycle_s >= warmup_seconds and s.waiting > 0
+        ) / max(len(gen_warm), 1)
 
-        def render(label: str, gen: list[float], prompt: list[float], running: list[float], waiting: list[float], sat: float) -> None:
+        def render(
+            label: str,
+            gen: list[float],
+            prompt: list[float],
+            running: list[float],
+            waiting: list[float],
+            sat: float,
+        ) -> None:
             lines.append(f"### {label}")
             lines.append("")
             g = stats_dict(gen)
@@ -1246,19 +1352,32 @@ def render_markdown(a: JobAnalysis, warmup_seconds: float) -> str:
             r = stats_dict(running)
             w = stats_dict(waiting)
             lines.append(f"- samples: {int(g['n'])}")
-            lines.append(f"- gen_tps: mean={g['mean']:.1f}, median={g['median']:.1f}, "
-                         f"p10={g['p10']:.1f}, p50={g['p50']:.1f}, p90={g['p90']:.1f}, "
-                         f"p99={g['p99']:.1f}, peak={g['max']:.1f}, min={g['min']:.1f}")
+            lines.append(
+                f"- gen_tps: mean={g['mean']:.1f}, median={g['median']:.1f}, "
+                f"p10={g['p10']:.1f}, p50={g['p50']:.1f}, p90={g['p90']:.1f}, "
+                f"p99={g['p99']:.1f}, peak={g['max']:.1f}, min={g['min']:.1f}"
+            )
             lines.append(f"- prompt_tps: mean={p['mean']:.1f}, peak={p['max']:.1f}")
             lines.append(f"- running: mean={r['mean']:.2f}, peak={int(r['max'])}")
             lines.append(f"- waiting: mean={w['mean']:.2f}, peak={int(w['max'])}")
             lines.append(f"- saturation rate (waiting>0): {fmt_pct(sat)}")
             lines.append("")
 
-        render("Full (all samples)", gen_full, prompt_full, running_full, waiting_full, sat_full)
+        render(
+            "Full (all samples)",
+            gen_full,
+            prompt_full,
+            running_full,
+            waiting_full,
+            sat_full,
+        )
         render(
             f"Warmup-excluded (elapsed_in_cycle >= {warmup_seconds:.0f}s)",
-            gen_warm, prompt_warm, running_warm, waiting_warm, sat_warm,
+            gen_warm,
+            prompt_warm,
+            running_warm,
+            waiting_warm,
+            sat_warm,
         )
 
         if gen_full and gen_warm:
@@ -1392,14 +1511,16 @@ def analyze(
     job_output_dir = resolve_job_output_dir(job_id, cluster_config=CLUSTER)
     print(f"[{job_name}] output dir: {job_output_dir}", file=sys.stderr)
     meta = get_job_metadata(job_id)
-    submitted_at = datetime.fromtimestamp(meta["submitted_at_ms"] / 1000, tz=timezone.utc)
+    submitted_at = datetime.fromtimestamp(
+        meta["submitted_at_ms"] / 1000, tz=timezone.utc
+    )
     started_at = datetime.fromtimestamp(meta["started_at_ms"] / 1000, tz=timezone.utc)
     state = meta["state"]
     now = datetime.now(timezone.utc)
     total_runtime = (now - submitted_at).total_seconds()
     print(
         f"[{job_name}] submitted={submitted_at.isoformat()}, "
-        f"runtime={total_runtime/3600:.1f}h, state={state}",
+        f"runtime={total_runtime / 3600:.1f}h, state={state}",
         file=sys.stderr,
     )
 
@@ -1425,7 +1546,9 @@ def analyze(
             json.dumps(
                 {
                     "logs_complete": acq.logs_complete,
-                    "missing_windows": [asdict(window) for window in acq.missing_windows],
+                    "missing_windows": [
+                        asdict(window) for window in acq.missing_windows
+                    ],
                     "live_available": acq.live_available,
                     "live_unavailable_reason": acq.live_unavailable_reason,
                     "live_rows": acq.live_rows,
@@ -1438,9 +1561,9 @@ def analyze(
         )
     if not acq.logs_complete and not allow_incomplete:
         details = "\n".join(
-            f"    {w.log_key}: {w.gap_seconds/60:.1f}min uncovered "
-            f"[{datetime.fromtimestamp(w.gap_start_ms/1000, tz=timezone.utc).isoformat()} .. "
-            f"{datetime.fromtimestamp(w.gap_end_ms/1000, tz=timezone.utc).isoformat()}]"
+            f"    {w.log_key}: {w.gap_seconds / 60:.1f}min uncovered "
+            f"[{datetime.fromtimestamp(w.gap_start_ms / 1000, tz=timezone.utc).isoformat()} .. "
+            f"{datetime.fromtimestamp(w.gap_end_ms / 1000, tz=timezone.utc).isoformat()}]"
             for w in acq.missing_windows
         )
         live_note = (
@@ -1487,7 +1610,9 @@ def analyze(
     if bundle_directory is not None and harbor is not None:
         harbor_directory = bundle_directory / "harbor"
         harbor_directory.mkdir(parents=True, exist_ok=True)
-        (harbor_directory / "result.json").write_text(json.dumps(harbor, indent=2) + "\n")
+        (harbor_directory / "result.json").write_text(
+            json.dumps(harbor, indent=2) + "\n"
+        )
     a = JobAnalysis(
         job_id=job_id,
         job_name=job_name,
@@ -1518,7 +1643,9 @@ def analyze(
         for _ev_name, ev_data in evals.items():
             es = ev_data.get("exception_stats", {})
             for k, vs in es.items():
-                a.harbor_exception_stats[k] = a.harbor_exception_stats.get(k, 0) + len(vs)
+                a.harbor_exception_stats[k] = a.harbor_exception_stats.get(k, 0) + len(
+                    vs
+                )
 
     return a
 
@@ -1538,7 +1665,9 @@ def local_bundle_report(bundle_directory: Path, manifest: dict) -> str:
         for name, trial_ids in evaluation.get("exception_stats", {}).items():
             errors[name] = errors.get(name, 0) + len(trial_ids)
     log_path = bundle_directory / "finelog.log"
-    log_lines = log_path.read_text(errors="replace").splitlines() if log_path.exists() else []
+    log_lines = (
+        log_path.read_text(errors="replace").splitlines() if log_path.exists() else []
+    )
     lines = [
         f"# Iris Harbor job analysis — {manifest.get('job_id', 'unknown')}",
         "",
@@ -1564,15 +1693,23 @@ def local_bundle_report(bundle_directory: Path, manifest: dict) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("job_id", help="iris job id, e.g. /benjaminfeuer/qwen122b-q12-v1-...")
-    ap.add_argument("--output", type=Path, help="markdown report path (defaults inside the bundle)")
+    ap.add_argument(
+        "job_id", help="iris job id, e.g. /benjaminfeuer/qwen122b-q12-v1-..."
+    )
+    ap.add_argument(
+        "--output", type=Path, help="markdown report path (defaults inside the bundle)"
+    )
     ap.add_argument("--bundle-root", type=Path, default=DEFAULT_BUNDLE_ROOT)
     ap.add_argument(
         "--local-only",
         action="store_true",
         help="Analyze a synchronized bundle without querying Iris, Finelog, or GCS.",
     )
-    ap.add_argument("--resync", action="store_true", help="Ignore the local Finelog cache while refreshing remote evidence.")
+    ap.add_argument(
+        "--resync",
+        action="store_true",
+        help="Ignore the local Finelog cache while refreshing remote evidence.",
+    )
     ap.set_defaults(resync=True)
     ap.add_argument("--warmup-seconds", type=float, default=180.0)
     ap.add_argument(
@@ -1633,7 +1770,9 @@ def main() -> int:
         if not bundle.directory.exists():
             print(f"No local bundle exists at {bundle.directory}", file=sys.stderr)
             return 1
-        output.write_text(local_bundle_report(bundle.directory, load_bundle_manifest(bundle)))
+        output.write_text(
+            local_bundle_report(bundle.directory, load_bundle_manifest(bundle))
+        )
         print(f"\nReport written to: {output}", file=sys.stderr)
         return 0
 

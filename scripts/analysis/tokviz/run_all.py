@@ -43,6 +43,7 @@ def main() -> None:
 
     sys.path.insert(0, str(HERE))
     from config import OUTPUT_DIR as out
+
     files = sorted(out.glob("*.html"))
     print(f"\nDONE. {len(files)} HTML files in {out}:")
     for f in files:

@@ -30,8 +30,8 @@ TOKENIZER = "marin-community/delphi-3e18-447Mparams-1.2Btokens"  # Llama-3.1 tok
 OUT_REPO = "laion/llama-nemotron-science-reasoning-on-le3000tok-100k"
 MAX_TOKENS = 3000
 TARGET = 100_000
-POOL = 150_000          # reservoir size (exact-token-filtered down to TARGET)
-CHAR_CAP = 12_000       # cheap pre-filter before tokenizing (>=3000 tok is virtually always >12k char)
+POOL = 150_000  # reservoir size (exact-token-filtered down to TARGET)
+CHAR_CAP = 12_000  # cheap pre-filter before tokenizing (>=3000 tok is virtually always >12k char)
 SEED = 0
 OUT_DIR = "/tmp/coldstart_warmup_build"
 
@@ -45,7 +45,10 @@ def stream_reservoir(path: str) -> list[dict]:
         for line in fh:
             total += 1
             if total % 100_000 == 0:
-                print(f"  scanned {total:,} | char-pass {seen:,} | pool {len(pool):,}", flush=True)
+                print(
+                    f"  scanned {total:,} | char-pass {seen:,} | pool {len(pool):,}",
+                    flush=True,
+                )
             try:
                 d = json.loads(line)
             except json.JSONDecodeError:
@@ -53,19 +56,35 @@ def stream_reservoir(path: str) -> list[dict]:
             if d.get("reasoning") != "on":
                 continue
             inp = d.get("input")
-            inp_text = " ".join(m.get("content", "") for m in inp) if isinstance(inp, list) else str(inp or "")
+            inp_text = (
+                " ".join(m.get("content", "") for m in inp)
+                if isinstance(inp, list)
+                else str(inp or "")
+            )
             out = d.get("output", "") or ""
             if len(inp_text) + len(out) > CHAR_CAP:
                 continue
             seen += 1
-            slim = {k: d.get(k) for k in ("input", "output", "category", "reasoning", "generator", "license")}
+            slim = {
+                k: d.get(k)
+                for k in (
+                    "input",
+                    "output",
+                    "category",
+                    "reasoning",
+                    "generator",
+                    "license",
+                )
+            }
             if len(pool) < POOL:
                 pool.append(slim)
             else:
                 j = rng.randint(0, seen - 1)
                 if j < POOL:
                     pool[j] = slim
-    print(f"  done: {total:,} rows, {seen:,} char-passing, pool={len(pool):,}", flush=True)
+    print(
+        f"  done: {total:,} rows, {seen:,} char-passing, pool={len(pool):,}", flush=True
+    )
     return pool
 
 
@@ -77,7 +96,11 @@ def exact_token_filter(pool: list[dict], tok) -> list[dict]:
         texts = []
         for d in batch:
             inp = d["input"]
-            inp_text = " ".join(m.get("content", "") for m in inp) if isinstance(inp, list) else str(inp or "")
+            inp_text = (
+                " ".join(m.get("content", "") for m in inp)
+                if isinstance(inp, list)
+                else str(inp or "")
+            )
             texts.append(inp_text + "\n" + (d["output"] or ""))
         enc = tok(texts, add_special_tokens=False)
         for d, ids in zip(batch, enc.input_ids):
@@ -85,20 +108,31 @@ def exact_token_filter(pool: list[dict], tok) -> list[dict]:
                 d["num_tokens"] = len(ids)
                 kept.append(d)
         if (i // B) % 20 == 0:
-            print(f"  tokenized {i + len(batch):,}/{len(pool):,} | kept {len(kept):,}", flush=True)
+            print(
+                f"  tokenized {i + len(batch):,}/{len(pool):,} | kept {len(kept):,}",
+                flush=True,
+            )
     return kept
 
 
 def to_messages(d: dict) -> list[dict]:
     inp = d["input"]
-    msgs = [{"role": m["role"], "content": m["content"]} for m in inp] if isinstance(inp, list) else []
-    msgs.append({"role": "assistant", "content": d["output"]})  # output carries inline <think>...</think>
+    msgs = (
+        [{"role": m["role"], "content": m["content"]} for m in inp]
+        if isinstance(inp, list)
+        else []
+    )
+    msgs.append(
+        {"role": "assistant", "content": d["output"]}
+    )  # output carries inline <think>...</think>
     return msgs
 
 
 def main() -> None:
     api = HfApi()
-    assert "laion" in [o["name"] for o in api.whoami().get("orgs", [])], "no laion org access"
+    assert "laion" in [o["name"] for o in api.whoami().get("orgs", [])], (
+        "no laion org access"
+    )
 
     print(f"downloading {SRC_REPO}:{SRC_FILE} ...", flush=True)
     path = hf_hub_download(SRC_REPO, SRC_FILE, repo_type="dataset")
@@ -118,6 +152,7 @@ def main() -> None:
     gens = sorted({r.get("generator") for r in rows})
 
     import os
+
     os.makedirs(f"{OUT_DIR}/data", exist_ok=True)
     table = pa.table(
         {

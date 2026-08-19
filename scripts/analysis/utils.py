@@ -7,7 +7,18 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Literal, Optional, Sequence, Union, cast
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Union,
+    cast,
+)
 
 try:
     import tiktoken
@@ -27,7 +38,9 @@ _EPISODE_PATTERN = re.compile(r"(\d+)")
 # OpenAI/Anthropic-style structured tool_calls live on the message dict itself
 # (msg["tool_calls"]). The OT-Agent trace format embeds them as
 # ``<tool_call>{json}</tool_call>`` inside assistant content.
-_TOOL_CALL_XML_RE = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL | re.IGNORECASE)
+_TOOL_CALL_XML_RE = re.compile(
+    r"<tool_call>(.*?)</tool_call>", re.DOTALL | re.IGNORECASE
+)
 
 # Tool-result messages come back as ``role=user`` with ``New Terminal Output:``
 # in the OT-Agent format, or as ``role=tool`` in OpenAI/Anthropic.
@@ -51,7 +64,9 @@ _TOOL_ERROR_RE = re.compile(
 )
 
 # Thinking-block detector (two common conventions).
-_THINK_BLOCK_RE = re.compile(r"<think(?:ing)?\s*>(.*?)</think(?:ing)?\s*>", re.DOTALL | re.IGNORECASE)
+_THINK_BLOCK_RE = re.compile(
+    r"<think(?:ing)?\s*>(.*?)</think(?:ing)?\s*>", re.DOTALL | re.IGNORECASE
+)
 _THINK_OPEN_RE = re.compile(r"<think(?:ing)?\s*>", re.IGNORECASE)
 
 # Fenced code block density (we count triple-backtick OPEN markers; a fully
@@ -114,6 +129,7 @@ class BehavioralFeatures:
     is cheap. All counts are integers; ratios are floats in [0, 1] (or None
     when the denominator is zero).
     """
+
     tool_calls_total: int = 0
     tool_calls_by_name: Dict[str, int] = field(default_factory=dict)
     tool_errors: int = 0  # responses whose text matches typical error patterns
@@ -236,7 +252,9 @@ def extract_behavioral_features(
     features.last_role = last_role
 
     if features.assistant_msgs:
-        features.mean_assistant_tokens = features.assistant_tokens / features.assistant_msgs
+        features.mean_assistant_tokens = (
+            features.assistant_tokens / features.assistant_msgs
+        )
     if features.assistant_tokens:
         features.think_token_ratio = features.think_tokens / features.assistant_tokens
     if features.tool_responses:
@@ -271,6 +289,7 @@ SCALAR_BEHAVIORAL_FIELDS: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 # JSONL iteration
 # ---------------------------------------------------------------------------
+
 
 def iter_jsonl(path: Path) -> Iterator[Dict]:
     """Yield parsed dicts from a JSONL file, raising on malformed lines."""
@@ -326,6 +345,7 @@ def serialize_conversation_value(raw_value: Any) -> str:
     except TypeError:
         return str(raw_value)
 
+
 def _extract_from_message_content(content: Any) -> str:
     parts: list[str] = []
     if isinstance(content, str):
@@ -352,7 +372,9 @@ def extract_conversation_text(record: Any) -> str:
             for message in messages:
                 if isinstance(message, dict):
                     if "content" in message:
-                        collected.append(_extract_from_message_content(message["content"]))
+                        collected.append(
+                            _extract_from_message_content(message["content"])
+                        )
                     for key in ("value", "text"):
                         value = message.get(key)
                         if isinstance(value, str):
@@ -403,7 +425,9 @@ def extract_chat_template_messages(record: Any) -> list[dict[str, Any]]:
             raise ValueError(
                 f"chat_template message {index} has no content, value, or text field"
             )
-        normalized.append({"role": role_aliases.get(raw_role, raw_role), "content": content})
+        normalized.append(
+            {"role": role_aliases.get(raw_role, raw_role), "content": content}
+        )
     return normalized
 
 
@@ -482,6 +506,7 @@ def count_turns(record) -> int:
 # Episode number extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_episode_numbers(values: Iterable) -> List[int]:
     """Parse integer episode indices from various formats (str, int, dict)."""
     episodes: List[int] = []
@@ -513,6 +538,7 @@ def extract_episode_numbers(values: Iterable) -> List[int]:
 # Token counting (tiktoken)
 # ---------------------------------------------------------------------------
 
+
 def get_tiktoken_encoder():
     """Return a tiktoken encoder, or ``None`` if tiktoken is unavailable."""
     if tiktoken is None:
@@ -533,9 +559,11 @@ def count_tokens(text: str, encoder) -> int:
 # HuggingFace dataset loading
 # ---------------------------------------------------------------------------
 
+
 def load_hf_trace_dataset(repo_id: str, split: str = "train"):
     """Load a HuggingFace dataset with a helpful error message on failure."""
     from datasets import load_dataset
+
     try:
         return load_dataset(repo_id, split=split)
     except Exception as exc:
@@ -547,6 +575,7 @@ def load_hf_trace_dataset(repo_id: str, split: str = "train"):
 # ---------------------------------------------------------------------------
 # Reward / result extraction
 # ---------------------------------------------------------------------------
+
 
 def extract_reward(record) -> Optional[float]:
     """Extract a numeric reward from a record's ``result`` field.
@@ -627,6 +656,7 @@ def tasks_with_n_attempts(
 ) -> set[str]:
     """Return tasks that have at least *n_attempts* rows after filtering."""
     from collections import Counter
+
     counts = Counter(row["task"] for row in rows)
     return {task for task, count in counts.items() if count >= n_attempts}
 
@@ -699,6 +729,7 @@ def extract_error_type(record) -> Optional[str]:
 # Date extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_date(record) -> Optional[datetime]:
     """Parse the ``date`` field of a record into a :class:`datetime`.
 
@@ -724,6 +755,7 @@ def extract_date(record) -> Optional[datetime]:
 # Task identity
 # ---------------------------------------------------------------------------
 
+
 def task_id_of(record) -> Optional[str]:
     """Best-effort canonical task identifier for a trace row.
 
@@ -744,6 +776,7 @@ def task_id_of(record) -> Optional[str]:
 # Trace dataclass + unified loader
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Trace:
     """Normalized view over a single trace row.
@@ -752,6 +785,7 @@ class Trace:
     eager and cached here so downstream analyses don't repeat the work.
     The ``raw`` dict is kept for one-off field access.
     """
+
     raw: Dict[str, Any]
     task: Optional[str] = None
     reward: Optional[float] = None
@@ -870,7 +904,9 @@ def load_traces(
         rows = list(iter_jsonl(path))
         if max_rows is not None:
             rows = rows[:max_rows]
-        return [Trace.from_row(r, source=f"jsonl:{path}", encoder=encoder) for r in rows]
+        return [
+            Trace.from_row(r, source=f"jsonl:{path}", encoder=encoder) for r in rows
+        ]
 
     if path.is_dir():
         rows: List[Dict[str, Any]] = []

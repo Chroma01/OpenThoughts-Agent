@@ -64,49 +64,51 @@ _MAX_CONSTRAINTS = 64
 # Deterministic instruction_ids implemented by hybrid_ifeval_judge.py for
 # SysBench. Anything NOT in this set is routed to the LLM judge (subjective or
 # unimplemented) so we never emit a det_constraint the verifier fails closed on.
-_DET_IDS = frozenset({
-    "keywords:existence",
-    "keywords:forbidden_words",
-    "keywords:frequency",
-    "keywords:letter_frequency",
-    "length_constraints:number_words",
-    "length_constraints:number_characters",
-    "length_constraints:unique_words",
-    "length_constraints:sentence_length",
-    "length_constraints:word_length",
-    "length_constraints:word_repetition",
-    "detectable_format:number_bullet_lists",
-    "detectable_format:numbered_list",
-    "detectable_format:number_paragraphs",
-    "detectable_format:sentence_count",
-    "detectable_format:sentences_per_paragraph",
-    "detectable_format:table",
-    "detectable_format:heading_depth",
-    "detectable_format:nested_list",
-    "detectable_format:json_format",
-    "detectable_format:multiple_sections",
-    "detectable_format:title",
-    "detectable_format:max_paragraph_length",
-    "detectable_format:sentence_endings",
-    "detectable_content:number_placeholders",
-    "detectable_content:numeric_inclusion",
-    "detectable_content:postscript",
-    "startend:start_checker",
-    "startend:end_checker",
-    "punctuation:no_comma",
-    "punctuation:no_period",
-    "punctuation:end_rule",
-    "change_case:all_caps",
-    "change_case:lowercase",
-    "change_case:all_caps_target",
-    "change_case:lowercase_target",
-    "change_case:first_letter_cap_target",
-    "change_case:first_letter_sentence",
-    "change_case:last_letter",
-    "change_case:alternating",
-    "change_case:alternating_target",
-    "change_case:capital_word_frequency",
-})
+_DET_IDS = frozenset(
+    {
+        "keywords:existence",
+        "keywords:forbidden_words",
+        "keywords:frequency",
+        "keywords:letter_frequency",
+        "length_constraints:number_words",
+        "length_constraints:number_characters",
+        "length_constraints:unique_words",
+        "length_constraints:sentence_length",
+        "length_constraints:word_length",
+        "length_constraints:word_repetition",
+        "detectable_format:number_bullet_lists",
+        "detectable_format:numbered_list",
+        "detectable_format:number_paragraphs",
+        "detectable_format:sentence_count",
+        "detectable_format:sentences_per_paragraph",
+        "detectable_format:table",
+        "detectable_format:heading_depth",
+        "detectable_format:nested_list",
+        "detectable_format:json_format",
+        "detectable_format:multiple_sections",
+        "detectable_format:title",
+        "detectable_format:max_paragraph_length",
+        "detectable_format:sentence_endings",
+        "detectable_content:number_placeholders",
+        "detectable_content:numeric_inclusion",
+        "detectable_content:postscript",
+        "startend:start_checker",
+        "startend:end_checker",
+        "punctuation:no_comma",
+        "punctuation:no_period",
+        "punctuation:end_rule",
+        "change_case:all_caps",
+        "change_case:lowercase",
+        "change_case:all_caps_target",
+        "change_case:lowercase_target",
+        "change_case:first_letter_cap_target",
+        "change_case:first_letter_sentence",
+        "change_case:last_letter",
+        "change_case:alternating",
+        "change_case:alternating_target",
+        "change_case:capital_word_frequency",
+    }
+)
 
 # Human-readable descriptions for routing subjective / unimplemented constraints
 # to the judge as yes/no questions. `{kw}` placeholders are filled from kwargs.
@@ -197,7 +199,9 @@ def _build_prompt(row: dict) -> str | None:
         # As a last resort, keep just the system rules (truncated by cap check).
         if sys_parts:
             try:
-                return sanitize_text("\n\n".join(sys_parts), field_name="prompt", max_len=PROMPT_MAX_LEN)
+                return sanitize_text(
+                    "\n\n".join(sys_parts), field_name="prompt", max_len=PROMPT_MAX_LEN
+                )
             except SanitizationError:
                 return None
         return None
@@ -207,8 +211,11 @@ def _phrase_for(inst: dict) -> str:
     """Render a yes/no judge question for a non-deterministic instruction id."""
     iid = inst.get("instruction_id", "")
     template = _JUDGE_PHRASINGS.get(iid)
-    kwargs = {k: v for k, v in inst.items()
-              if k not in ("instruction_id", "source", "is_misalignment_check", "uid")}
+    kwargs = {
+        k: v
+        for k, v in inst.items()
+        if k not in ("instruction_id", "source", "is_misalignment_check", "uid")
+    }
     if template:
         try:
             text = template.format_map(_SafeDict(kwargs))
@@ -234,7 +241,9 @@ def _clean_constraint(inst: dict) -> dict | None:
     iid = inst.get("instruction_id")
     if not isinstance(iid, str):
         return None
-    out: dict = {"instruction_id": sanitize_text(iid, field_name="instruction_id", max_len=128)}
+    out: dict = {
+        "instruction_id": sanitize_text(iid, field_name="instruction_id", max_len=128)
+    }
     for k, v in inst.items():
         if k in ("instruction_id", "source", "is_misalignment_check", "uid"):
             continue
@@ -243,13 +252,20 @@ def _clean_constraint(inst: dict) -> dict | None:
         # Only JSON-safe primitives / lists of primitives.
         if isinstance(v, str):
             out[k] = sanitize_text(v, field_name=f"kwargs.{k}", max_len=4096)
-        elif isinstance(v, bool) or isinstance(v, int) or isinstance(v, float) or v is None:
+        elif (
+            isinstance(v, bool)
+            or isinstance(v, int)
+            or isinstance(v, float)
+            or v is None
+        ):
             out[k] = v
         elif isinstance(v, list):
             clean_list = []
             for item in v:
                 if isinstance(item, str):
-                    clean_list.append(sanitize_text(item, field_name=f"kwargs.{k}[]", max_len=2048))
+                    clean_list.append(
+                        sanitize_text(item, field_name=f"kwargs.{k}[]", max_len=2048)
+                    )
                 elif isinstance(item, (bool, int, float)) or item is None:
                     clean_list.append(item)
             out[k] = clean_list
@@ -295,7 +311,9 @@ def convert_sysbench(row: dict, row_idx: int) -> HarborTask | None:
             continue
         content = j.get("content")
         if isinstance(content, str) and content.strip():
-            judge_questions.append(sanitize_text(content, field_name="judge_q", max_len=2048))
+            judge_questions.append(
+                sanitize_text(content, field_name="judge_q", max_len=2048)
+            )
 
     # Degenerate guard: nothing to grade → skip.
     if not det_constraints and not judge_questions:
@@ -307,6 +325,7 @@ def convert_sysbench(row: dict, row_idx: int) -> HarborTask | None:
 
     # Byte-cap the constraint payload defensively.
     import json as _json
+
     if len(_json.dumps(det_constraints, ensure_ascii=False)) > _MAX_KW_BYTES:
         return None
 

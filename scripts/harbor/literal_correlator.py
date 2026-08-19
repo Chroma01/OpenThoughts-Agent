@@ -55,7 +55,11 @@ class LiteralRecord:
     def counts(self) -> tuple[int, int]:
         """(len(prompt_token_ids), len(completion_token_ids)); -1 if absent."""
         p = len(self.prompt_token_ids) if self.prompt_token_ids is not None else -1
-        c = len(self.completion_token_ids) if self.completion_token_ids is not None else -1
+        c = (
+            len(self.completion_token_ids)
+            if self.completion_token_ids is not None
+            else -1
+        )
         return (p, c)
 
 
@@ -105,7 +109,11 @@ def parse_literal_records(lines: Iterable[str]) -> list[LiteralRecord]:
             continue
         messages = request.get("messages")
         completion = literal.get("completion_token_ids")
-        if not isinstance(messages, list) or not isinstance(completion, list) or not completion:
+        if (
+            not isinstance(messages, list)
+            or not isinstance(completion, list)
+            or not completion
+        ):
             continue
         prompt = literal.get("prompt_token_ids")
         logprobs = literal.get("logprobs")
@@ -140,7 +148,11 @@ def reconstruct_chains(records: list[LiteralRecord]) -> list[Chain]:
     ordered = sorted(records, key=lambda r: (len(r.messages), r.timestamp))
     chains: list[Chain] = []
     for rec in ordered:
-        candidates = [ch for ch in chains if _is_strict_prefix(ch.records[-1].messages, rec.messages)]
+        candidates = [
+            ch
+            for ch in chains
+            if _is_strict_prefix(ch.records[-1].messages, rec.messages)
+        ]
         if len(candidates) == 1:
             candidates[0].records.append(rec)
         elif not candidates:
@@ -184,7 +196,9 @@ def parse_iso(ts: Any) -> Optional[float]:
         return None
 
 
-def _chain_in_window(chain: Chain, window: Optional[tuple[float, float]], slack: float = 120.0) -> bool:
+def _chain_in_window(
+    chain: Chain, window: Optional[tuple[float, float]], slack: float = 120.0
+) -> bool:
     """True if every record timestamp falls within ``window`` (± ``slack`` seconds)."""
     if window is None:
         return True
@@ -238,7 +252,9 @@ def inject_literals(trajectory: dict[str, Any], chain: Chain) -> int:
         if not isinstance(metrics, dict):
             metrics = {}
             step["metrics"] = metrics
-        p_ok = rec.prompt_token_ids is not None and metrics.get("prompt_tokens") == len(rec.prompt_token_ids)
+        p_ok = rec.prompt_token_ids is not None and metrics.get("prompt_tokens") == len(
+            rec.prompt_token_ids
+        )
         c_ok = metrics.get("completion_tokens") == len(rec.completion_token_ids)
         if not c_ok:
             continue
@@ -261,7 +277,9 @@ def load_literal_records(literal_log_uri: "str | Sequence[str]") -> list[Literal
     attempt; each trial's records live entirely in whichever serve handled it,
     so binding is correct over the UNION of all attempts' records.
     """
-    uris = [literal_log_uri] if isinstance(literal_log_uri, str) else list(literal_log_uri)
+    uris = (
+        [literal_log_uri] if isinstance(literal_log_uri, str) else list(literal_log_uri)
+    )
     records: list[LiteralRecord] = []
     for uri in uris:
         # Stream line-by-line — a per-serve literal.jsonl is multi-GB (token ids +
@@ -339,7 +357,9 @@ def enrich_trajectories_with_literals(
     """
     records = load_literal_records(literal_log_uri)
     chains = reconstruct_chains(records)
-    stats = EnrichStats(chains=len(chains), ambiguous_chains=sum(ch.ambiguous for ch in chains))
+    stats = EnrichStats(
+        chains=len(chains), ambiguous_chains=sum(ch.ambiguous for ch in chains)
+    )
     if verbose:
         n_files = 1 if isinstance(literal_log_uri, str) else len(list(literal_log_uri))
         print(
@@ -373,7 +393,9 @@ def enrich_trajectories_with_literals(
             traj_path.write_text(json.dumps(trajectory))
             stats.trials_stripped += 1
             if verbose:
-                print(f"[literal-correlator] {trial_dir.name}: stripped stale literal fields")
+                print(
+                    f"[literal-correlator] {trial_dir.name}: stripped stale literal fields"
+                )
 
     if verbose:
         print(

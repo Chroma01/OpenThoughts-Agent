@@ -53,7 +53,9 @@ Provide your answer in the file answer.txt
 """
 
 
-def create_sandboxed_task(out_root: Path, idx: int, instruction_text: str, output_text: str) -> None:
+def create_sandboxed_task(
+    out_root: Path, idx: int, instruction_text: str, output_text: str
+) -> None:
     """Create one sandbox directory with instruction, environment, solution, basic test harness, and metadata."""
     d = out_root / f"codeforces-{idx:05d}"
 
@@ -120,7 +122,7 @@ def create_sandboxed_tasks(limit: int, offset: int = 0) -> Path:
     out_root = Path(tempfile.mkdtemp())
 
     ds = load_dataset("open-r1/codeforces")
-    ds = concatenate_datasets([ds['train'], ds['test']])
+    ds = concatenate_datasets([ds["train"], ds["test"]])
     num_produced = offset
     end = min(len(ds), offset + max(0, limit))
 
@@ -128,17 +130,18 @@ def create_sandboxed_tasks(limit: int, offset: int = 0) -> Path:
         row = ds[i]
         if not row["description"]:
             continue
-        prompt = row["description"] + \
-                f"\n\nNote: {row['note']}" + \
-                f"\n\nInput Format: {row['input_format']}" + \
-                f"\n\nOutput Format: {row['output_format']}"
+        prompt = (
+            row["description"]
+            + f"\n\nNote: {row['note']}"
+            + f"\n\nInput Format: {row['input_format']}"
+            + f"\n\nOutput Format: {row['output_format']}"
+        )
         if not prompt:
             continue
         create_sandboxed_task(out_root, num_produced, prompt, "")
         num_produced += 1
 
     return out_root
-
 
 
 class CodeforcesGenerator(BaseDataGenerator):
@@ -186,12 +189,16 @@ class CodeforcesGenerator(BaseDataGenerator):
         print(
             f"[1/2] Generating sandboxes (limit={effective_limit}, offset={args.offset})"
         )
-        temp_tasks_dir = create_sandboxed_tasks(limit=effective_limit, offset=args.offset)
+        temp_tasks_dir = create_sandboxed_tasks(
+            limit=effective_limit, offset=args.offset
+        )
         subsampled_dir = subsample_tasks_directory(
             source_dir=temp_tasks_dir,
             num_samples=min(10_000, effective_limit) if effective_limit else 10_000,
         )
-        output_path = finalize_dataset_output(subsampled_dir, getattr(args, "output_dir", None))
+        output_path = finalize_dataset_output(
+            subsampled_dir, getattr(args, "output_dir", None)
+        )
         dataset_path = str(output_path)
 
         shutil.rmtree(temp_tasks_dir, ignore_errors=True)

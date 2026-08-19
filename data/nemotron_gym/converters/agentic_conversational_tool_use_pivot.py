@@ -108,11 +108,17 @@ def _render_transcript(input_items: list) -> str:
             name = item.get("name")
             args = item.get("arguments")
             if isinstance(name, str):
-                args_str = args if isinstance(args, str) else json.dumps(args, ensure_ascii=False)
+                args_str = (
+                    args
+                    if isinstance(args, str)
+                    else json.dumps(args, ensure_ascii=False)
+                )
                 lines.append(f"[assistant tool_call] {name}({args_str})")
         elif itype == "function_call_output":
             out = item.get("output")
-            out_str = out if isinstance(out, str) else json.dumps(out, ensure_ascii=False)
+            out_str = (
+                out if isinstance(out, str) else json.dumps(out, ensure_ascii=False)
+            )
             if isinstance(out_str, str) and out_str.strip():
                 lines.append(f"[tool result]\n{out_str.strip()}")
         elif itype == "message":
@@ -161,7 +167,7 @@ _HEADER_FUNCTION_CALL = (
     "appropriate tool from the available tools and the correct arguments based on "
     "the conversation and the policy.\n\n"
     "Write ONLY a single JSON object to `/app/answer.txt` of the form:\n"
-    '  {\"name\": \"<tool_name>\", \"arguments\": { ... }}\n'
+    '  {"name": "<tool_name>", "arguments": { ... }}\n'
     "where `arguments` is a JSON object of the tool's parameters. Do not write "
     "anything else to that file. Set `task_complete: true` once written.\n\n"
     "---\n\n"
@@ -202,7 +208,9 @@ _JUDGE_TEMPLATE = (
 # Converter
 # ---------------------------------------------------------------------------
 @register(_DATASET)
-def convert_agentic_conversational_tool_use_pivot(row: dict, row_idx: int) -> HarborTask | None:
+def convert_agentic_conversational_tool_use_pivot(
+    row: dict, row_idx: int
+) -> HarborTask | None:
     rcp = row.get("responses_create_params")
     if not isinstance(rcp, dict):
         return None
@@ -218,7 +226,9 @@ def convert_agentic_conversational_tool_use_pivot(row: dict, row_idx: int) -> Ha
     transcript = _render_transcript(input_items)
     if not transcript.strip():
         return None
-    transcript = sanitize_text(transcript, field_name="transcript", max_len=_TRANSCRIPT_MAX)
+    transcript = sanitize_text(
+        transcript, field_name="transcript", max_len=_TRANSCRIPT_MAX
+    )
 
     meta_info = row.get("meta_info") if isinstance(row.get("meta_info"), dict) else {}
     common_meta = {
@@ -257,7 +267,11 @@ def convert_agentic_conversational_tool_use_pivot(row: dict, row_idx: int) -> Ha
             return None
 
         tools_block = _render_tools(rcp.get("tools"))
-        tools_block = sanitize_text(tools_block, field_name="tools", max_len=_TOOLS_MAX) if tools_block else ""
+        tools_block = (
+            sanitize_text(tools_block, field_name="tools", max_len=_TOOLS_MAX)
+            if tools_block
+            else ""
+        )
         instr_body = _HEADER_FUNCTION_CALL
         if tools_block:
             instr_body += tools_block + "\n\n---\n\n"
@@ -271,7 +285,13 @@ def convert_agentic_conversational_tool_use_pivot(row: dict, row_idx: int) -> Ha
         )
         task_id = task_id_for(
             "agconv-tu-fc",
-            transcript[:128] + "|" + name + "|" + json.dumps(args, sort_keys=True) + "|" + str(row_idx),
+            transcript[:128]
+            + "|"
+            + name
+            + "|"
+            + json.dumps(args, sort_keys=True)
+            + "|"
+            + str(row_idx),
         )
         return HarborTask(
             task_id=task_id,
@@ -305,7 +325,9 @@ def convert_agentic_conversational_tool_use_pivot(row: dict, row_idx: int) -> Ha
         return HarborTask(
             task_id=task_id,
             instruction_md=instruction_md,
-            dockerfile=render_dockerfile(base=_BASE_IMAGE, pip_packages=("litellm==1.51.3",)),
+            dockerfile=render_dockerfile(
+                base=_BASE_IMAGE, pip_packages=("litellm==1.51.3",)
+            ),
             test_sh=STANDARD_TEST_SH,
             verifier_py=LLM_JUDGE_VERIFIER_PY,
             verifier_data={

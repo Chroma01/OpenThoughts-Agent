@@ -23,22 +23,24 @@ from hpc.iris.accelerator import ResolvedIrisAccelerator
 # store moved R2 (s3://marin-na) -> CW (s3://marin-us-east-02a) on 2026-07-05
 # (marin c7caecc95a); pods now inject CW creds+AWS_ENDPOINT_URL and can no longer
 # reach s3://marin-na (R2).
-_GPU_STORAGE_CRED_KEYS = frozenset({
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY",
-    "AWS_SESSION_TOKEN",
-    "AWS_ENDPOINT_URL",
-    "AWS_REGION",
-    "AWS_DEFAULT_REGION",
-    "LAION_ENDPOINT",
-    "LAION_ACCESS_KEY",
-    "LAION_SECRET_KEY",
-    "LAION_BUCKET_NAME",
-    "MARIN_PREFIX",
-    "R2_ENDPOINT",
-    "R2_ACCESS_KEY_ID",
-    "R2_SECRET_ACCESS_KEY",
-})
+_GPU_STORAGE_CRED_KEYS = frozenset(
+    {
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_ENDPOINT_URL",
+        "AWS_REGION",
+        "AWS_DEFAULT_REGION",
+        "LAION_ENDPOINT",
+        "LAION_ACCESS_KEY",
+        "LAION_SECRET_KEY",
+        "LAION_BUCKET_NAME",
+        "MARIN_PREFIX",
+        "R2_ENDPOINT",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+    }
+)
 
 
 def default_secrets_env() -> str | None:
@@ -62,7 +64,7 @@ def load_secrets_env_into_os_environ(secrets_env: str | None) -> int:
         if not line or line.startswith("#"):
             continue
         if line.startswith("export "):
-            line = line[len("export "):].lstrip()
+            line = line[len("export ") :].lstrip()
         if "=" not in line:
             continue
         k, _, v = line.partition("=")
@@ -140,7 +142,9 @@ def apply_iris_runtime_env(
     if accelerator.is_gpu:
         # Belt-and-suspenders: strip any storage creds that slipped in (e.g. via
         # a harbor-config env block) so nothing overrides the pod's R2 envFrom.
-        stripped = [k for k in _GPU_STORAGE_CRED_KEYS if env_vars.pop(k, None) is not None]
+        stripped = [
+            k for k in _GPU_STORAGE_CRED_KEYS if env_vars.pop(k, None) is not None
+        ]
         if stripped:
             print(
                 f"[iris] GPU path: withheld launch-host storage creds "
@@ -191,7 +195,7 @@ def _load_worker_secrets_env(
         if not line or line.startswith("#"):
             continue
         if line.startswith("export "):
-            line = line[len("export "):].lstrip()
+            line = line[len("export ") :].lstrip()
         if "=" not in line:
             continue  # malformed; skip
         k, _, v = line.partition("=")
@@ -224,10 +228,7 @@ def _alias_s3_credentials(env_vars: dict[str, str]) -> None:
     is_marin_endpoint = (
         endpoint_in_yaml is not None and "storage.googleapis.com" in endpoint_in_yaml
     )
-    has_marin = (
-        "MARIN_HMAC_ACCESS_ID" in env_vars
-        and "MARIN_HMAC_SECRET" in env_vars
-    )
+    has_marin = "MARIN_HMAC_ACCESS_ID" in env_vars and "MARIN_HMAC_SECRET" in env_vars
     has_laion = "LAION_ENDPOINT" in env_vars
     aliased: list[str] = []
 

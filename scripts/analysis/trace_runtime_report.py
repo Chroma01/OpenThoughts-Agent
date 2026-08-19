@@ -250,7 +250,12 @@ def exception_frequency_by_quantile(
         return []
     edges = normalise_quantile_edges(quantiles)
     bins: List[Dict[str, object]] = [
-        {"lower_quantile": edges[index], "upper_quantile": edges[index + 1], "count": 0, "exceptions": 0}
+        {
+            "lower_quantile": edges[index],
+            "upper_quantile": edges[index + 1],
+            "count": 0,
+            "exceptions": 0,
+        }
         for index in range(len(edges) - 1)
     ]
     for rank, (_, has_exception) in enumerate(sorted(samples), start=1):
@@ -433,10 +438,7 @@ def spearman_rho(pairs: List[Tuple[float, float]]) -> Optional[float]:
     n = len(pairs)
     mean_rank_x = sum(rank_x) / n
     mean_rank_y = sum(rank_y) / n
-    cov = sum(
-        (rx - mean_rank_x) * (ry - mean_rank_y)
-        for rx, ry in zip(rank_x, rank_y)
-    )
+    cov = sum((rx - mean_rank_x) * (ry - mean_rank_y) for rx, ry in zip(rank_x, rank_y))
     std_x = sqrt(sum((rx - mean_rank_x) ** 2 for rx in rank_x))
     std_y = sqrt(sum((ry - mean_rank_y) ** 2 for ry in rank_y))
     if std_x == 0 or std_y == 0:
@@ -471,18 +473,12 @@ class ExperimentRuntime:
                 all_task_runtimes, 0.25
             )
 
-        timeout_total_count = sum(
-            job.agent_timeout_total_count for job in self.jobs
-        )
+        timeout_total_count = sum(job.agent_timeout_total_count for job in self.jobs)
         timeout_runtimes = [
-            sample
-            for job in self.jobs
-            for sample in job.agent_timeout_runtime_samples
+            sample for job in self.jobs for sample in job.agent_timeout_runtime_samples
         ]
         timeout_average_runtime = (
-            sum(timeout_runtimes) / len(timeout_runtimes)
-            if timeout_runtimes
-            else None
+            sum(timeout_runtimes) / len(timeout_runtimes) if timeout_runtimes else None
         )
 
         prompt_char_total = sum(job.prompt_char_total for job in self.jobs)
@@ -490,14 +486,10 @@ class ExperimentRuntime:
         response_char_total = sum(job.response_char_total for job in self.jobs)
         response_count_total = sum(job.response_count_total for job in self.jobs)
         average_prompt_chars = (
-            prompt_char_total / prompt_count_total
-            if prompt_count_total
-            else None
+            prompt_char_total / prompt_count_total if prompt_count_total else None
         )
         average_response_chars = (
-            response_char_total / response_count_total
-            if response_count_total
-            else None
+            response_char_total / response_count_total if response_count_total else None
         )
 
         return {
@@ -583,7 +575,9 @@ def load_job(
                                 prefix = trimmed.split("__", 1)[0]
                                 prefix = prefix.strip()
                                 if prefix:
-                                    pos_reward_counts[prefix] = pos_reward_counts.get(prefix, 0) + 1
+                                    pos_reward_counts[prefix] = (
+                                        pos_reward_counts.get(prefix, 0) + 1
+                                    )
         except (OSError, json.JSONDecodeError):
             job_runtime_seconds = None
 
@@ -598,7 +592,10 @@ def load_job(
     stage_samples: List[StageSample] = []
 
     def process_task_directory(
-        task_dir: Path, task_payload: Dict[str, object], *, include_stage_sample: bool = True
+        task_dir: Path,
+        task_payload: Dict[str, object],
+        *,
+        include_stage_sample: bool = True,
     ) -> None:
         nonlocal job_prompt_char_total
         nonlocal job_prompt_count_total
@@ -642,7 +639,9 @@ def load_job(
                     prompt_path = episode_dir / "prompt.txt"
                     if prompt_path.is_file():
                         try:
-                            prompt_text = prompt_path.read_text(encoding="utf-8", errors="ignore")
+                            prompt_text = prompt_path.read_text(
+                                encoding="utf-8", errors="ignore"
+                            )
                             prompt_char_total += len(prompt_text)
                             prompt_count += 1
                         except OSError:
@@ -650,7 +649,9 @@ def load_job(
                     response_path = episode_dir / "response.txt"
                     if response_path.is_file():
                         try:
-                            response_text = response_path.read_text(encoding="utf-8", errors="ignore")
+                            response_text = response_path.read_text(
+                                encoding="utf-8", errors="ignore"
+                            )
                             response_char_total += len(response_text)
                             response_count += 1
                             if response_records is not None and experiment_name:
@@ -670,25 +671,49 @@ def load_job(
                                         if isinstance(commands, list):
                                             for command in commands:
                                                 if isinstance(command, dict):
-                                                    keystrokes = command.get("keystrokes")
+                                                    keystrokes = command.get(
+                                                        "keystrokes"
+                                                    )
                                                     if isinstance(keystrokes, str):
-                                                        tokens = [token.strip() for token in keystrokes.split()]
+                                                        tokens = [
+                                                            token.strip()
+                                                            for token in keystrokes.split()
+                                                        ]
                                                     else:
                                                         continue
                                                 elif isinstance(command, str):
-                                                    tokens = [token.strip() for token in command.split()]
+                                                    tokens = [
+                                                        token.strip()
+                                                        for token in command.split()
+                                                    ]
                                                 else:
                                                     continue
                                                 for token in tokens:
                                                     if not token:
                                                         continue
-                                                    keystroke_terms.setdefault("all", Counter())[token] += 1
+                                                    keystroke_terms.setdefault(
+                                                        "all", Counter()
+                                                    )[token] += 1
                                                     if experiment_name:
-                                                        lower_name = experiment_name.lower()
-                                                        if experiment_name.startswith("claude-") or lower_name.startswith("gpt-"):
-                                                            keystroke_terms.setdefault("claude_gpt", Counter())[token] += 1
-                                                        if experiment_name.startswith("Qwen3-8B") or lower_name.startswith("qwen3-8b"):
-                                                            keystroke_terms.setdefault("qwen3_8b", Counter())[token] += 1
+                                                        lower_name = (
+                                                            experiment_name.lower()
+                                                        )
+                                                        if experiment_name.startswith(
+                                                            "claude-"
+                                                        ) or lower_name.startswith(
+                                                            "gpt-"
+                                                        ):
+                                                            keystroke_terms.setdefault(
+                                                                "claude_gpt", Counter()
+                                                            )[token] += 1
+                                                        if experiment_name.startswith(
+                                                            "Qwen3-8B"
+                                                        ) or lower_name.startswith(
+                                                            "qwen3-8b"
+                                                        ):
+                                                            keystroke_terms.setdefault(
+                                                                "qwen3_8b", Counter()
+                                                            )[token] += 1
                         except OSError:
                             pass
             agent_result = task_payload.get("agent_result") or {}
@@ -726,7 +751,9 @@ def load_job(
                     f"{experiment_name}/{job_dir.name}/{task_dir.name}; marking as failure.",
                     file=sys.stderr,
                 )
-            success_flag: Optional[bool] = reward_success if reward_success is not None else False
+            success_flag: Optional[bool] = (
+                reward_success if reward_success is not None else False
+            )
             task_completed = bool(success_flag)
             average_prompt_length = (
                 prompt_char_total / prompt_count if prompt_count else None
@@ -754,18 +781,16 @@ def load_job(
             job_prompt_count_total += prompt_count
             job_response_char_total += response_char_total
             job_response_count_total += response_count
-            if (
-                solvability_records is not None
-                and experiment_name
-                and task_name
-            ):
+            if solvability_records is not None and experiment_name and task_name:
                 entry = solvability_records.setdefault(task_name, {})
                 entry.setdefault(experiment_name, False)
                 entry[experiment_name] = entry[experiment_name] or task_completed
             if task_completed and pos_reward_counts:
                 prefix = task_name
                 if prefix:
-                    job_positive_reward_counts[prefix] = job_positive_reward_counts.get(prefix, 0) + pos_reward_counts.get(prefix, 0)
+                    job_positive_reward_counts[prefix] = job_positive_reward_counts.get(
+                        prefix, 0
+                    ) + pos_reward_counts.get(prefix, 0)
 
     for child in job_dir.iterdir():
         if not child.is_dir():
@@ -919,7 +944,9 @@ def compute_runtime_correlations(
         for job in experiment.jobs:
             for task_run in job.task_runs:
                 runtime_by_task[task_run.task_name].append(task_run.runtime_seconds)
-                feature_maps["episode_count"][task_run.task_name].append(task_run.episode_count)
+                feature_maps["episode_count"][task_run.task_name].append(
+                    task_run.episode_count
+                )
                 if task_run.input_tokens is not None:
                     feature_maps["n_input_tokens"][task_run.task_name].append(
                         float(task_run.input_tokens)
@@ -999,13 +1026,9 @@ def compute_feature_accuracy_correlation(
                 selected = []
             else:
                 if mode == "ge":
-                    selected = [
-                        pair for pair in samples if pair[0] >= threshold
-                    ]
+                    selected = [pair for pair in samples if pair[0] >= threshold]
                 else:
-                    selected = [
-                        pair for pair in samples if pair[0] <= threshold
-                    ]
+                    selected = [pair for pair in samples if pair[0] <= threshold]
         rho = spearman_rho(selected)
         results[label] = {
             "spearman_rho": rho,
@@ -1094,9 +1117,9 @@ def compute_per_experiment_feature_correlations(
             }
         )
     results.sort(
-        key=lambda entry: entry["spearman_rho"]
-        if entry["spearman_rho"] is not None
-        else 0.0,
+        key=lambda entry: (
+            entry["spearman_rho"] if entry["spearman_rho"] is not None else 0.0
+        ),
         reverse=True,
     )
     return results
@@ -1307,7 +1330,11 @@ def stage_runtime_analysis(
     stage_summary: Dict[str, object] = {}
     quantile_points = sorted(set(quantiles)) or list(DEFAULT_RUNTIME_QUANTILES)
     for stage in STAGE_OUTPUT_ORDER:
-        values = [sample.durations_seconds[stage] for sample in samples if stage in sample.durations_seconds]
+        values = [
+            sample.durations_seconds[stage]
+            for sample in samples
+            if stage in sample.durations_seconds
+        ]
         if not values:
             stage_summary[stage] = {"count": 0, "mean_seconds": None, "quantiles": []}
             continue
@@ -1326,12 +1353,15 @@ def stage_runtime_analysis(
         if "agent_execution" in sample.durations_seconds
     ]
     agent_exception_bins = exception_frequency_by_quantile(
-        [(duration, has_exception) for duration, has_exception, _ in agent_samples], quantile_points
+        [(duration, has_exception) for duration, has_exception, _ in agent_samples],
+        quantile_points,
     )
     top_exception_paths: List[Path] = []
     if agent_samples:
         top_lower_edge = normalise_quantile_edges(quantile_points)[-2]
-        for rank, (_, has_exception, sample) in enumerate(sorted(agent_samples), start=1):
+        for rank, (_, has_exception, sample) in enumerate(
+            sorted(agent_samples), start=1
+        ):
             if has_exception and rank / len(agent_samples) > top_lower_edge:
                 top_exception_paths.append(sample.result_path)
 
@@ -1375,9 +1405,7 @@ def build_summary(
             timeout_sample_count += len(job.agent_timeout_runtime_samples)
 
     timeout_average_runtime = (
-        timeout_runtime_sum / timeout_sample_count
-        if timeout_sample_count
-        else None
+        timeout_runtime_sum / timeout_sample_count if timeout_sample_count else None
     )
     total_prompt_count = prompt_stats.get("total_prompt_count", 0) or 0
     total_response_count = prompt_stats.get("total_response_count", 0) or 0
@@ -1470,17 +1498,13 @@ def plot_runtimes(
         _warn_skipped_plot("no runtime data available", output_path)
         return False
 
-    filtered.sort(
-        key=lambda item: item["overall_runtime_seconds"] or 0.0, reverse=True
-    )
+    filtered.sort(key=lambda item: item["overall_runtime_seconds"] or 0.0, reverse=True)
     labels = [item["experiment"] for item in filtered]
     wrapped_labels = [_wrap_label(label, width=56) for label in labels]
 
     metrics = [
         (
-            [
-                (item["overall_runtime_seconds"] or 0.0) / factor for item in filtered
-            ],
+            [(item["overall_runtime_seconds"] or 0.0) / factor for item in filtered],
             f"Overall job runtime ({time_unit})",
             "#1f77b4",
         ),
@@ -1571,7 +1595,9 @@ def plot_task_boxplot(
                 runtime_seconds = detail.get("runtime_seconds")
                 if not task_name or runtime_seconds is None:
                     continue
-                task_to_runtimes.setdefault(task_name, []).append(runtime_seconds / factor)
+                task_to_runtimes.setdefault(task_name, []).append(
+                    runtime_seconds / factor
+                )
 
     if not task_to_runtimes:
         _warn_skipped_plot("no per-task runtime samples available", output_path)
@@ -1609,7 +1635,10 @@ def plot_task_boxplot(
         median.set_linewidth(1.5)
 
     ax.set_xlabel(f"Single-task runtime ({time_unit})", fontsize=scaled_font)
-    ax.set_title("Single-task Runtime Distribution per Task Across Experiments", fontsize=scaled_font)
+    ax.set_title(
+        "Single-task Runtime Distribution per Task Across Experiments",
+        fontsize=scaled_font,
+    )
     ax.grid(axis="x", linestyle="--", linewidth=0.5, alpha=0.7)
     ax.margins(x=0.05, y=0.02)
     ax.tick_params(axis="both", labelsize=scaled_font)
@@ -1638,15 +1667,10 @@ def plot_task_correlation_bars(
     labels = [entry["task_name"] for entry in entries]
     wrapped_labels = [_wrap_label(label, width=56) for label in labels]
     values = [entry["spearman_rho"] for entry in entries]
-    colors = [
-        "#2ca02c" if value >= 0 else "#d62728"
-        for value in values
-    ]
+    colors = ["#2ca02c" if value >= 0 else "#d62728" for value in values]
 
     height = max(6.0, len(labels) * 0.25)
-    fig, ax = plt.subplots(
-        figsize=(12.0, height), constrained_layout=True
-    )
+    fig, ax = plt.subplots(figsize=(12.0, height), constrained_layout=True)
     y_positions = range(len(labels))
     ax.barh(y_positions, values, color=colors, alpha=0.8)
     ax.axvline(0, color="#444444", linewidth=1.0)
@@ -1732,7 +1756,9 @@ def plot_experiment_prompt_response_lengths(
     ax.invert_yaxis()
     scaled_font = _scaled_font_size()
     ax.set_xlabel("Average characters per episode", fontsize=scaled_font)
-    ax.set_title("Average Prompt and Response Length per Experiment", fontsize=scaled_font)
+    ax.set_title(
+        "Average Prompt and Response Length per Experiment", fontsize=scaled_font
+    )
     ax.grid(axis="x", linestyle="--", linewidth=0.5, alpha=0.7)
     ax.legend(fontsize=scaled_font)
     ax.margins(x=0.05, y=0.02)
@@ -1843,11 +1869,7 @@ def plot_task_solvability(
     solvability_data: List[Dict[str, object]],
     output_path: Path,
 ) -> bool:
-    entries = [
-        entry
-        for entry in solvability_data
-        if entry.get("experiments_total")
-    ]
+    entries = [entry for entry in solvability_data if entry.get("experiments_total")]
     if not entries:
         _warn_skipped_plot("no task solvability records available", output_path)
         return False
@@ -1866,9 +1888,7 @@ def plot_task_solvability(
     row_height = 0.45
     fig_height = min(36.0, max(6.0, len(labels) * row_height + 2.0))
 
-    fig, ax = plt.subplots(
-        figsize=(11.0, fig_height), constrained_layout=True
-    )
+    fig, ax = plt.subplots(figsize=(11.0, fig_height), constrained_layout=True)
     bars = ax.barh(
         base_positions,
         percents,
@@ -1992,20 +2012,17 @@ def main() -> None:
     filtered_terms = keystroke_terms["claude_gpt"]
     summary["keystroke_term_count"] = len(all_terms)
     summary["top_keystroke_terms"] = [
-        {"term": term, "count": count}
-        for term, count in all_terms.most_common(50)
+        {"term": term, "count": count} for term, count in all_terms.most_common(50)
     ]
     filtered_terms = keystroke_terms["claude_gpt"]
     summary["claude_gpt_keystroke_term_count"] = len(filtered_terms)
     summary["top_claude_gpt_keystroke_terms"] = [
-        {"term": term, "count": count}
-        for term, count in filtered_terms.most_common(50)
+        {"term": term, "count": count} for term, count in filtered_terms.most_common(50)
     ]
     qwen_terms = keystroke_terms["qwen3_8b"]
     summary["qwen3_8b_keystroke_term_count"] = len(qwen_terms)
     summary["top_qwen3_8b_keystroke_terms"] = [
-        {"term": term, "count": count}
-        for term, count in qwen_terms.most_common(50)
+        {"term": term, "count": count} for term, count in qwen_terms.most_common(50)
     ]
 
     output_json = (

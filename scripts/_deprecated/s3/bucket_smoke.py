@@ -60,7 +60,6 @@ def test_endpoint_format(endpoint: str) -> str:
     print()
     print("Checking endpoint format...")
 
-
     # Check if protocol is missing
     if not endpoint.startswith("http://") and not endpoint.startswith("https://"):
         print(f"  WARNING: Endpoint missing protocol: {endpoint}")
@@ -72,14 +71,20 @@ def test_endpoint_format(endpoint: str) -> str:
     return endpoint
 
 
-def test_boto3_connection(bucket_name: str, access_key: str, secret_key: str, endpoint: str):
+def test_boto3_connection(
+    bucket_name: str, access_key: str, secret_key: str, endpoint: str
+):
     """Test connection using boto3."""
     print()
     print("Testing boto3 connection...")
 
     try:
         import boto3
-        from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
+        from botocore.exceptions import (
+            ClientError,
+            EndpointConnectionError,
+            NoCredentialsError,
+        )
     except ImportError:
         print("  ERROR: boto3 not installed. Run: pip install boto3")
         return False
@@ -105,7 +110,9 @@ def test_boto3_connection(bucket_name: str, access_key: str, secret_key: str, en
             print("  [1/4] Listing buckets...")
             response = s3.list_buckets()
             buckets = [b["Name"] for b in response.get("Buckets", [])]
-            print(f"        Found {len(buckets)} buckets: {buckets[:5]}{'...' if len(buckets) > 5 else ''}")
+            print(
+                f"        Found {len(buckets)} buckets: {buckets[:5]}{'...' if len(buckets) > 5 else ''}"
+            )
 
             # Test 2: Check if our bucket exists
             print(f"  [2/4] Checking bucket '{bucket_name}'...")
@@ -132,11 +139,15 @@ def test_boto3_connection(bucket_name: str, access_key: str, secret_key: str, en
 
             # Test 4: Test write access (create and delete test file)
             print("  [4/4] Testing write access...")
-            test_key = f"beam-artifacts/_connection_test_{datetime.now().isoformat()}.txt"
+            test_key = (
+                f"beam-artifacts/_connection_test_{datetime.now().isoformat()}.txt"
+            )
             test_content = f"Connection test at {datetime.now().isoformat()}"
 
             try:
-                s3.put_object(Bucket=bucket_name, Key=test_key, Body=test_content.encode())
+                s3.put_object(
+                    Bucket=bucket_name, Key=test_key, Body=test_content.encode()
+                )
                 print(f"        Created test object: {test_key}")
 
                 # Read it back
@@ -180,7 +191,9 @@ def test_boto3_connection(bucket_name: str, access_key: str, secret_key: str, en
     return False
 
 
-def test_s3fs_connection(bucket_name: str, access_key: str, secret_key: str, endpoint: str):
+def test_s3fs_connection(
+    bucket_name: str, access_key: str, secret_key: str, endpoint: str
+):
     """Test connection using s3fs."""
     print()
     print("Testing s3fs connection...")

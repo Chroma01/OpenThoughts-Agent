@@ -102,8 +102,12 @@ def convert_qa_abstention(row: dict, row_idx: int) -> HarborTask | None:
         "qa-abstention",
         (uuid or prompt[:128]) + "||" + expected,
     )
-    instruction_md = _INSTRUCTION_HEADER + prompt + answer_delivery_guidance(
-        "/app/answer.txt", what="your answer in \\boxed{...} form"
+    instruction_md = (
+        _INSTRUCTION_HEADER
+        + prompt
+        + answer_delivery_guidance(
+            "/app/answer.txt", what="your answer in \\boxed{...} form"
+        )
     )
     return HarborTask(
         task_id=task_id,
@@ -121,7 +125,9 @@ def convert_qa_abstention(row: dict, row_idx: int) -> HarborTask | None:
             extra={
                 "row_index": row_idx,
                 "family": "qa_boxed_match",
-                "domain": row.get("domain") if isinstance(row.get("domain"), str) else None,
+                "domain": row.get("domain")
+                if isinstance(row.get("domain"), str)
+                else None,
                 "answerable": not is_abstain,
             },
         ),

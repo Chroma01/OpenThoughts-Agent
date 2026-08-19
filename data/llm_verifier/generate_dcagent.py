@@ -8,13 +8,11 @@ from pathlib import Path
 
 # Import from parent package
 sys.path.append(str(Path(__file__).parent.parent.parent))
-from data.commons import (
-    upload_tasks_to_hf
-)
+from data.commons import upload_tasks_to_hf
 from data.llm_verifier.utils import (
     copy_all_files_from_dataset,
     write_test_files_to_tasks,
-    download_dataset_instructions
+    download_dataset_instructions,
 )
 
 
@@ -22,16 +20,16 @@ def main() -> None:
     """Main function - coordinates the pipeline"""
     dataset_name = "DCAgent/dev_set_71_tasks"
     dataset_prefix = "llm_verifier_dcagent"
-    
+
     # Copy all files from source dataset
     source_dir = copy_all_files_from_dataset(dataset_name, dataset_prefix)
-    
+
     # Download instructions to embed in test files
     questions = download_dataset_instructions(dataset_name)
-    
+
     # Copy to new directory and write test files
     output_dir = write_test_files_to_tasks(source_dir, questions)
-    
+
     print(f"Generated tasks in: {output_dir}")
 
     # Upload to HuggingFace

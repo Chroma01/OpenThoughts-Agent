@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Generate non-leaky oracle scripts for a selected Stack-Pytest cohort."""
+
 from __future__ import annotations
 
 import argparse
@@ -33,7 +34,9 @@ def clean_script(raw: str) -> str:
 
 
 def prompt_for(task: Path) -> str:
-    requirements = (task / "tests" / "requirements.txt").read_text(encoding="utf-8").strip()
+    requirements = (
+        (task / "tests" / "requirements.txt").read_text(encoding="utf-8").strip()
+    )
     requirement_text = requirements or "None beyond pytest."
     instruction = (task / "instruction.md").read_text(encoding="utf-8")
     return f"""Create the private reference solve.sh for this task.\n\nCaptured runtime dependencies:\n{requirement_text}\n\nTask instruction:\n{instruction}"""
@@ -68,9 +71,13 @@ def generate_one(
                 raise
             time.sleep(2**attempt)
     else:  # pragma: no cover - loop either breaks or raises
-        raise RuntimeError("teacher generation exhausted without a response") from last_error
+        raise RuntimeError(
+            "teacher generation exhausted without a response"
+        ) from last_error
     output.parent.mkdir(exist_ok=True)
-    output.write_text(clean_script(response.choices[0].message.content or ""), encoding="utf-8")
+    output.write_text(
+        clean_script(response.choices[0].message.content or ""), encoding="utf-8"
+    )
     output.chmod(0o755)
     return "ok"
 
@@ -84,11 +91,17 @@ def main() -> int:
     parser.add_argument("--attempts", type=int, default=3)
     parser.add_argument("--max-completion-tokens", type=int, default=8_192)
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--task-names", nargs="+", help="Explicit task directories to regenerate")
+    parser.add_argument(
+        "--task-names", nargs="+", help="Explicit task directories to regenerate"
+    )
     args = parser.parse_args()
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY is required")
-    available = {task.name: task for task in args.tasks_dir.iterdir() if (task / "instruction.md").is_file()}
+    available = {
+        task.name: task
+        for task in args.tasks_dir.iterdir()
+        if (task / "instruction.md").is_file()
+    }
     if args.task_names:
         missing = sorted(set(args.task_names) - available.keys())
         if missing:
@@ -118,8 +131,12 @@ def main() -> int:
                 counts[future.result()] += 1
             except Exception as exc:
                 counts["error"] += 1
-                print(f"{futures[future].name}: {type(exc).__name__}: {exc}", flush=True)
-    print(f"generated={counts['ok']} skipped={counts['skipped']} errors={counts['error']}")
+                print(
+                    f"{futures[future].name}: {type(exc).__name__}: {exc}", flush=True
+                )
+    print(
+        f"generated={counts['ok']} skipped={counts['skipped']} errors={counts['error']}"
+    )
     return 0 if not counts["error"] else 1
 
 

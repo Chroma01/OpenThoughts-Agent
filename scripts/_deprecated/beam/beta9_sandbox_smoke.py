@@ -174,7 +174,9 @@ print(content, end='')
         print(f"Wrote and read file: '{read_content}'")
 
         if read_content != test_content:
-            print(f"File content mismatch! Expected '{test_content}', got '{read_content}'")
+            print(
+                f"File content mismatch! Expected '{test_content}', got '{read_content}'"
+            )
             return False
 
         print("\n=== Test Passed! ===")
@@ -275,7 +277,9 @@ def main():
             print("\nSolutions:")
             print("  - Use SSH tunnel:")
             print(f"      ssh -L {port}:{host}:{port} user@login-node")
-            print(f"      python -m scripts.beam.test_beta9_sandbox --config {args.config} --host 127.0.0.1")
+            print(
+                f"      python -m scripts.beam.test_beta9_sandbox --config {args.config} --host 127.0.0.1"
+            )
             print("  - Use VPN to access internal network")
             print("  - Ask cluster admin to expose the port")
             sys.exit(1)

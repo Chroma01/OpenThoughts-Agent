@@ -39,7 +39,9 @@ def print_stats(name: str, counts: np.ndarray) -> None:
     print(f"  max    = {np.max(counts):,.0f}")
 
 
-def distribution_bin_edges(results: list[tuple[str, np.ndarray]], bin_count: int) -> np.ndarray:
+def distribution_bin_edges(
+    results: list[tuple[str, np.ndarray]], bin_count: int
+) -> np.ndarray:
     """Build the log-scale histogram edges used for a multi-dataset comparison."""
     if bin_count < 2:
         raise ValueError("--plot-bins must be at least 2")
@@ -92,11 +94,25 @@ def plot_context_length_distributions(
     axis.set_xlabel("Token Count (log scale)", fontsize=14)
     axis.set_ylabel("Frequency", fontsize=14)
     axis.set_title(
-        title or f"Context Length Distribution Across {len(results)} Datasets", fontsize=18
+        title or f"Context Length Distribution Across {len(results)} Datasets",
+        fontsize=18,
     )
-    for cutoff, label in ((8192, "8k"), (16384, "16k"), (32768, "32k"), (65536, "64k"), (131072, "131k")):
+    for cutoff, label in (
+        (8192, "8k"),
+        (16384, "16k"),
+        (32768, "32k"),
+        (65536, "64k"),
+        (131072, "131k"),
+    ):
         axis.axvline(cutoff, color="gray", linestyle="--", alpha=0.4, linewidth=1)
-        axis.text(cutoff, axis.get_ylim()[1] * 0.95, f" {label}", fontsize=9, color="gray", va="top")
+        axis.text(
+            cutoff,
+            axis.get_ylim()[1] * 0.95,
+            f" {label}",
+            fontsize=9,
+            color="gray",
+            va="top",
+        )
     axis.legend(
         loc="upper left",
         fontsize=8,
@@ -167,9 +183,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     from transformers import AutoTokenizer
 
     print(f"Loading tokenizer: {args.tokenizer}")
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.tokenizer, trust_remote_code=True
-    )
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
 
     all_results: list[tuple[str, np.ndarray]] = []
 

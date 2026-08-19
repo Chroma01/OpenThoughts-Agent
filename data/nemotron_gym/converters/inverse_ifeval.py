@@ -149,7 +149,9 @@ def convert_inverse_ifeval(row: dict, row_idx: int) -> HarborTask | None:
                 "judge": "litellm:default(openai/gpt-4o-mini)",
                 "aggregation": "all_criteria_must_pass",
                 "n_criteria": len(criteria),
-                "language": row.get("language") if isinstance(row.get("language"), str) else None,
+                "language": row.get("language")
+                if isinstance(row.get("language"), str)
+                else None,
                 "agent_ref": (
                     row.get("agent_ref", {}).get("name")
                     if isinstance(row.get("agent_ref"), dict)

@@ -67,11 +67,16 @@ def load_progress() -> set:
 def save_progress(repo_id: str, status: str, output_repo: str = None):
     """Append a progress record."""
     with open(PROGRESS_PATH, "a") as f:
-        f.write(json.dumps({
-            "repo_id": repo_id,
-            "status": status,
-            "output_repo": output_repo,
-        }) + "\n")
+        f.write(
+            json.dumps(
+                {
+                    "repo_id": repo_id,
+                    "status": status,
+                    "output_repo": output_repo,
+                }
+            )
+            + "\n"
+        )
 
 
 def main():
@@ -105,11 +110,15 @@ def main():
             upsampled_repo = get_upsampled_repo_id(repo_id)
 
             if repo_id in done:
-                print(f"[{i}/{len(actionable)}] {repo_id} -> already done, using {upsampled_repo}")
+                print(
+                    f"[{i}/{len(actionable)}] {repo_id} -> already done, using {upsampled_repo}"
+                )
                 launch_entries.append(upsampled_repo)
                 continue
 
-            print(f"\n[{i}/{len(actionable)}] Upsampling {repo_id} ({rec['num_tasks']} -> {TARGET_TASKS}) ...")
+            print(
+                f"\n[{i}/{len(actionable)}] Upsampling {repo_id} ({rec['num_tasks']} -> {TARGET_TASKS}) ..."
+            )
             try:
                 task_base = from_hf_dataset(repo_id)
                 upsampled_path = upsample_tasks_directory(task_base, TARGET_TASKS)

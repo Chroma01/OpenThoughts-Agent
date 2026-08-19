@@ -19,6 +19,7 @@ task its nearest CodeNet problem. Output is a parquet mapping:
 Downstream (``build_v3.py --match_map``) writes the matched clean I/O into
 ``tests/inputs``/``tests/outputs`` and the reference ``code`` into ``solution/solve.sh``.
 """
+
 from __future__ import annotations
 import argparse
 import gzip
@@ -35,10 +36,12 @@ EMB_MODEL = "text-embedding-3-small"
 
 
 def strip_markup(t: str) -> str:
-    t = re.sub(r"```.*?```", " ", t, flags=re.S)   # drop fenced code (often hallucinated)
-    t = re.sub(r"<[^>]+>", " ", t)                 # html tags (CodeNet desc)
+    t = re.sub(
+        r"```.*?```", " ", t, flags=re.S
+    )  # drop fenced code (often hallucinated)
+    t = re.sub(r"<[^>]+>", " ", t)  # html tags (CodeNet desc)
     t = html.unescape(t)
-    t = re.sub(r"[#*`_$\\]", " ", t)               # markdown / latex noise
+    t = re.sub(r"[#*`_$\\]", " ", t)  # markdown / latex noise
     return re.sub(r"\s+", " ", t).strip()
 
 
@@ -49,7 +52,7 @@ def embed_all(client: OpenAI, texts: list[str], batch: int = 256) -> np.ndarray:
         r = client.embeddings.create(model=EMB_MODEL, input=chunk)
         out.extend([d.embedding for d in r.data])
         if (i // batch) % 10 == 0:
-            print(f"  embedded {i+len(chunk)}/{len(texts)}", flush=True)
+            print(f"  embedded {i + len(chunk)}/{len(texts)}", flush=True)
     a = np.array(out, dtype=np.float32)
     return a / (np.linalg.norm(a, axis=1, keepdims=True) + 1e-9)
 
@@ -62,8 +65,11 @@ def task_instruction(task_binary: bytes) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tasks_parquet", required=True)
-    ap.add_argument("--problems_parquet", required=True,
-                    help="windchimeran per-problem map: problem_id, code, input, output, problem_description")
+    ap.add_argument(
+        "--problems_parquet",
+        required=True,
+        help="windchimeran per-problem map: problem_id, code, input, output, problem_description",
+    )
     ap.add_argument("--out_map", required=True)
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
@@ -79,7 +85,9 @@ def main() -> int:
     if args.limit:
         df = df.iloc[: args.limit]
     print(f"embedding {len(df)} tasks...", flush=True)
-    temb = embed_all(client, [strip_markup(task_instruction(b)) for b in df["task_binary"]])
+    temb = embed_all(
+        client, [strip_markup(task_instruction(b)) for b in df["task_binary"]]
+    )
 
     # nearest neighbour (chunked matmul to bound memory)
     best = np.empty(len(df), dtype=np.int64)
@@ -93,20 +101,25 @@ def main() -> int:
     rows = []
     for i, path in enumerate(df["path"].tolist()):
         pr = prob.iloc[best[i]]
-        rows.append({
-            "path": path,
-            "problem_id": pr["problem_id"],
-            "sim": float(bsim[i]),
-            "input": pr["input"],
-            "output": pr["output"],
-            "code": pr["code"],
-        })
+        rows.append(
+            {
+                "path": path,
+                "problem_id": pr["problem_id"],
+                "sim": float(bsim[i]),
+                "input": pr["input"],
+                "output": pr["output"],
+                "code": pr["code"],
+            }
+        )
     out = pd.DataFrame(rows)
     out.to_parquet(args.out_map, index=False)
     print(f"wrote {len(out)} -> {args.out_map}")
     for thr in (0.6, 0.65, 0.7, 0.75, 0.8):
-        print(f"  sim>={thr}: {(out['sim']>=thr).sum()}")
-    print("sim quantiles:", out["sim"].quantile([0, .1, .25, .5, .75, .9, 1]).round(3).to_dict())
+        print(f"  sim>={thr}: {(out['sim'] >= thr).sum()}")
+    print(
+        "sim quantiles:",
+        out["sim"].quantile([0, 0.1, 0.25, 0.5, 0.75, 0.9, 1]).round(3).to_dict(),
+    )
     return 0
 
 

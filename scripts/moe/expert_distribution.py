@@ -300,7 +300,9 @@ def layer_stats(counts: np.ndarray, token_slots: int, top_loaded: int) -> dict:
     }
 
 
-def build_report(capture: RouterCapture, top_loaded: int, collapsed_layers: int) -> dict:
+def build_report(
+    capture: RouterCapture, top_loaded: int, collapsed_layers: int
+) -> dict:
     per_layer: dict[str, dict] = {}
     global_counts = np.zeros(capture.num_experts, dtype=np.int64)
     global_slots = 0
@@ -357,33 +359,49 @@ def print_report(report: dict, top_loaded: int) -> None:
         f"MoE layers: {report['num_moe_layers']}   "
         f"experts/layer: {report['num_experts']}   top_k: {report['top_k']}"
     )
-    print(f"Total routed token-slots: {g['token_slots']:,}   "
-          f"total selections: {g['total_selections']:,}")
+    print(
+        f"Total routed token-slots: {g['token_slots']:,}   "
+        f"total selections: {g['total_selections']:,}"
+    )
     print()
     print("GLOBAL (all layers aggregated)")
     print(f"  normalized entropy : {g['entropy_normalized']:.4f}  (1.0 = uniform)")
     print(f"  gini               : {g['gini']:.4f}  (0 = equal, ->1 = concentrated)")
     print(f"  dead experts       : {g['dead_experts']} / {g['num_experts']}")
     print(f"  underused (<0.1x)  : {g['underused_experts']} / {g['num_experts']}")
-    print(f"  load max/mean/min  : {g['load_max']:.4f} / {g['load_mean']:.4f} / {g['load_min']:.4f}")
-    print(f"  max/mean uniform-x : {g['max_uniform_ratio']:.2f}x / {g['mean_uniform_ratio']:.2f}x")
-    print(f"  top {top_loaded} experts     : "
-          + ", ".join(f"e{e['expert']}({e['load']:.3f})" for e in g["top_experts"]))
-    print(f"  bottom {top_loaded} experts  : "
-          + ", ".join(f"e{e['expert']}({e['load']:.3f})" for e in g["bottom_experts"]))
+    print(
+        f"  load max/mean/min  : {g['load_max']:.4f} / {g['load_mean']:.4f} / {g['load_min']:.4f}"
+    )
+    print(
+        f"  max/mean uniform-x : {g['max_uniform_ratio']:.2f}x / {g['mean_uniform_ratio']:.2f}x"
+    )
+    print(
+        f"  top {top_loaded} experts     : "
+        + ", ".join(f"e{e['expert']}({e['load']:.3f})" for e in g["top_experts"])
+    )
+    print(
+        f"  bottom {top_loaded} experts  : "
+        + ", ".join(f"e{e['expert']}({e['load']:.3f})" for e in g["bottom_experts"])
+    )
     print()
 
     ed = report["layer_entropy_distribution"]
     gd = report["layer_gini_distribution"]
-    print("PER-LAYER ENTROPY  min/mean/max/std : "
-          f"{ed['min']:.4f} / {ed['mean']:.4f} / {ed['max']:.4f} / {ed['std']:.4f}")
-    print("PER-LAYER GINI     min/mean/max/std : "
-          f"{gd['min']:.4f} / {gd['mean']:.4f} / {gd['max']:.4f} / {gd['std']:.4f}")
+    print(
+        "PER-LAYER ENTROPY  min/mean/max/std : "
+        f"{ed['min']:.4f} / {ed['mean']:.4f} / {ed['max']:.4f} / {ed['std']:.4f}"
+    )
+    print(
+        "PER-LAYER GINI     min/mean/max/std : "
+        f"{gd['min']:.4f} / {gd['mean']:.4f} / {gd['max']:.4f} / {gd['std']:.4f}"
+    )
     print()
 
     print("MOST-COLLAPSED LAYERS (lowest entropy):")
     for item in report["most_collapsed_layers"]:
-        print(f"  {item['layer']:<48} H={item['entropy_normalized']:.4f}  G={item['gini']:.4f}")
+        print(
+            f"  {item['layer']:<48} H={item['entropy_normalized']:.4f}  G={item['gini']:.4f}"
+        )
     print()
 
     print("PER-LAYER TABLE")
@@ -391,14 +409,17 @@ def print_report(report: dict, top_loaded: int) -> None:
     print(hdr)
     print("  " + "-" * (len(hdr) - 2))
     for name, s in report["per_layer"].items():
-        print(f"  {name:<46} {s['entropy_normalized']:>7.4f} {s['gini']:>7.4f} "
-              f"{s['dead_experts']:>5} {s['max_uniform_ratio']:>6.2f}x")
+        print(
+            f"  {name:<46} {s['entropy_normalized']:>7.4f} {s['gini']:>7.4f} "
+            f"{s['dead_experts']:>5} {s['max_uniform_ratio']:>6.2f}x"
+        )
     print(line)
 
 
 def save_plots(report: dict, prefix: str) -> list[str]:
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except Exception as exc:  # pragma: no cover - environment dependent
@@ -533,7 +554,9 @@ def rows_to_input_ids(rows, tokenizer, text_field, messages_field, max_tokens):
                 skipped += 1
                 continue
             ids = tokenizer.apply_chat_template(
-                msgs, tokenize=True, add_generation_prompt=False,
+                msgs,
+                tokenize=True,
+                add_generation_prompt=False,
             )
         else:
             txt = row.get(text_field)
@@ -618,14 +641,17 @@ def self_test() -> int:
     log("=== SELF-TEST: tiny random Qwen3-MoE on CPU ===")
     model, cfg = _build_tiny_moe()
     num_experts, top_k, norm = _model_moe_params(model)
-    log(f"tiny config: layers={cfg.num_hidden_layers} experts={num_experts} "
-        f"top_k={top_k} hidden={cfg.hidden_size}")
+    log(
+        f"tiny config: layers={cfg.num_hidden_layers} experts={num_experts} "
+        f"top_k={top_k} hidden={cfg.hidden_size}"
+    )
 
     capture = RouterCapture(num_experts, top_k, norm)
     n_hooked = capture.attach(model)
     expected_moe_layers = cfg.num_hidden_layers  # decoder_sparse_step=1
     assert n_hooked == expected_moe_layers, (
-        f"hooked {n_hooked} gates, expected {expected_moe_layers}")
+        f"hooked {n_hooked} gates, expected {expected_moe_layers}"
+    )
     log(f"PASS: hooked {n_hooked} MoE gate modules (one per layer)")
 
     # Synthetic prompts.
@@ -636,7 +662,8 @@ def self_test() -> int:
 
     # Hooks fire on every layer.
     assert len(capture.layer_names) == expected_moe_layers, (
-        f"only {len(capture.layer_names)} layers recorded selections")
+        f"only {len(capture.layer_names)} layers recorded selections"
+    )
     log(f"PASS: all {expected_moe_layers} MoE layers recorded selections")
 
     # Count conservation: total selections == tokens * top_k * num_moe_layers.
@@ -647,7 +674,9 @@ def self_test() -> int:
     # And per layer: tokens * top_k.
     for name, c in capture.counts.items():
         assert int(c.sum()) == total_tokens * top_k, f"layer {name} bad count"
-    log(f"PASS: every layer has exactly tokens*top_k = {total_tokens * top_k} selections")
+    log(
+        f"PASS: every layer has exactly tokens*top_k = {total_tokens * top_k} selections"
+    )
 
     # --- stats math sanity ---
     n = 16
@@ -667,8 +696,10 @@ def self_test() -> int:
     assert _approx(h_s, 0.0, 1e-12), f"single entropy {h_s} != 0.0"
     assert _approx(g_s, (n - 1) / n, 1e-9), f"single gini {g_s} != {(n - 1) / n}"
     assert dead_s == n - 1, f"single dead {dead_s} != {n - 1}"
-    log(f"PASS: forced-single -> entropy={h_s:.6f} (=0.0), gini={g_s:.6f} "
-        f"(=(n-1)/n={ (n-1)/n:.6f}), dead={dead_s} (=n-1={n-1})")
+    log(
+        f"PASS: forced-single -> entropy={h_s:.6f} (=0.0), gini={g_s:.6f} "
+        f"(=(n-1)/n={(n - 1) / n:.6f}), dead={dead_s} (=n-1={n - 1})"
+    )
 
     # Build + print + (round-trip) the full report on the real tiny run.
     report = build_report(capture, top_loaded=3, collapsed_layers=2)

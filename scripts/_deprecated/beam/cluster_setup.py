@@ -112,19 +112,24 @@ def cmd_create(args) -> int:
     if s3_config:
         logger.info(f"Using external S3 storage: {s3_config.endpoint_url}")
     else:
-        logger.warning("S3 storage not configured - using LocalStack (not recommended for production)")
+        logger.warning(
+            "S3 storage not configured - using LocalStack (not recommended for production)"
+        )
 
     pinggy_config = None
     lb_config = None
 
     if args.expose_method == "pinggy":
         if not args.pinggy_url or not args.pinggy_token:
-            logger.error("--pinggy-url and --pinggy-token required when expose-method=pinggy")
+            logger.error(
+                "--pinggy-url and --pinggy-token required when expose-method=pinggy"
+            )
             return 1
         pinggy_config = PinggyConfig(
             persistent_url=args.pinggy_url,
             token=args.pinggy_token,
-            identity_file=os.environ.get("PINGGY_IDENTITY_FILE") or os.environ.get("PINGGY_SSH_KEY"),
+            identity_file=os.environ.get("PINGGY_IDENTITY_FILE")
+            or os.environ.get("PINGGY_SSH_KEY"),
         )
     elif args.expose_method == "loadbalancer":
         lb_config = LoadBalancerConfig()
@@ -172,8 +177,10 @@ def cmd_create(args) -> int:
     if not args.skip_expose:
         if args.expose_method == "pinggy":
             pf_proc, tunnel_proc, public_url = setup_pinggy_exposure(
-                beta9_config, pinggy_config, dry_run=args.dry_run,
-                secrets_path=getattr(args, 'secrets_env', None)
+                beta9_config,
+                pinggy_config,
+                dry_run=args.dry_run,
+                secrets_path=getattr(args, "secrets_env", None),
             )
             if not args.dry_run and (pf_proc is None or tunnel_proc is None):
                 logger.error("Failed to set up Pinggy exposure")
@@ -198,7 +205,9 @@ def cmd_create(args) -> int:
         logger.info("Running validation tests...")
         # Use port 443 for Pinggy (TLS tunnel), 1993 for direct gRPC access
         gateway_port = 443 if args.expose_method == "pinggy" else 1993
-        report = run_validation_suite(public_url, num_lifecycle_tests=2, gateway_port=gateway_port)
+        report = run_validation_suite(
+            public_url, num_lifecycle_tests=2, gateway_port=gateway_port
+        )
         if report.failed > 0:
             logger.warning(f"Validation: {report.failed} tests failed")
     else:
@@ -217,7 +226,9 @@ def cmd_create(args) -> int:
         logger.info(f"  Public URL:   {public_url}")
         logger.info("")
         logger.info("To use with Harbor/beta9 SDK, set:")
-        logger.info(f"  export BETA9_GATEWAY_HOST={public_url.replace('https://', '').replace('http://', '')}")
+        logger.info(
+            f"  export BETA9_GATEWAY_HOST={public_url.replace('https://', '').replace('http://', '')}"
+        )
     logger.info("=" * 60)
 
     if args.expose_method == "pinggy" and not args.dry_run:
@@ -227,6 +238,7 @@ def cmd_create(args) -> int:
         try:
             # Keep script running to maintain tunnel
             import time
+
             while True:
                 time.sleep(60)
         except KeyboardInterrupt:
@@ -310,10 +322,10 @@ def cmd_status(args) -> int:
     logger.info(f"  Gateway Ready:   {deployment_status['gateway_ready']}")
     logger.info(f"  Worker Ready:    {deployment_status['worker_ready']}")
 
-    if deployment_status['pods']:
+    if deployment_status["pods"]:
         logger.info("  Pods:")
-        for pod in deployment_status['pods']:
-            ready = "Ready" if pod['ready'] else "Not Ready"
+        for pod in deployment_status["pods"]:
+            ready = "Ready" if pod["ready"] else "Not Ready"
             logger.info(f"    - {pod['name']}: {pod['phase']} ({ready})")
 
     logger.info("=" * 60)
@@ -329,7 +341,7 @@ def cmd_validate(args) -> int:
         return 1
 
     # Use port 443 for Pinggy (TLS tunnel), 1993 for direct gRPC access
-    gateway_port = getattr(args, 'gateway_port', 443)
+    gateway_port = getattr(args, "gateway_port", 443)
 
     report = run_validation_suite(
         args.gateway_url,
@@ -367,12 +379,15 @@ def cmd_test(args) -> int:
 
     if args.expose_method == "pinggy":
         if not args.pinggy_url or not args.pinggy_token:
-            logger.error("--pinggy-url and --pinggy-token required when expose-method=pinggy")
+            logger.error(
+                "--pinggy-url and --pinggy-token required when expose-method=pinggy"
+            )
             return 1
         pinggy_config = PinggyConfig(
             persistent_url=args.pinggy_url,
             token=args.pinggy_token,
-            identity_file=os.environ.get("PINGGY_IDENTITY_FILE") or os.environ.get("PINGGY_SSH_KEY"),
+            identity_file=os.environ.get("PINGGY_IDENTITY_FILE")
+            or os.environ.get("PINGGY_SSH_KEY"),
         )
     elif args.expose_method == "loadbalancer":
         lb_config = LoadBalancerConfig()
@@ -391,7 +406,6 @@ def cmd_test(args) -> int:
         return 1
 
     try:
-
         # Step 1: Create GKE cluster
         logger.info("")
         logger.info("[1/5] Creating GKE cluster...")
@@ -416,36 +430,52 @@ def cmd_test(args) -> int:
         logger.info("[2/5] Initializing S3 storage for artifact caching...")
         if not s3_config:
             logger.error("S3 storage not configured!")
-            logger.error("Required environment variables: LAION_BUCKET_NAME, LAION_ACCESS_KEY, LAION_SECRET_KEY, LAION_ENDPOINT")
-            logger.error("Please source your secrets.env file before running this command.")
+            logger.error(
+                "Required environment variables: LAION_BUCKET_NAME, LAION_ACCESS_KEY, LAION_SECRET_KEY, LAION_ENDPOINT"
+            )
+            logger.error(
+                "Please source your secrets.env file before running this command."
+            )
             raise RuntimeError("S3 storage configuration required but not found")
 
         s3_storage = S3Storage(s3_config)
         if not args.dry_run:
             if not s3_storage.ensure_namespace_exists():
-                logger.error(f"Failed to initialize S3 storage at s3://{s3_config.bucket_name}/{s3_config.namespace}/")
+                logger.error(
+                    f"Failed to initialize S3 storage at s3://{s3_config.bucket_name}/{s3_config.namespace}/"
+                )
                 raise RuntimeError("S3 storage initialization failed")
 
-            logger.info(f"S3 storage ready: s3://{s3_config.bucket_name}/{s3_config.namespace}/")
+            logger.info(
+                f"S3 storage ready: s3://{s3_config.bucket_name}/{s3_config.namespace}/"
+            )
 
             # Clean up JuiceFS storage from previous deployments
             # JuiceFS refuses to format if the storage path is not empty
-            logger.info(f"Cleaning up JuiceFS storage ({beta9_config.juicefs_fs_name}) from previous deployments...")
+            logger.info(
+                f"Cleaning up JuiceFS storage ({beta9_config.juicefs_fs_name}) from previous deployments..."
+            )
             if not cleanup_juicefs_storage(
                 bucket_name=s3_config.bucket_name,
                 juicefs_prefix=beta9_config.juicefs_fs_name,
             ):
-                logger.warning("JuiceFS cleanup failed - deployment may fail if storage is not empty")
+                logger.warning(
+                    "JuiceFS cleanup failed - deployment may fail if storage is not empty"
+                )
             # List existing cached artifacts
             artifacts = s3_storage.list_artifacts()
             if artifacts:
-                logger.info(f"Found {len(artifacts)} cached artifacts available for reuse")
+                logger.info(
+                    f"Found {len(artifacts)} cached artifacts available for reuse"
+                )
                 for artifact in artifacts[:5]:  # Show first 5
                     logger.info(f"  - {artifact.get('image_name', 'unknown')}")
                 if len(artifacts) > 5:
                     logger.info(f"  ... and {len(artifacts) - 5} more")
         else:
-            logger.info(f"[DRY-RUN] Would initialize S3 storage: s3://{s3_config.bucket_name}/{s3_config.namespace}/")
+            logger.info(
+                f"[DRY-RUN] Would initialize S3 storage: s3://{s3_config.bucket_name}/{s3_config.namespace}/"
+            )
 
         # Step 3: Deploy Beta9
         logger.info("")
@@ -466,8 +496,10 @@ def cmd_test(args) -> int:
         logger.info("[4/5] Exposing cluster...")
         if args.expose_method == "pinggy":
             pf_proc, tunnel_proc, public_url = setup_pinggy_exposure(
-                beta9_config, pinggy_config, dry_run=args.dry_run,
-                secrets_path=getattr(args, 'secrets_env', None)
+                beta9_config,
+                pinggy_config,
+                dry_run=args.dry_run,
+                secrets_path=getattr(args, "secrets_env", None),
             )
             if not args.dry_run and (pf_proc is None or tunnel_proc is None):
                 logger.error("Failed to set up Pinggy exposure")
@@ -588,73 +620,155 @@ Examples:
     )
 
     # Global options
-    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Enable verbose logging"
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Create command
-    create_parser = subparsers.add_parser("create", help="Create GKE cluster and deploy Beta9")
+    create_parser = subparsers.add_parser(
+        "create", help="Create GKE cluster and deploy Beta9"
+    )
     create_parser.add_argument("--project-id", required=True, help="GCP project ID")
-    create_parser.add_argument("--cluster-name", default="beam-sandbox-cluster", help="GKE cluster name")
+    create_parser.add_argument(
+        "--cluster-name", default="beam-sandbox-cluster", help="GKE cluster name"
+    )
     create_parser.add_argument("--region", default="us-central1", help="GCP region")
-    create_parser.add_argument("--num-nodes", type=int, default=8, help="Number of CPU nodes")
-    create_parser.add_argument("--machine-type", default="e2-standard-4", help="GCE machine type")
-    create_parser.add_argument("--expose-method", choices=["pinggy", "loadbalancer"], default="loadbalancer",
-                               help="How to expose cluster")
+    create_parser.add_argument(
+        "--num-nodes", type=int, default=8, help="Number of CPU nodes"
+    )
+    create_parser.add_argument(
+        "--machine-type", default="e2-standard-4", help="GCE machine type"
+    )
+    create_parser.add_argument(
+        "--expose-method",
+        choices=["pinggy", "loadbalancer"],
+        default="loadbalancer",
+        help="How to expose cluster",
+    )
     create_parser.add_argument("--pinggy-url", help="Pinggy persistent URL")
     create_parser.add_argument("--pinggy-token", help="Pinggy auth token")
-    create_parser.add_argument("--secrets-env", help="Path to secrets.env file (default: ~/Documents/secrets.env)")
-    create_parser.add_argument("--skip-gke", action="store_true", help="Skip GKE provisioning")
-    create_parser.add_argument("--skip-beta9", action="store_true", help="Skip Beta9 deployment")
-    create_parser.add_argument("--skip-expose", action="store_true", help="Skip internet exposure")
-    create_parser.add_argument("--skip-validation", action="store_true", help="Skip validation tests")
-    create_parser.add_argument("--juicefs-prefix", default="beta9-fs",
-                               help="JuiceFS S3 prefix (change for multiple clusters)")
-    create_parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
+    create_parser.add_argument(
+        "--secrets-env",
+        help="Path to secrets.env file (default: ~/Documents/secrets.env)",
+    )
+    create_parser.add_argument(
+        "--skip-gke", action="store_true", help="Skip GKE provisioning"
+    )
+    create_parser.add_argument(
+        "--skip-beta9", action="store_true", help="Skip Beta9 deployment"
+    )
+    create_parser.add_argument(
+        "--skip-expose", action="store_true", help="Skip internet exposure"
+    )
+    create_parser.add_argument(
+        "--skip-validation", action="store_true", help="Skip validation tests"
+    )
+    create_parser.add_argument(
+        "--juicefs-prefix",
+        default="beta9-fs",
+        help="JuiceFS S3 prefix (change for multiple clusters)",
+    )
+    create_parser.add_argument(
+        "--dry-run", action="store_true", help="Print commands without executing"
+    )
 
     # Destroy command
-    destroy_parser = subparsers.add_parser("destroy", help="Tear down cluster and Beta9")
+    destroy_parser = subparsers.add_parser(
+        "destroy", help="Tear down cluster and Beta9"
+    )
     destroy_parser.add_argument("--project-id", required=True, help="GCP project ID")
-    destroy_parser.add_argument("--cluster-name", default="beam-sandbox-cluster", help="GKE cluster name")
+    destroy_parser.add_argument(
+        "--cluster-name", default="beam-sandbox-cluster", help="GKE cluster name"
+    )
     destroy_parser.add_argument("--region", default="us-central1", help="GCP region")
-    destroy_parser.add_argument("--skip-gke", action="store_true", help="Skip GKE deletion")
-    destroy_parser.add_argument("--skip-beta9", action="store_true", help="Skip Beta9 uninstall")
-    destroy_parser.add_argument("--juicefs-prefix", default="beta9-fs",
-                               help="JuiceFS S3 prefix (for cleaning up storage)")
-    destroy_parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
+    destroy_parser.add_argument(
+        "--skip-gke", action="store_true", help="Skip GKE deletion"
+    )
+    destroy_parser.add_argument(
+        "--skip-beta9", action="store_true", help="Skip Beta9 uninstall"
+    )
+    destroy_parser.add_argument(
+        "--juicefs-prefix",
+        default="beta9-fs",
+        help="JuiceFS S3 prefix (for cleaning up storage)",
+    )
+    destroy_parser.add_argument(
+        "--dry-run", action="store_true", help="Print commands without executing"
+    )
 
     # Status command
     status_parser = subparsers.add_parser("status", help="Show cluster status")
     status_parser.add_argument("--project-id", required=True, help="GCP project ID")
-    status_parser.add_argument("--cluster-name", default="beam-sandbox-cluster", help="GKE cluster name")
+    status_parser.add_argument(
+        "--cluster-name", default="beam-sandbox-cluster", help="GKE cluster name"
+    )
     status_parser.add_argument("--region", default="us-central1", help="GCP region")
 
     # Validate command
     validate_parser = subparsers.add_parser("validate", help="Run validation tests")
     validate_parser.add_argument("--gateway-url", help="Beta9 gateway URL")
-    validate_parser.add_argument("--gateway-port", type=int, default=443,
-                                 help="Gateway gRPC port (443 for Pinggy tunnels, 1993 for direct)")
-    validate_parser.add_argument("--num-tests", type=int, default=3, help="Number of lifecycle tests")
-    validate_parser.add_argument("--skip-isolation", action="store_true", help="Skip isolation test")
+    validate_parser.add_argument(
+        "--gateway-port",
+        type=int,
+        default=443,
+        help="Gateway gRPC port (443 for Pinggy tunnels, 1993 for direct)",
+    )
+    validate_parser.add_argument(
+        "--num-tests", type=int, default=3, help="Number of lifecycle tests"
+    )
+    validate_parser.add_argument(
+        "--skip-isolation", action="store_true", help="Skip isolation test"
+    )
 
     # Test command (create -> validate -> destroy)
-    test_parser = subparsers.add_parser("test", help="Create cluster, validate, then tear down")
+    test_parser = subparsers.add_parser(
+        "test", help="Create cluster, validate, then tear down"
+    )
     test_parser.add_argument("--project-id", required=True, help="GCP project ID")
-    test_parser.add_argument("--cluster-name", default="beam-test-cluster", help="GKE cluster name")
+    test_parser.add_argument(
+        "--cluster-name", default="beam-test-cluster", help="GKE cluster name"
+    )
     test_parser.add_argument("--region", default="us-central1", help="GCP region")
-    test_parser.add_argument("--num-nodes", type=int, default=2, help="Number of CPU nodes (default: 2 for testing)")
-    test_parser.add_argument("--machine-type", default="e2-standard-4", help="GCE machine type")
-    test_parser.add_argument("--expose-method", choices=["pinggy", "loadbalancer"], default="loadbalancer",
-                             help="How to expose cluster (default: loadbalancer for testing)")
+    test_parser.add_argument(
+        "--num-nodes",
+        type=int,
+        default=2,
+        help="Number of CPU nodes (default: 2 for testing)",
+    )
+    test_parser.add_argument(
+        "--machine-type", default="e2-standard-4", help="GCE machine type"
+    )
+    test_parser.add_argument(
+        "--expose-method",
+        choices=["pinggy", "loadbalancer"],
+        default="loadbalancer",
+        help="How to expose cluster (default: loadbalancer for testing)",
+    )
     test_parser.add_argument("--pinggy-url", help="Pinggy persistent URL")
     test_parser.add_argument("--pinggy-token", help="Pinggy auth token")
-    test_parser.add_argument("--secrets-env", help="Path to secrets.env file (default: ~/Documents/secrets.env)")
-    test_parser.add_argument("--num-tests", type=int, default=3, help="Number of validation tests")
-    test_parser.add_argument("--skip-isolation", action="store_true", help="Skip isolation test")
-    test_parser.add_argument("--keep-cluster", action="store_true", help="Don't delete cluster after test")
-    test_parser.add_argument("--juicefs-prefix", default="beta9-fs",
-                               help="JuiceFS S3 prefix (change for multiple clusters)")
-    test_parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
+    test_parser.add_argument(
+        "--secrets-env",
+        help="Path to secrets.env file (default: ~/Documents/secrets.env)",
+    )
+    test_parser.add_argument(
+        "--num-tests", type=int, default=3, help="Number of validation tests"
+    )
+    test_parser.add_argument(
+        "--skip-isolation", action="store_true", help="Skip isolation test"
+    )
+    test_parser.add_argument(
+        "--keep-cluster", action="store_true", help="Don't delete cluster after test"
+    )
+    test_parser.add_argument(
+        "--juicefs-prefix",
+        default="beta9-fs",
+        help="JuiceFS S3 prefix (change for multiple clusters)",
+    )
+    test_parser.add_argument(
+        "--dry-run", action="store_true", help="Print commands without executing"
+    )
 
     args = parser.parse_args()
 

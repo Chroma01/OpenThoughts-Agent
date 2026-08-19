@@ -53,7 +53,9 @@ from . import register
 from ._common import extract_prompt
 
 _BASE_IMAGE = "python:3.11-slim-bookworm"
-_MAX_CONVERSATION_BYTES = 160 * 1024  # largest observed context ≈ 142KB; global cap is 256KB
+_MAX_CONVERSATION_BYTES = (
+    160 * 1024
+)  # largest observed context ≈ 142KB; global cap is 256KB
 _MAX_QUESTION_BYTES = 8 * 1024
 _MAX_CRITERIA = 12  # dataset max observed is 6
 _INSTRUCTION_HEADER = (
@@ -181,14 +183,20 @@ def convert_multiturn_chat(row: dict, row_idx: int) -> HarborTask | None:
                 "aggregation": "all_criteria_must_pass",
                 "n_criteria": len(criteria),
                 "topic": md.get("topic") if isinstance(md.get("topic"), str) else None,
-                "challenge": md.get("challenge") if isinstance(md.get("challenge"), str) else None,
-                "turns": md.get("turns") if isinstance(md.get("turns"), (str, int)) else None,
+                "challenge": md.get("challenge")
+                if isinstance(md.get("challenge"), str)
+                else None,
+                "turns": md.get("turns")
+                if isinstance(md.get("turns"), (str, int))
+                else None,
                 "agent_ref": (
                     row.get("agent_ref", {}).get("name")
                     if isinstance(row.get("agent_ref"), dict)
                     else None
                 ),
-                "pass_rate": row.get("pass_rate") if isinstance(row.get("pass_rate"), (int, float)) else None,
+                "pass_rate": row.get("pass_rate")
+                if isinstance(row.get("pass_rate"), (int, float))
+                else None,
             },
         ),
     )

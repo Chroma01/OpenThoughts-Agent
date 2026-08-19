@@ -6,31 +6,31 @@ This script is a patched version of `generate.py` that fixes environment and ver
 to ensure 100% compatibility with the authors' original "source of truth."
 
 ENVIRONMENT & BUILD FIXES:
-- Miniconda Architecture: Switched from system Python/venv to Miniconda for 100% author 
+- Miniconda Architecture: Switched from system Python/venv to Miniconda for 100% author
   consistency and total isolation from system packages (prevents blinker/pyparsing crashes).
-- Dynamic Python Versioning: Mapped repositories to specific Python versions (e.g., 
+- Dynamic Python Versioning: Mapped repositories to specific Python versions (e.g.,
   Moto 3.x uses 3.7, 5.x uses 3.12) via isolated Conda environments.
 - Image Efficiency: Keeps unique Dockerfile count < 10 by grouping tasks by Python version
   and unionizing system dependencies (apt packages) within each group.
-- Legacy Build Fix: Implemented the authors' `cython<3` PIP_CONSTRAINT fix to resolve 
+- Legacy Build Fix: Implemented the authors' `cython<3` PIP_CONSTRAINT fix to resolve
   PyYAML and other legacy build-time crashes in older repositories.
-- Compiler Headers: Set `C_INCLUDE_PATH` in the Dockerfile to ensure `gcc` finds `Python.h` 
+- Compiler Headers: Set `C_INCLUDE_PATH` in the Dockerfile to ensure `gcc` finds `Python.h`
   for all Conda-installed Python versions.
-- Repo-Specific Logic: Integrated exact installation commands (like `make init` for Moto) 
+- Repo-Specific Logic: Integrated exact installation commands (like `make init` for Moto)
   from the authors' specifications.
-- Database Headers: Includes `libpq-dev` in the unionized system dependencies for 
+- Database Headers: Includes `libpq-dev` in the unionized system dependencies for
   Python 3.8+ groups to ensure `psycopg2` and other database drivers can compile.
 
 VERIFICATION & INTEGRITY FIXES:
-- Resilient Testing: `test.sh` now captures `pytest` Exit Code 4 to safely skip test 
+- Resilient Testing: `test.sh` now captures `pytest` Exit Code 4 to safely skip test
   cases that were truncated in the source dataset's metadata.
-- Bash Expansion Safety: Used single-quotes for `PASS_TESTS` and `FAIL_TESTS` arrays to 
+- Bash Expansion Safety: Used single-quotes for `PASS_TESTS` and `FAIL_TESTS` arrays to
   prevent accidental `$s` variable expansion.
-- Patch Integrity: Replaced `.rstrip()` with `.strip('\n')` when rendering patches to 
+- Patch Integrity: Replaced `.rstrip()` with `.strip('\n')` when rendering patches to
   preserve crucial trailing spaces in context lines, preventing "corrupt patch" errors.
-- Library Compatibility: Patches the `sure` assertion library at runtime to fix 
+- Library Compatibility: Patches the `sure` assertion library at runtime to fix
   `AttributeError` related to `re._pattern_type` in Python 3.7+ environments.
-- Increased Timeouts: Raised default verifier timeout to 600s to accommodate runtime 
+- Increased Timeouts: Raised default verifier timeout to 600s to accommodate runtime
   environment setup and dependency installation.
 """
 
@@ -76,7 +76,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def add_swegym_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser.add_argument("--split", type=str, default="train", help="Dataset split to load.")
+    parser.add_argument(
+        "--split", type=str, default="train", help="Dataset split to load."
+    )
     parser.add_argument(
         "--limit",
         type=int,
@@ -128,6 +130,7 @@ def add_swegym_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 # --------------------------------------------------------------------------- #
 # Mapping Helpers
+
 
 def get_specs(repo: str, version: str) -> dict:
     """
@@ -203,16 +206,16 @@ def get_specs(repo: str, version: str) -> dict:
             needs_modern_cython = True
             install_cmd = (
                 f'python -m pip install {build_setuptools} "meson-python" "ninja" "cython>=3" "versioneer[toml]" "numpy"; '
-                f'python -m pip install --prefer-binary {test_deps}; '
-                'python -m pip install --prefer-binary -e . --no-build-isolation'
+                f"python -m pip install --prefer-binary {test_deps}; "
+                "python -m pip install --prefer-binary -e . --no-build-isolation"
             )
         else:
             # pandas 1.x: legacy setuptools build; cython<3 + numpy<1.24 OK.
             # NO requirements-dev.txt.
             install_cmd = (
                 f'python -m pip install {build_setuptools} "cython<3" "numpy<1.24"; '
-                f'python -m pip install --prefer-binary {test_deps}; '
-                'python -m pip install --prefer-binary -e . --no-build-isolation'
+                f"python -m pip install --prefer-binary {test_deps}; "
+                "python -m pip install --prefer-binary -e . --no-build-isolation"
             )
     elif "modin" in repo:
         # modin: 2 failures in v3, no branch previously. modin>=2.x pulls
@@ -248,17 +251,20 @@ def get_specs(repo: str, version: str) -> dict:
         py_v = "3.8" if v_float < 0.9 else "3.9"
         repo_pins_pytest = True
         install_cmd = (
-            'python -m pip install -r test-requirements.txt || true; '
-            'python -m pip install -r mypy-requirements.txt || true; '
-            'python -m pip install --prefer-binary -e .'
+            "python -m pip install -r test-requirements.txt || true; "
+            "python -m pip install -r mypy-requirements.txt || true; "
+            "python -m pip install --prefer-binary -e ."
         )
     elif "moto" in repo:
         try:
             v_float = float(version)
-            if v_float >= 5.0: py_v = "3.12"  # noqa: E701
-            elif v_float >= 4.0: py_v = "3.10"  # noqa: E701
-            else: py_v = "3.7"  # noqa: E701
-        except:  # noqa: E722
+            if v_float >= 5.0:
+                py_v = "3.12"  # noqa: E701
+            elif v_float >= 4.0:
+                py_v = "3.10"  # noqa: E701
+            else:
+                py_v = "3.7"  # noqa: E701
+        except Exception:  # noqa: E722
             py_v = "3.10"
         install_cmd = "make init"
     elif "conan" in repo:
@@ -272,14 +278,19 @@ def get_specs(repo: str, version: str) -> dict:
         repo_pins_pytest = True
         try:
             v_float = float(version)
-            if v_float >= 1.0: py_v = "3.9"  # noqa: E701
-            else: py_v = "3.8"  # noqa: E701
-        except: py_v = "3.9"  # noqa: E701, E722
+            if v_float >= 1.0:
+                py_v = "3.9"  # noqa: E701
+            else:
+                py_v = "3.8"  # noqa: E701
+        except Exception:
+            py_v = "3.9"  # noqa: E701, E722
         # Authors' exact multi-stage install logic for DVC
         # Use escaped quotes to prevent syntax errors in the generated bash script
-        install_cmd = 'python -m pip install --upgrade pip wheel GitPython; python -m pip install \"cython<3.0.0\" && python -m pip install --no-build-isolation pyyaml==5.4.1; python -m pip install git+https://github.com/iterative/mock-ssh-server.git || true; python -m pip install -r tests/requirements.txt || true; python -m pip install -r test-requirements.txt || true; python -m pip install -e \".[tests,dev,all_remotes,all,testing]\";'
+        install_cmd = 'python -m pip install --upgrade pip wheel GitPython; python -m pip install "cython<3.0.0" && python -m pip install --no-build-isolation pyyaml==5.4.1; python -m pip install git+https://github.com/iterative/mock-ssh-server.git || true; python -m pip install -r tests/requirements.txt || true; python -m pip install -r test-requirements.txt || true; python -m pip install -e ".[tests,dev,all_remotes,all,testing]";'
         # DVC legacy pins
-        install_cmd += ' python -m pip install \"numpy<=1.20\"; python -m pip install \"pytest<8\";'
+        install_cmd += (
+            ' python -m pip install "numpy<=1.20"; python -m pip install "pytest<8";'
+        )
     elif "monai" in repo:
         # MONAI: per-version py + torch pin. v3 hardcoded py3.8 + latest torch
         # for ALL versions, breaking the old-API v0.5/v0.7 import/collection.
@@ -320,53 +331,78 @@ def get_specs(repo: str, version: str) -> dict:
             "python -m pip install --prefer-binary numpy; "
             "python setup.py develop;"
         )
-    elif "hydra" in repo: 
+    elif "hydra" in repo:
         py_v = "3.8"
         install_cmd = "pip install --prefer-binary -r requirements/dev.txt && pip install --prefer-binary -e ."
-    elif "bokeh" in repo: 
+    elif "bokeh" in repo:
         py_v = "3.8"
-        install_cmd = "cd bokehjs && npm install && cd .. && pip install --prefer-binary -e ."
-    elif "pydantic" in repo: 
+        install_cmd = (
+            "cd bokehjs && npm install && cd .. && pip install --prefer-binary -e ."
+        )
+    elif "pydantic" in repo:
         py_v = "3.8" if version >= "1.10" else "3.7"
         install_cmd = "pip install pdm && pdm install"
     elif "django" in repo:
         try:
             v = float(version)
-            if v >= 4.1: py_v = "3.9"  # noqa: E701
-            elif v >= 4.0: py_v = "3.8"  # noqa: E701
-            elif v >= 3.0: py_v = "3.6"  # noqa: E701
-            else: py_v = "3.5"  # noqa: E701
-            install_cmd = "python setup.py install" if v < 3.0 else "pip install --prefer-binary -e ."
-        except: py_v = "3.6"  # noqa: E701, E722
+            if v >= 4.1:
+                py_v = "3.9"  # noqa: E701
+            elif v >= 4.0:
+                py_v = "3.8"  # noqa: E701
+            elif v >= 3.0:
+                py_v = "3.6"  # noqa: E701
+            else:
+                py_v = "3.5"  # noqa: E701
+            install_cmd = (
+                "python setup.py install"
+                if v < 3.0
+                else "pip install --prefer-binary -e ."
+            )
+        except Exception:
+            py_v = "3.6"  # noqa: E701, E722
     elif "scikit-learn" in repo:
         install_cmd = "pip install -v --no-use-pep517 --no-build-isolation -e ."
         try:
             v = float(version)
             py_v = "3.9" if v >= 0.23 else "3.6"
-        except: py_v = "3.6"  # noqa: E701, E722
+        except Exception:
+            py_v = "3.6"  # noqa: E701, E722
     elif "flask" in repo:
         try:
             v = float(version)
-            if v >= 3.0: py_v = "3.11"  # noqa: E701
-            elif v >= 2.1: py_v = "3.10"  # noqa: E701
-            else: py_v = "3.9"  # noqa: E701
-        except: py_v = "3.9"  # noqa: E701, E722
-    elif "astropy" in repo: py_v = "3.10"  # noqa: E701
-    elif "pytest" in repo: py_v = "3.10"  # noqa: E701
-    elif "matplotlib" in repo: py_v = "3.8"  # noqa: E701
+            if v >= 3.0:
+                py_v = "3.11"  # noqa: E701
+            elif v >= 2.1:
+                py_v = "3.10"  # noqa: E701
+            else:
+                py_v = "3.9"  # noqa: E701
+        except Exception:
+            py_v = "3.9"  # noqa: E701, E722
+    elif "astropy" in repo:
+        py_v = "3.10"  # noqa: E701
+    elif "pytest" in repo:
+        py_v = "3.10"  # noqa: E701
+    elif "matplotlib" in repo:
+        py_v = "3.8"  # noqa: E701
 
     # 2. Assign Unionized System Dependencies (Apt Packages)
     apt_map = {
         "3.5": ["libsqlite3-dev", "locales"],
         "3.6": ["libsqlite3-dev", "locales"],
         "3.7": ["libsqlite3-dev", "locales"],
-        "3.8": ["libsqlite3-dev", "openjdk-17-jdk", "openjdk-17-jre", "npm", "libpq-dev"],
+        "3.8": [
+            "libsqlite3-dev",
+            "openjdk-17-jdk",
+            "openjdk-17-jre",
+            "npm",
+            "libpq-dev",
+        ],
         "3.9": ["libsqlite3-dev", "locales", "libffi-dev", "libssl-dev", "libpq-dev"],
         "3.10": ["cmake", "libpq-dev"],
         "3.11": [],
-        "3.12": ["make", "build-essential"]
+        "3.12": ["make", "build-essential"],
     }
-    
+
     return {
         "python": py_v,
         "pre_install": apt_map.get(py_v, []),
@@ -501,12 +537,12 @@ def _normalize_tests(raw: Optional[Sequence[str]]) -> List[str]:
         value = entry.strip()
         if not value or value.lower() == "nan":
             continue
-            
+
         # Filter out truncated names:
         # 1. Parameterized tests must have a matching closing bracket if they have an opening one
         if "[" in value and "]" not in value:
             continue
-            
+
         # 2. Heuristic: Very long names that don't end in a predictable way (like ')' or ']')
         # and seem to be cut off at a common power-of-2 limit or similar.
         if len(value) > 250 and not (value.endswith("]") or value.endswith(")")):
@@ -524,10 +560,10 @@ def _render_instruction(
     fail_tests: Sequence[str],
 ) -> str:
     repo_url = f"https://github.com/{row['repo']}"
-    base_commit = row.get('base_commit', 'unknown')
+    base_commit = row.get("base_commit", "unknown")
     version = row.get("version", "unknown")
-    specs = get_specs(row['repo'], version)
-    
+    specs = get_specs(row["repo"], version)
+
     instruction_lines = [
         "# Bug Fix Task",
         "",
@@ -550,7 +586,7 @@ def _render_instruction(
         "conda activate testbed",
         "",
         "# Install dependencies",
-        specs['install'],
+        specs["install"],
         "```",
         "",
         "---",
@@ -595,16 +631,17 @@ def _render_dockerfile(row: Dict[str, str]) -> str:
         raise ValueError("Missing 'repo' in row; cannot render Dockerfile.")
     version = row.get("version", "unknown")
     specs = get_specs(repo, version)
-    
+
     extra_packages = " ".join(specs.get("pre_install", []))
 
     return PYTHON_DOCKERFILE_TEMPLATE.format(
-        python_version=specs["python"],
-        extra_packages=extra_packages
+        python_version=specs["python"], extra_packages=extra_packages
     )
 
 
-def _render_solution_script(row: Dict[str, str], test_patch: str, solution_patch: str) -> Optional[str]:
+def _render_solution_script(
+    row: Dict[str, str], test_patch: str, solution_patch: str
+) -> Optional[str]:
     if not test_patch.strip() and not solution_patch.strip():
         return None
 
@@ -628,26 +665,30 @@ def _render_solution_script(row: Dict[str, str], test_patch: str, solution_patch
     ]
 
     if test_patch.strip():
-        lines.extend([
-            "",
-            'patch_file="$(mktemp /tmp/swegym-test-patch-XXXX.diff)"',
-            "cat <<'PATCH_EOF' > \"$patch_file\"",
-            test_patch.strip('\n'),
-            "PATCH_EOF",
-            "",
-            'git apply --whitespace=nowarn --apply "$patch_file"',
-        ])
+        lines.extend(
+            [
+                "",
+                'patch_file="$(mktemp /tmp/swegym-test-patch-XXXX.diff)"',
+                "cat <<'PATCH_EOF' > \"$patch_file\"",
+                test_patch.strip("\n"),
+                "PATCH_EOF",
+                "",
+                'git apply --whitespace=nowarn --apply "$patch_file"',
+            ]
+        )
 
     if solution_patch.strip():
-        lines.extend([
-            "",
-            'patch_file2="$(mktemp /tmp/swegym-solution-patch-XXXX.diff)"',
-            "cat <<'SOLUTION_PATCH_EOF' > \"$patch_file2\"",
-            solution_patch.strip('\n'),
-            "SOLUTION_PATCH_EOF",
-            "",
-            'git apply --whitespace=nowarn --apply "$patch_file2"',
-        ])
+        lines.extend(
+            [
+                "",
+                'patch_file2="$(mktemp /tmp/swegym-solution-patch-XXXX.diff)"',
+                "cat <<'SOLUTION_PATCH_EOF' > \"$patch_file2\"",
+                solution_patch.strip("\n"),
+                "SOLUTION_PATCH_EOF",
+                "",
+                'git apply --whitespace=nowarn --apply "$patch_file2"',
+            ]
+        )
 
     return "\n".join(lines) + "\n"
 
@@ -659,7 +700,9 @@ def _format_bash_array(items: Sequence[str]) -> str:
     return "\n".join(f"    '{item}'" for item in items)
 
 
-def _render_test_script(row: Dict[str, str], pass_tests: Sequence[str], fail_tests: Sequence[str]) -> str:
+def _render_test_script(
+    row: Dict[str, str], pass_tests: Sequence[str], fail_tests: Sequence[str]
+) -> str:
     pass_entries = _format_bash_array(pass_tests)
     fail_entries = _format_bash_array(fail_tests)
     repo = row.get("repo", "unknown")
@@ -770,7 +813,7 @@ def _render_test_script(row: Dict[str, str], pass_tests: Sequence[str], fail_tes
             {generic_deps_block}
 
             log \"Running repo-specific install...\"
-            {specs['install']}
+            {specs["install"]}
 
             # Fix 'sure' library bit-rot for Python 3.7+
             # This replaces re._pattern_type with a compatible type check
@@ -914,7 +957,9 @@ def generate_tasks(args: argparse.Namespace) -> Tuple[Path, Dict[str, object]]:
 
         instruction_content = _render_instruction(row, pass_tests, fail_tests)
         dockerfile_content = _render_dockerfile(row)
-        solution_content = _render_solution_script(row, row.get("test_patch", ""), row.get("patch", ""))
+        solution_content = _render_solution_script(
+            row, row.get("test_patch", ""), row.get("patch", "")
+        )
         test_sh_content = _render_test_script(row, pass_tests, fail_tests)
         test_py_content = _render_test_state_py()
 

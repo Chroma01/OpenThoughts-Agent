@@ -37,7 +37,9 @@ def parse_hf_dataset_selector(value: str) -> HfDatasetSelector | None:
     repo_id, revision_separator, revision = repo_revision.partition("@")
     if repo_id.count("/") != 1 or not all(part.strip() for part in repo_id.split("/")):
         return None
-    if separator and (not subdir or subdir.startswith("/") or ".." in subdir.split("/")):
+    if separator and (
+        not subdir or subdir.startswith("/") or ".." in subdir.split("/")
+    ):
         return None
     if revision_separator and not revision:
         return None
@@ -140,7 +142,9 @@ def _download_object_store_dataset(uri: str, *, verbose: bool = True) -> str:
     fs = fsspec.filesystem("gcs" if proto == "gs" else "s3")
     dest = Path(tempfile.mkdtemp(prefix="ds_precached_"))
     if verbose:
-        print(f"[hf_utils] Fetching pre-cached dataset from {uri} -> {dest} (offline, no HF)")
+        print(
+            f"[hf_utils] Fetching pre-cached dataset from {uri} -> {dest} (offline, no HF)"
+        )
     # Trailing slash + recursive => copy the directory tree, preserving layout.
     fs.get(uri.rstrip("/") + "/", str(dest) + "/", recursive=True)
     files = [p for p in dest.rglob("*") if p.is_file()]
@@ -239,6 +243,7 @@ def is_raw_tasks_directory(snapshot_dir) -> bool:
         # Has parquet files - check if they have task_binary column
         try:
             import pyarrow.parquet as pq
+
             for pf in parquet_files[:1]:  # Check first parquet
                 table = pq.read_table(pf)
                 if "task_binary" in table.column_names:

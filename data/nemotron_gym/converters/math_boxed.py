@@ -64,7 +64,7 @@ _ADVANCED_INSTRUCTION_HEADER = (
     "You are solving a calculation task. Read the problem below and write the "
     "final numeric answer (a single number) to `/app/answer.txt`.\n\n"
     "IMPORTANT: If the problem asks for **multiple** values (e.g. "
-    "\"Get me the values for X, Y, and Z\"), the verifier only grades the "
+    '"Get me the values for X, Y, and Z"), the verifier only grades the '
     "LAST expression. Compute every expression if you wish, but write ONLY "
     "the value of the LAST one to `/app/answer.txt`. The verifier extracts "
     "the last numeric token from your answer file and compares it to the "
@@ -166,7 +166,7 @@ def _normalize_v3_gold(s: str) -> str:
                 and t.startswith(open_d)
                 and t.endswith(close_d)
             ):
-                interior = t[len(open_d):-len(close_d)]
+                interior = t[len(open_d) : -len(close_d)]
                 if open_d not in interior and close_d not in interior:
                     s = interior.strip()
                     changed = True
@@ -257,7 +257,9 @@ def _unwrap_answer(raw) -> str:
             return str(raw[0])
         return str(raw)
     s = raw.strip()
-    if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
+    if (s.startswith("[") and s.endswith("]")) or (
+        s.startswith("{") and s.endswith("}")
+    ):
         try:
             v = json.loads(s)
         except Exception:

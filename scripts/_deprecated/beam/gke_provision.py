@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 def check_gcloud_installed() -> bool:
     """Check if gcloud CLI is installed and authenticated."""
     if not shutil.which("gcloud"):
-        logger.error("gcloud CLI not found. Install from: https://cloud.google.com/sdk/docs/install")
+        logger.error(
+            "gcloud CLI not found. Install from: https://cloud.google.com/sdk/docs/install"
+        )
         return False
 
     # Check authentication
@@ -33,7 +35,9 @@ def check_gcloud_installed() -> bool:
 def check_kubectl_installed() -> bool:
     """Check if kubectl is installed."""
     if not shutil.which("kubectl"):
-        logger.error("kubectl not found. Install from: https://kubernetes.io/docs/tasks/tools/")
+        logger.error(
+            "kubectl not found. Install from: https://kubernetes.io/docs/tasks/tools/"
+        )
         return False
     return True
 
@@ -50,10 +54,15 @@ def cluster_exists(config: GKEConfig) -> bool:
     """Check if the GKE cluster already exists."""
     result = subprocess.run(
         [
-            "gcloud", "container", "clusters", "describe",
+            "gcloud",
+            "container",
+            "clusters",
+            "describe",
             config.cluster_name,
-            "--project", config.project_id,
-            "--zone", config.zone,  # Zonal cluster
+            "--project",
+            config.project_id,
+            "--zone",
+            config.zone,  # Zonal cluster
             "--format=value(name)",
         ],
         capture_output=True,
@@ -80,14 +89,25 @@ def create_cluster(config: GKEConfig, dry_run: bool = False) -> bool:
     # COS has a read-only root filesystem which causes "mkdir /images: read-only file system" errors.
     # Ubuntu nodes have a writable root filesystem that allows these hostPath mounts.
     cmd = [
-        "gcloud", "container", "clusters", "create", config.cluster_name,
-        "--project", config.project_id,
-        "--zone", config.zone,  # Zonal cluster: exactly num_nodes total
-        "--num-nodes", str(config.num_nodes),
-        "--machine-type", config.machine_type,
-        "--image-type", "UBUNTU_CONTAINERD",  # Required: writable root FS for Beta9 hostPath mounts
-        "--disk-size", f"{config.disk_size_gb}GB",
-        "--network", config.network,
+        "gcloud",
+        "container",
+        "clusters",
+        "create",
+        config.cluster_name,
+        "--project",
+        config.project_id,
+        "--zone",
+        config.zone,  # Zonal cluster: exactly num_nodes total
+        "--num-nodes",
+        str(config.num_nodes),
+        "--machine-type",
+        config.machine_type,
+        "--image-type",
+        "UBUNTU_CONTAINERD",  # Required: writable root FS for Beta9 hostPath mounts
+        "--disk-size",
+        f"{config.disk_size_gb}GB",
+        "--network",
+        config.network,
         "--no-enable-autoupgrade",
         "--no-enable-autorepair",
     ]
@@ -99,7 +119,9 @@ def create_cluster(config: GKEConfig, dry_run: bool = False) -> bool:
         logger.info(f"[DRY RUN] Would execute: {' '.join(cmd)}")
         return True
 
-    logger.info(f"Creating GKE cluster '{config.cluster_name}' with {config.num_nodes} nodes...")
+    logger.info(
+        f"Creating GKE cluster '{config.cluster_name}' with {config.num_nodes} nodes..."
+    )
     logger.info(f"  Machine type: {config.machine_type}")
     logger.info("  Image type: UBUNTU_CONTAINERD (required for Beta9 hostPath mounts)")
     logger.info(f"  Zone: {config.zone} (zonal cluster)")
@@ -126,9 +148,15 @@ def delete_cluster(config: GKEConfig, dry_run: bool = False) -> bool:
         True if cluster deleted successfully (or dry_run).
     """
     cmd = [
-        "gcloud", "container", "clusters", "delete", config.cluster_name,
-        "--project", config.project_id,
-        "--zone", config.zone,  # Zonal cluster
+        "gcloud",
+        "container",
+        "clusters",
+        "delete",
+        config.cluster_name,
+        "--project",
+        config.project_id,
+        "--zone",
+        config.zone,  # Zonal cluster
         "--quiet",  # Skip confirmation prompt
     ]
 
@@ -160,9 +188,15 @@ def get_credentials(config: GKEConfig, dry_run: bool = False) -> bool:
         True if credentials obtained successfully (or dry_run).
     """
     cmd = [
-        "gcloud", "container", "clusters", "get-credentials", config.cluster_name,
-        "--project", config.project_id,
-        "--zone", config.zone,  # Zonal cluster
+        "gcloud",
+        "container",
+        "clusters",
+        "get-credentials",
+        config.cluster_name,
+        "--project",
+        config.project_id,
+        "--zone",
+        config.zone,  # Zonal cluster
     ]
 
     if dry_run:
@@ -207,7 +241,10 @@ def grant_cluster_admin(dry_run: bool = False) -> bool:
     user_email = user_result.stdout.strip()
 
     cmd = [
-        "kubectl", "create", "clusterrolebinding", "cluster-admin-binding",
+        "kubectl",
+        "create",
+        "clusterrolebinding",
+        "cluster-admin-binding",
         "--clusterrole=cluster-admin",
         f"--user={user_email}",
     ]
@@ -240,10 +277,15 @@ def get_cluster_status(config: GKEConfig) -> Optional[str]:
     """
     result = subprocess.run(
         [
-            "gcloud", "container", "clusters", "describe",
+            "gcloud",
+            "container",
+            "clusters",
+            "describe",
             config.cluster_name,
-            "--project", config.project_id,
-            "--zone", config.zone,  # Zonal cluster
+            "--project",
+            config.project_id,
+            "--zone",
+            config.zone,  # Zonal cluster
             "--format=value(status)",
         ],
         capture_output=True,
@@ -305,10 +347,15 @@ def filestore_exists(config: FilestoreConfig, gke_config: GKEConfig) -> bool:
     """Check if the Filestore instance already exists."""
     result = subprocess.run(
         [
-            "gcloud", "filestore", "instances", "describe",
+            "gcloud",
+            "filestore",
+            "instances",
+            "describe",
             config.instance_name,
-            "--project", gke_config.project_id,
-            "--zone", gke_config.zone,
+            "--project",
+            gke_config.project_id,
+            "--zone",
+            gke_config.zone,
             "--format=value(name)",
         ],
         capture_output=True,
@@ -318,8 +365,10 @@ def filestore_exists(config: FilestoreConfig, gke_config: GKEConfig) -> bool:
 
 
 def create_filestore(
-    config: FilestoreConfig, gke_config: GKEConfig, dry_run: bool = False,
-    timeout: int = 600
+    config: FilestoreConfig,
+    gke_config: GKEConfig,
+    dry_run: bool = False,
+    timeout: int = 600,
 ) -> bool:
     """Create a Filestore instance for shared NFS storage.
 
@@ -337,12 +386,21 @@ def create_filestore(
         True if Filestore created successfully (or dry_run).
     """
     cmd = [
-        "gcloud", "filestore", "instances", "create", config.instance_name,
-        "--project", gke_config.project_id,
-        "--zone", gke_config.zone,
-        "--tier", config.tier,
-        "--file-share", f"name={config.file_share_name},capacity={config.capacity_gb}GB",
-        "--network", f"name={config.network}",
+        "gcloud",
+        "filestore",
+        "instances",
+        "create",
+        config.instance_name,
+        "--project",
+        gke_config.project_id,
+        "--zone",
+        gke_config.zone,
+        "--tier",
+        config.tier,
+        "--file-share",
+        f"name={config.file_share_name},capacity={config.capacity_gb}GB",
+        "--network",
+        f"name={config.network}",
     ]
 
     if dry_run:
@@ -375,7 +433,9 @@ def create_filestore(
             if process.returncode != 0:
                 logger.error(f"Failed to create Filestore after {elapsed}s: {stderr}")
                 return False
-            logger.info(f"Filestore '{config.instance_name}' created successfully ({elapsed}s)")
+            logger.info(
+                f"Filestore '{config.instance_name}' created successfully ({elapsed}s)"
+            )
             return True
         except subprocess.TimeoutExpired:
             # Still running - log progress
@@ -391,8 +451,10 @@ def create_filestore(
 
 
 def delete_filestore(
-    config: FilestoreConfig, gke_config: GKEConfig, dry_run: bool = False,
-    timeout: int = 300
+    config: FilestoreConfig,
+    gke_config: GKEConfig,
+    dry_run: bool = False,
+    timeout: int = 300,
 ) -> bool:
     """Delete the Filestore instance.
 
@@ -406,9 +468,15 @@ def delete_filestore(
         True if Filestore deleted successfully (or dry_run).
     """
     cmd = [
-        "gcloud", "filestore", "instances", "delete", config.instance_name,
-        "--project", gke_config.project_id,
-        "--zone", gke_config.zone,
+        "gcloud",
+        "filestore",
+        "instances",
+        "delete",
+        config.instance_name,
+        "--project",
+        gke_config.project_id,
+        "--zone",
+        gke_config.zone,
         "--quiet",  # Skip confirmation prompt
     ]
 
@@ -436,11 +504,15 @@ def delete_filestore(
             if process.returncode != 0:
                 # Don't fail if it doesn't exist
                 if "not found" in stderr.lower() or "does not exist" in stderr.lower():
-                    logger.info(f"Filestore '{config.instance_name}' does not exist (already deleted)")
+                    logger.info(
+                        f"Filestore '{config.instance_name}' does not exist (already deleted)"
+                    )
                     return True
                 logger.error(f"Failed to delete Filestore after {elapsed}s: {stderr}")
                 return False
-            logger.info(f"Filestore '{config.instance_name}' deleted successfully ({elapsed}s)")
+            logger.info(
+                f"Filestore '{config.instance_name}' deleted successfully ({elapsed}s)"
+            )
             return True
         except subprocess.TimeoutExpired:
             elapsed = int(time.time() - start_time)
@@ -465,10 +537,15 @@ def get_filestore_ip(config: FilestoreConfig, gke_config: GKEConfig) -> Optional
     """
     result = subprocess.run(
         [
-            "gcloud", "filestore", "instances", "describe",
+            "gcloud",
+            "filestore",
+            "instances",
+            "describe",
             config.instance_name,
-            "--project", gke_config.project_id,
-            "--zone", gke_config.zone,
+            "--project",
+            gke_config.project_id,
+            "--zone",
+            gke_config.zone,
             "--format=value(networks[0].ipAddresses[0])",
         ],
         capture_output=True,
@@ -505,10 +582,15 @@ def wait_for_filestore_ready(
     while time.time() - start_time < timeout:
         result = subprocess.run(
             [
-                "gcloud", "filestore", "instances", "describe",
+                "gcloud",
+                "filestore",
+                "instances",
+                "describe",
                 config.instance_name,
-                "--project", gke_config.project_id,
-                "--zone", gke_config.zone,
+                "--project",
+                gke_config.project_id,
+                "--zone",
+                gke_config.zone,
                 "--format=value(state)",
             ],
             capture_output=True,

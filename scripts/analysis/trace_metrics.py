@@ -49,7 +49,9 @@ def tokenize_dataset(
 def parse_filter(filter_str: str) -> tuple[str, str]:
     """Parse a ``column==value`` dataset filter."""
     if "==" not in filter_str:
-        raise ValueError(f"Filter must be in 'column==value' format, got: {filter_str!r}")
+        raise ValueError(
+            f"Filter must be in 'column==value' format, got: {filter_str!r}"
+        )
     column, value = filter_str.split("==", 1)
     return column.strip(), value.strip()
 
@@ -79,5 +81,7 @@ def load_and_filter(repo_id: str, split: str, filter_spec: Optional[str]) -> tup
 
     filtered = dataset.filter(lambda row: row.get(column) == value)
     dropped_count = original_count - len(filtered)
-    print(f"  Filter '{column}=={value}': kept {len(filtered):,}, dropped {dropped_count:,}")
+    print(
+        f"  Filter '{column}=={value}': kept {len(filtered):,}, dropped {dropped_count:,}"
+    )
     return filtered, dropped_count

@@ -152,7 +152,9 @@ def merge_trial_directories(source_job_dirs: list[Path], destination: Path) -> P
     return destination
 
 
-def materialize_target_trials(target: CleanupTarget, temporary_root: Path) -> tuple[Path, int]:
+def materialize_target_trials(
+    target: CleanupTarget, temporary_root: Path
+) -> tuple[Path, int]:
     """Download all retry prefixes and combine their Harbor runs for one export."""
     source_job_dirs = []
     copied = 0

@@ -85,7 +85,9 @@ def get_conda_curand_path() -> Optional[str]:
 
     # Try common Python versions
     for py_ver in ["3.12", "3.11", "3.10", "3.9"]:
-        curand_path = Path(conda_prefix) / f"lib/python{py_ver}/site-packages/nvidia/curand/lib"
+        curand_path = (
+            Path(conda_prefix) / f"lib/python{py_ver}/site-packages/nvidia/curand/lib"
+        )
         if curand_path.is_dir():
             return str(curand_path)
     return None

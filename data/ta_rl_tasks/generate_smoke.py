@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
 
 from data.ta_rl_tasks.generate import generate_dataset  # noqa: E402
 
+
 def describe_task(task_dir: Path) -> None:
     instruction_path = task_dir / "instruction.md"
     dockerfile_path = task_dir / "environment" / "Dockerfile"

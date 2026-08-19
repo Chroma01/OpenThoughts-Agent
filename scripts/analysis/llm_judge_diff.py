@@ -149,6 +149,7 @@ Reply with ONLY the JSON object. No prose before or after.
 # Trace truncation
 # ---------------------------------------------------------------------------
 
+
 def _trace_text(trace: Trace, max_chars: int) -> str:
     """Compact, judge-friendly transcript: ``[role] content`` per line.
 
@@ -175,7 +176,9 @@ def _trace_text(trace: Trace, max_chars: int) -> str:
         # judge can see them even if they aren't in the text content.
         tool_calls = msg.get("tool_calls")
         if isinstance(tool_calls, list) and tool_calls:
-            content = content + "\n[STRUCTURED TOOL_CALLS]: " + json.dumps(tool_calls)[:400]
+            content = (
+                content + "\n[STRUCTURED TOOL_CALLS]: " + json.dumps(tool_calls)[:400]
+            )
         lines.append(f"[{role}] {content}")
     full = "\n\n".join(lines)
     if len(full) <= max_chars:
@@ -185,12 +188,17 @@ def _trace_text(trace: Trace, max_chars: int) -> str:
     tail_budget = max_chars - head_budget - 50  # 50 chars for the marker
     head = full[:head_budget]
     tail = full[-tail_budget:] if tail_budget > 0 else ""
-    return head + f"\n\n[... {len(full) - head_budget - tail_budget} chars elided ...]\n\n" + tail
+    return (
+        head
+        + f"\n\n[... {len(full) - head_budget - tail_budget} chars elided ...]\n\n"
+        + tail
+    )
 
 
 # ---------------------------------------------------------------------------
 # LLM client (prefers ajudge.LiteLLM, falls back to openai SDK)
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class LLMConfig:
@@ -204,6 +212,7 @@ class _LiteLLMClient:
 
     def __init__(self, cfg: LLMConfig) -> None:
         from ajudge.llms.litellm_llm import LiteLLM
+
         self._llm = LiteLLM(model_id=cfg.model, request_timeout=cfg.request_timeout_sec)
         self._sem = asyncio.Semaphore(cfg.max_concurrent)
 
@@ -229,6 +238,7 @@ class _OpenAIFallbackClient:
 
     def __init__(self, cfg: LLMConfig) -> None:
         from openai import AsyncOpenAI
+
         # Strip the ``openai/`` provider prefix that ajudge / LiteLLM use.
         self._model = cfg.model.split("/", 1)[1] if "/" in cfg.model else cfg.model
         self._client = AsyncOpenAI()
@@ -268,12 +278,14 @@ def _build_client(cfg: LLMConfig):
 # Caching
 # ---------------------------------------------------------------------------
 
+
 def _pair_cache_key(task: str, before: Trace, after: Trace, model: str) -> str:
     """Stable cache key for a (task, before-trial, after-trial, model) tuple.
 
     Uses the trial identifier when available, falling back to a hash of the
     conversation text.
     """
+
     def _trial_id(t: Trace) -> str:
         raw = t.raw or {}
         for k in ("trial_name", "trial_id", "id", "task"):
@@ -281,7 +293,9 @@ def _pair_cache_key(task: str, before: Trace, after: Trace, model: str) -> str:
             if isinstance(v, str) and v.strip():
                 return v.strip()
         # Fall back to a content hash.
-        return hashlib.sha256((t.conversation or "")[:4096].encode("utf-8")).hexdigest()[:16]
+        return hashlib.sha256(
+            (t.conversation or "")[:4096].encode("utf-8")
+        ).hexdigest()[:16]
 
     payload = "|".join([model, task, _trial_id(before), _trial_id(after)])
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -304,6 +318,7 @@ def _save_cache(cache_path: Path, cache: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # Judgment
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class PairJudgment:
@@ -400,6 +415,7 @@ async def _judge_pair(
 # Pair selection: largest behavioral delta first.
 # ---------------------------------------------------------------------------
 
+
 def _behavior_delta_score(before: Trace, after: Trace) -> float:
     bb, ab = before.behavioral, after.behavioral
     score = 0.0
@@ -419,6 +435,7 @@ def _behavior_delta_score(before: Trace, after: Trace) -> float:
 # ---------------------------------------------------------------------------
 # Aggregation + report writing
 # ---------------------------------------------------------------------------
+
 
 def _write_markdown_report(
     judgments: List[PairJudgment],
@@ -443,10 +460,14 @@ def _write_markdown_report(
         f"- **After**:  `{after_label}`",
         f"- **Judge model**: `{model_id}`",
         f"- **Selection**: `{selection}`"
-        + ("  ⚠️ most-shifted tasks — biased toward where the policy changed; "
-           "NOT an unbiased win-rate over the benchmark" if selection == "behavior-delta"
-           else "  uniform sample — estimates 'did behavior change in general'"
-           if selection == "random" else ""),
+        + (
+            "  ⚠️ most-shifted tasks — biased toward where the policy changed; "
+            "NOT an unbiased win-rate over the benchmark"
+            if selection == "behavior-delta"
+            else "  uniform sample — estimates 'did behavior change in general'"
+            if selection == "random"
+            else ""
+        ),
         f"- **Pairs judged**: {n} (attempted {n_pairs_attempted})",
         "",
         "## Win-rate table",
@@ -494,9 +515,13 @@ def _write_markdown_report(
         "",
     ]
     for j in sorted_judg[:5]:
-        lines.append(f"### Task `{j.task}` — winner: **{j.winner}** · confidence: {j.confidence}")
+        lines.append(
+            f"### Task `{j.task}` — winner: **{j.winner}** · confidence: {j.confidence}"
+        )
         lines.append("")
-        lines.append(f"**Tags**: {', '.join('`' + t + '`' for t in j.tags) if j.tags else '_(none)_'}")
+        lines.append(
+            f"**Tags**: {', '.join('`' + t + '`' for t in j.tags) if j.tags else '_(none)_'}"
+        )
         lines.append("")
         lines.append(f"> {j.behavior_change}")
         lines.append("")
@@ -541,8 +566,11 @@ def _write_json_sidecar(
 # Orchestration
 # ---------------------------------------------------------------------------
 
+
 async def _run_async(args: argparse.Namespace) -> int:
-    print(f"[llm-judge-diff] loading traces (before={args.before}, after={args.after})...")
+    print(
+        f"[llm-judge-diff] loading traces (before={args.before}, after={args.after})..."
+    )
     before = load_traces(args.before, max_rows=args.max_rows)
     after = load_traces(args.after, max_rows=args.max_rows)
     bb = group_by_task(before)
@@ -552,28 +580,48 @@ async def _run_async(args: argparse.Namespace) -> int:
     exclude: List[str] = []
     if args.exclude_tasks_file:
         try:
-            payload = json.loads(Path(args.exclude_tasks_file).read_text(encoding="utf-8"))
-            exclude = list(payload.get("tasks", payload) if isinstance(payload, dict) else payload)
-            print(f"[llm-judge-diff] excluding {len(exclude)} task(s) from {args.exclude_tasks_file}")
+            payload = json.loads(
+                Path(args.exclude_tasks_file).read_text(encoding="utf-8")
+            )
+            exclude = list(
+                payload.get("tasks", payload) if isinstance(payload, dict) else payload
+            )
+            print(
+                f"[llm-judge-diff] excluding {len(exclude)} task(s) from {args.exclude_tasks_file}"
+            )
         except (OSError, json.JSONDecodeError) as e:
-            print(f"[llm-judge-diff] WARN: could not read --exclude-tasks-file ({e}); no exclusion",
-                  file=sys.stderr)
+            print(
+                f"[llm-judge-diff] WARN: could not read --exclude-tasks-file ({e}); no exclusion",
+                file=sys.stderr,
+            )
     # Select the tasks to judge. 'behavior-delta' = the most-shifted tasks
     # (biased toward where the policy changed); 'random' = a uniform
     # without-replacement sample ("did behavior change in general?").
-    pairs = select_pairs(bb, aa, args.max_pairs, prefer=args.selection,
-                         exclude=exclude, seed=args.seed)
+    pairs = select_pairs(
+        bb, aa, args.max_pairs, prefer=args.selection, exclude=exclude, seed=args.seed
+    )
     if not pairs:
-        print("[llm-judge-diff] no common tasks between before/after (after exclusion)", file=sys.stderr)
+        print(
+            "[llm-judge-diff] no common tasks between before/after (after exclusion)",
+            file=sys.stderr,
+        )
         return 2
-    print(f"[llm-judge-diff] selection={args.selection} seed={args.seed}: "
-          f"selected {len(pairs)} pair(s) for LLM judgment")
+    print(
+        f"[llm-judge-diff] selection={args.selection} seed={args.seed}: "
+        f"selected {len(pairs)} pair(s) for LLM judgment"
+    )
     # Record which tasks were judged, so a downstream 'random' run can exclude
     # this set (disjoint, without replacement across the two probes).
     args.output.parent.mkdir(parents=True, exist_ok=True)
     (args.output.parent / "selected_tasks.json").write_text(
-        json.dumps({"selection": args.selection, "seed": args.seed,
-                    "tasks": [task for task, _, _ in pairs]}, indent=2),
+        json.dumps(
+            {
+                "selection": args.selection,
+                "seed": args.seed,
+                "tasks": [task for task, _, _ in pairs],
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
@@ -591,7 +639,9 @@ async def _run_async(args: argparse.Namespace) -> int:
 
     semaphore = asyncio.Semaphore(args.max_concurrent)
 
-    async def _judge_with_cache(idx: int, task: str, b: Trace, a: Trace) -> Tuple[int, PairJudgment]:
+    async def _judge_with_cache(
+        idx: int, task: str, b: Trace, a: Trace
+    ) -> Tuple[int, PairJudgment]:
         key = _pair_cache_key(task, b, a, args.model)
         score = _behavior_delta_score(b, a)
         was_cached = key in cache and not args.force
@@ -627,7 +677,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         # shifted" without re-running the comparison.
         j.metadata["behavior_delta_score"] = score
         print(
-            f"  [{idx+1}/{len(pairs)}] task={task} winner={j.winner} "
+            f"  [{idx + 1}/{len(pairs)}] task={task} winner={j.winner} "
             f"tags={','.join(j.tags) or '(none)'} ({'cache' if was_cached else 'fresh'})"
         )
         return idx, j
@@ -635,7 +685,9 @@ async def _run_async(args: argparse.Namespace) -> int:
     tasks_to_run = [
         _judge_with_cache(i, task, b, a) for i, (task, b, a) in enumerate(pairs)
     ]
-    results: List[Tuple[int, PairJudgment]] = await asyncio.gather(*tasks_to_run, return_exceptions=False)
+    results: List[Tuple[int, PairJudgment]] = await asyncio.gather(
+        *tasks_to_run, return_exceptions=False
+    )
     judgments = [j for _, j in sorted(results, key=lambda x: x[0])]
     print(f"[llm-judge-diff] {cache_hits} cache hit(s) of {len(pairs)} pair(s)")
 
@@ -656,41 +708,88 @@ async def _run_async(args: argparse.Namespace) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--before", required=True, help="Pre-RL trace source (HF id / JSONL / dir)")
-    parser.add_argument("--after",  required=True, help="Post-RL trace source (HF id / JSONL / dir)")
-    parser.add_argument("--output", type=Path, required=True, help="Markdown report path (sidecar .json also written)")
-    parser.add_argument("--max-pairs", type=int, default=20,
-                        help="Number of pairs to judge (default 20, capped for cost)")
-    parser.add_argument("--selection", choices=("behavior-delta", "random", "flips", "reward-delta"),
-                        default="behavior-delta",
-                        help="How to pick the judged tasks: 'behavior-delta' (the most-shifted "
-                             "tasks — biased toward where the policy changed) or 'random' (a "
-                             "uniform without-replacement sample — 'did behavior change in general?'). "
-                             "Default behavior-delta.")
-    parser.add_argument("--seed", type=int, default=0,
-                        help="RNG seed for --selection random (reproducible sample)")
-    parser.add_argument("--exclude-tasks-file", type=Path, default=None,
-                        help="JSON file with a list of task ids to exclude from the candidate set "
-                             "(e.g. the most-changed run's selected_tasks.json, so a random draw is "
-                             "disjoint from it). Missing/unreadable file = no exclusion.")
-    parser.add_argument("--max-rows", type=int, default=None,
-                        help="Cap rows loaded per side (smoke testing only)")
-    parser.add_argument("--model", default="openai/gpt-5-2025-08-07",
-                        help="LiteLLM-style model id (default openai/gpt-5-2025-08-07)")
-    parser.add_argument("--max-concurrent", type=int, default=4,
-                        help="Max concurrent API calls (default 4)")
-    parser.add_argument("--request-timeout", type=float, default=240.0,
-                        help="Per-request timeout in seconds")
-    parser.add_argument("--trace-char-budget", type=int, default=12000,
-                        help="Per-trace character budget passed to the judge (truncated from middle)")
-    parser.add_argument("--force", action="store_true",
-                        help="Ignore cache; re-judge every pair")
+    parser.add_argument(
+        "--before", required=True, help="Pre-RL trace source (HF id / JSONL / dir)"
+    )
+    parser.add_argument(
+        "--after", required=True, help="Post-RL trace source (HF id / JSONL / dir)"
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Markdown report path (sidecar .json also written)",
+    )
+    parser.add_argument(
+        "--max-pairs",
+        type=int,
+        default=20,
+        help="Number of pairs to judge (default 20, capped for cost)",
+    )
+    parser.add_argument(
+        "--selection",
+        choices=("behavior-delta", "random", "flips", "reward-delta"),
+        default="behavior-delta",
+        help="How to pick the judged tasks: 'behavior-delta' (the most-shifted "
+        "tasks — biased toward where the policy changed) or 'random' (a "
+        "uniform without-replacement sample — 'did behavior change in general?'). "
+        "Default behavior-delta.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="RNG seed for --selection random (reproducible sample)",
+    )
+    parser.add_argument(
+        "--exclude-tasks-file",
+        type=Path,
+        default=None,
+        help="JSON file with a list of task ids to exclude from the candidate set "
+        "(e.g. the most-changed run's selected_tasks.json, so a random draw is "
+        "disjoint from it). Missing/unreadable file = no exclusion.",
+    )
+    parser.add_argument(
+        "--max-rows",
+        type=int,
+        default=None,
+        help="Cap rows loaded per side (smoke testing only)",
+    )
+    parser.add_argument(
+        "--model",
+        default="openai/gpt-5-2025-08-07",
+        help="LiteLLM-style model id (default openai/gpt-5-2025-08-07)",
+    )
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=4,
+        help="Max concurrent API calls (default 4)",
+    )
+    parser.add_argument(
+        "--request-timeout",
+        type=float,
+        default=240.0,
+        help="Per-request timeout in seconds",
+    )
+    parser.add_argument(
+        "--trace-char-budget",
+        type=int,
+        default=12000,
+        help="Per-trace character budget passed to the judge (truncated from middle)",
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="Ignore cache; re-judge every pair"
+    )
     return parser.parse_args()
 
 
 def run(args: argparse.Namespace) -> int:
     if not os.environ.get("OPENAI_API_KEY"):
-        print("[llm-judge-diff] OPENAI_API_KEY not set; cannot call the judge", file=sys.stderr)
+        print(
+            "[llm-judge-diff] OPENAI_API_KEY not set; cannot call the judge",
+            file=sys.stderr,
+        )
         return 2
     return asyncio.run(_run_async(args))
 

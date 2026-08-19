@@ -19,6 +19,7 @@ G2 (wrapper parity) is proven by `eval/tests/listener_submit_harness.py --check`
 the resolved submit artifacts are byte-identical whether the listener is invoked
 directly or via this wrapper.
 """
+
 from __future__ import annotations
 
 import os

@@ -114,6 +114,7 @@ def make_app(which: str) -> FastAPI:
             _borrowed["loaded"] = True
             try:
                 from transformers import AutoTokenizer
+
                 itok = AutoTokenizer.from_pretrained(INSTRUCT_MODEL_ID)
                 _borrowed["template"] = itok.chat_template
             except Exception:
@@ -203,7 +204,7 @@ def make_app(which: str) -> FastAPI:
                     # (model.config.eos is NOT <|im_end|>). See stop_ids().
                     eos_token_id=stop_ids(tok, model),
                 )
-            gen_ids = out[0].tolist()[len(prompt_ids):]
+            gen_ids = out[0].tolist()[len(prompt_ids) :]
             text = tok.decode(gen_ids, skip_special_tokens=True)
             record["generated_ids"] = gen_ids
             record["response_text"] = text

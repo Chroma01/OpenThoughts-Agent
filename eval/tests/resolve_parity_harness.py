@@ -26,6 +26,7 @@ Design notes (see notes/ot-agent/stage0_parity_harness_scope.md):
     does not weaken the parity comparison - it only removes a flaky network dependency.
     DCFT is pinned so os.path.expandvars on extra_args expands identically.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,35 +63,47 @@ import eval.unified_eval_listener as uel  # noqa: E402
 _REGISTRY_PATH = "eval/configs/model_configs.yaml"
 _CLUSTER_SHAPES = [
     # Stage 2: leonardo + jupiter flipped to the registry (no variant -> base entries).
-    {"name": "leonardo", "cluster_yaml": "eval/clusters/leonardo.yaml",
-     "baseline_file": "eval/configs/baseline_model_configs_minimal.yaml",
-     "registry_profile": "default"},
+    {
+        "name": "leonardo",
+        "cluster_yaml": "eval/clusters/leonardo.yaml",
+        "baseline_file": "eval/configs/baseline_model_configs_minimal.yaml",
+        "registry_profile": "default",
+    },
     # Stage 3: tacc + tacc-65k flipped to the registry under the Vista hardware profiles
     # (gh200 / gh200-65k) — divergent models are flat name@<profile> standalone entries.
-    {"name": "tacc", "cluster_yaml": "eval/clusters/tacc.yaml",
-     "baseline_file": "eval/clusters/tacc_baseline_model_configs.yaml",
-     "registry_profile": "gh200"},
-    {"name": "tacc-65k", "cluster_yaml": "eval/clusters/tacc.yaml",
-     "baseline_file": "eval/clusters/tacc_baseline_model_configs_65k.yaml",
-     "registry_profile": "gh200-65k"},
-    {"name": "jupiter", "cluster_yaml": "eval/clusters/jupiter.yaml",
-     "baseline_file": "eval/configs/baseline_model_configs_minimal.yaml",
-     "registry_profile": "default"},
+    {
+        "name": "tacc",
+        "cluster_yaml": "eval/clusters/tacc.yaml",
+        "baseline_file": "eval/clusters/tacc_baseline_model_configs.yaml",
+        "registry_profile": "gh200",
+    },
+    {
+        "name": "tacc-65k",
+        "cluster_yaml": "eval/clusters/tacc.yaml",
+        "baseline_file": "eval/clusters/tacc_baseline_model_configs_65k.yaml",
+        "registry_profile": "gh200-65k",
+    },
+    {
+        "name": "jupiter",
+        "cluster_yaml": "eval/clusters/jupiter.yaml",
+        "baseline_file": "eval/configs/baseline_model_configs_minimal.yaml",
+        "registry_profile": "default",
+    },
 ]
 
 # Synthetic names crafted to exercise EVERY pattern regex in the baseline files, regardless
 # of which real models happen to be in the eval lists. Keyed so a coverage check can assert
 # each pattern matched >= 1 sampled name.
 _PATTERN_PROBE_NAMES = [
-    "probe/qwen3.5-foo",                  # minimal pattern: (?i)qwen3\.5
-    "probe/qwen3.6-foo",                  # (does NOT match qwen3\.5; lands on 32B? no -> catch-all/none)
-    "probe/foo-32b-131k",                 # minimal: (?i)(?:32b.*(131k|-lc)|(131k|-lc).*32b)
-    "probe/131k-foo-32B",                 # same combined pattern, other order
-    "probe/some-32B-model",               # (?i)32[Bb]
-    "probe/foo-131k",                     # 131k|-lc$
-    "probe/foo-lc",                       # 131k|-lc$ (the -lc$ alternative)
-    "probe/plain-7b-model",               # matches nothing in minimal; TACC catch-all .*
-    "probe/another-random-model",         # TACC catch-all .*
+    "probe/qwen3.5-foo",  # minimal pattern: (?i)qwen3\.5
+    "probe/qwen3.6-foo",  # (does NOT match qwen3\.5; lands on 32B? no -> catch-all/none)
+    "probe/foo-32b-131k",  # minimal: (?i)(?:32b.*(131k|-lc)|(131k|-lc).*32b)
+    "probe/131k-foo-32B",  # same combined pattern, other order
+    "probe/some-32B-model",  # (?i)32[Bb]
+    "probe/foo-131k",  # 131k|-lc$
+    "probe/foo-lc",  # 131k|-lc$ (the -lc$ alternative)
+    "probe/plain-7b-model",  # matches nothing in minimal; TACC catch-all .*
+    "probe/another-random-model",  # TACC catch-all .*
 ]
 
 
@@ -156,7 +169,9 @@ def build_snapshot() -> dict:
 
         # Pair universe for this cluster: every exact/group entry + pattern probes + eval-list names.
         exact_names = sorted(configs.keys())
-        all_names = sorted(set(exact_names) | set(_PATTERN_PROBE_NAMES) | set(eval_list_names))
+        all_names = sorted(
+            set(exact_names) | set(_PATTERN_PROBE_NAMES) | set(eval_list_names)
+        )
 
         resolved: dict = {}
         for name in all_names:
@@ -166,6 +181,7 @@ def build_snapshot() -> dict:
         pats = uel._BASELINE_MODEL_PATTERNS or []
         pat_hits = {p.get("match", ""): 0 for p in pats}
         import re as _re
+
         for name in all_names:
             if name in configs:
                 continue  # exact/group win -> doesn't exercise a pattern
@@ -176,8 +192,11 @@ def build_snapshot() -> dict:
                     break  # first-match-wins, mirror the resolver
         coverage[cluster_name] = {
             "gpus_per_node": gpn,
-            "source": (f"registry[{registry_profile}]" if registry_profile is not None
-                       else f"legacy:{baseline_file}"),
+            "source": (
+                f"registry[{registry_profile}]"
+                if registry_profile is not None
+                else f"legacy:{baseline_file}"
+            ),
             "n_exact_entries": len(exact_names),
             "n_patterns": len(pats),
             "n_pairs_resolved": len(all_names),
@@ -209,10 +228,14 @@ def _diff_resolved(golden: dict, current: dict) -> list[str]:
             gm = g_models.get(model)
             cm = c_models.get(model)
             if gm is None:
-                diffs.append(f"[{cluster}] {model}: present in CURRENT, absent in GOLDEN")
+                diffs.append(
+                    f"[{cluster}] {model}: present in CURRENT, absent in GOLDEN"
+                )
                 continue
             if cm is None:
-                diffs.append(f"[{cluster}] {model}: present in GOLDEN, absent in CURRENT")
+                diffs.append(
+                    f"[{cluster}] {model}: present in GOLDEN, absent in CURRENT"
+                )
                 continue
             # conda_env / agent_kwargs
             for field in ("conda_env", "agent_kwargs"):
@@ -226,14 +249,24 @@ def _diff_resolved(golden: dict, current: dict) -> list[str]:
                 gv = g_env.get(k, "<ABSENT>")
                 cv = c_env.get(k, "<ABSENT>")
                 if gv != cv:
-                    diffs.append(f"[{cluster}] {model}.env[{k}]: GOLDEN={gv!r} CURRENT={cv!r}")
+                    diffs.append(
+                        f"[{cluster}] {model}.env[{k}]: GOLDEN={gv!r} CURRENT={cv!r}"
+                    )
     return diffs
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--write", metavar="PATH", help="resolve all pairs and WRITE the golden JSON here")
-    ap.add_argument("--check", metavar="GOLDEN", help="resolve all pairs and DIFF against this golden; nonzero on any diff")
+    ap.add_argument(
+        "--write",
+        metavar="PATH",
+        help="resolve all pairs and WRITE the golden JSON here",
+    )
+    ap.add_argument(
+        "--check",
+        metavar="GOLDEN",
+        help="resolve all pairs and DIFF against this golden; nonzero on any diff",
+    )
     args = ap.parse_args()
 
     if not args.write and not args.check:
@@ -244,13 +277,17 @@ def main() -> int:
 
     # Coverage summary to stderr (always).
     total_pairs = sum(c["n_pairs_resolved"] for c in cov.values())
-    print(f"== Stage-0 parity harness: {len(cov)} cluster shapes, {total_pairs} (model x cluster) pairs ==", file=sys.stderr)
+    print(
+        f"== Stage-0 parity harness: {len(cov)} cluster shapes, {total_pairs} (model x cluster) pairs ==",
+        file=sys.stderr,
+    )
     for cl, c in cov.items():
         unhit = [m for m, n in c["pattern_hits"].items() if n == 0]
         print(
             f"  {cl}: gpus_per_node={c['gpus_per_node']} source={c['source']} "
             f"exact={c['n_exact_entries']} patterns={c['n_patterns']} pairs={c['n_pairs_resolved']} "
-            f"pattern_hits={c['pattern_hits']}" + (f"  [UNEXERCISED PATTERNS: {unhit}]" if unhit else ""),
+            f"pattern_hits={c['pattern_hits']}"
+            + (f"  [UNEXERCISED PATTERNS: {unhit}]" if unhit else ""),
             file=sys.stderr,
         )
 
@@ -265,11 +302,16 @@ def main() -> int:
     golden = json.loads(Path(args.check).read_text())
     diffs = _diff_resolved(golden, snapshot)
     if diffs:
-        print(f"PARITY FAIL: {len(diffs)} byte-diff(s) vs {args.check}:", file=sys.stderr)
+        print(
+            f"PARITY FAIL: {len(diffs)} byte-diff(s) vs {args.check}:", file=sys.stderr
+        )
         for d in diffs:
             print(f"  {d}", file=sys.stderr)
         return 1
-    print(f"PARITY OK: byte-identical vs {args.check} across {total_pairs} pairs.", file=sys.stderr)
+    print(
+        f"PARITY OK: byte-identical vs {args.check} across {total_pairs} pairs.",
+        file=sys.stderr,
+    )
     return 0
 
 

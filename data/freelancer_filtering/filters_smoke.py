@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
+
 def test_ask_llm_filter():
     """Test AskLLM filtering strategy"""
     print("\n=== Testing AskLLM Filter ===")
@@ -18,14 +19,15 @@ def test_ask_llm_filter():
 
         # Get small sample
         questions = scrape_freelancer_projects()[:10]
-        
+
         print(f"Testing with {len(questions)} questions")
-        
+
         # For testing, just mock the ratings to avoid API calls
         # In production, this would call rate_questions_with_llm
         try:
             # Try to get real ratings if API key is available
             import os
+
             if os.getenv("OPENAI_API_KEY"):
                 ratings = rate_questions_with_llm(questions[:3])
             else:
@@ -36,11 +38,13 @@ def test_ask_llm_filter():
             # Use mock ratings if any error
             ratings = [75.0, 45.0, 90.0]
             print("Using mock ratings")
-        
+
         print(f"Got {len(ratings)} ratings: {ratings}")
-        
+
         # Filter
-        filtered = select_top_n_by_score(questions[:3], ratings, top_percentage=0.5, descending=True)
+        filtered = select_top_n_by_score(
+            questions[:3], ratings, top_percentage=0.5, descending=True
+        )
         print(f"Filtered to {len(filtered)} questions")
         print("✓ AskLLM filter test passed")
         return True
@@ -57,34 +61,35 @@ def test_embedding_filter_mean():
         from embedding_filter_mean import (
             compute_embeddings,
             create_positive_negative_samples,
-            calculate_embedding_scores
+            calculate_embedding_scores,
         )
         from data.commons import select_top_n_by_score
 
         # Get small sample
         questions = scrape_freelancer_projects()[:10]
-        
+
         print(f"Testing with {len(questions)} questions")
-        
+
         # Create samples and compute embeddings
         positive_samples, negative_samples = create_positive_negative_samples()
         question_embeddings = compute_embeddings(questions)
         positive_embeddings = compute_embeddings(positive_samples)
         negative_embeddings = compute_embeddings(negative_samples)
-        
+
         print(f"Question embeddings shape: {question_embeddings.shape}")
-        
+
         # Calculate scores
         scores = calculate_embedding_scores(
-            questions,
-            question_embeddings,
-            positive_embeddings,
-            negative_embeddings
+            questions, question_embeddings, positive_embeddings, negative_embeddings
         )
-        print(f"Got {len(scores)} scores, range: [{min(scores):.3f}, {max(scores):.3f}]")
-        
+        print(
+            f"Got {len(scores)} scores, range: [{min(scores):.3f}, {max(scores):.3f}]"
+        )
+
         # Filter
-        filtered = select_top_n_by_score(questions, scores, top_percentage=0.5, descending=True)
+        filtered = select_top_n_by_score(
+            questions, scores, top_percentage=0.5, descending=True
+        )
         print(f"Filtered to {len(filtered)} questions")
         print("✓ EmbeddingFilterMean test passed")
         return True
@@ -117,15 +122,18 @@ def test_gemini_length_filtering():
 
         # Get small sample
         questions = scrape_freelancer_projects()[:5]  # Even smaller for testing
-        
+
         print(f"Testing with {len(questions)} questions")
-        
+
         # For testing, mock the GPT responses to avoid API calls
         try:
             import os
+
             if os.getenv("OPENAI_API_KEY"):
                 # If API key exists, try real call with just 2 questions
-                responses, lengths = generate_gpt_responses(questions[:2], model="gpt-5-nano-2025-08-07")
+                responses, lengths = generate_gpt_responses(
+                    questions[:2], model="gpt-5-nano-2025-08-07"
+                )
             else:
                 # Mock responses with varying lengths
                 responses = [
@@ -133,8 +141,8 @@ def test_gemini_length_filtering():
                     "A medium length response with more details and information.",
                     "This is a much longer response that contains detailed information about the task, including multiple steps and considerations that need to be taken into account.",
                     "Brief.",
-                    "Another medium response with some context."
-                ][:len(questions)]
+                    "Another medium response with some context.",
+                ][: len(questions)]
                 lengths = [len(r) for r in responses]
                 print("Using mock responses (no API key)")
         except Exception:
@@ -144,19 +152,16 @@ def test_gemini_length_filtering():
                 "A medium length response with more details and information.",
                 "This is a much longer response that contains detailed information about the task, including multiple steps and considerations that need to be taken into account.",
                 "Brief.",
-                "Another medium response with some context."
-            ][:len(questions)]
+                "Another medium response with some context.",
+            ][: len(questions)]
             lengths = [len(r) for r in responses]
             print("Using mock responses")
-        
+
         print(f"Got {len(responses)} responses with lengths: {lengths}")
 
         # Filter
         filtered = select_top_n_by_score(
-            questions,
-            lengths,
-            top_percentage=0.5,
-            descending=True
+            questions, lengths, top_percentage=0.5, descending=True
         )
         print(f"Filtered to {len(filtered)} questions")
         print("✓ GeminiLengthFiltering test passed")
@@ -175,7 +180,7 @@ def test_random_filter():
             set_random_seed,
             random_sample_questions,
             weighted_random_sample,
-            create_diversity_weights
+            create_diversity_weights,
         )
 
         # Get small sample
@@ -193,9 +198,7 @@ def test_random_filter():
         # Test weighted
         weights = create_diversity_weights(questions)
         weighted_sampled = weighted_random_sample(
-            questions,
-            weights=weights,
-            sample_percentage=0.5
+            questions, weights=weights, sample_percentage=0.5
         )
         print(f"Weighted random: {len(weighted_sampled)} questions")
 
@@ -218,10 +221,12 @@ def main():
     results.append(("RandomFilter", test_random_filter()))
     results.append(("GeminiLengthFiltering", test_gemini_length_filtering()))
     results.append(("EmbeddingFilterMean", test_embedding_filter_mean()))
-    results.append(("EmbeddingFilterMeanPerDomain", test_embedding_filter_mean_per_domain()))
+    results.append(
+        ("EmbeddingFilterMeanPerDomain", test_embedding_filter_mean_per_domain())
+    )
     results.append(("FasttextPerDomain", test_fasttext_per_domain()))
     results.append(("AskLLM", test_ask_llm_filter()))
-    
+
     # Summary
     print("\n" + "=" * 50)
     print("TEST SUMMARY")
@@ -229,10 +234,10 @@ def main():
     for name, passed in results:
         status = "✓ PASSED" if passed else "✗ FAILED"
         print(f"{name:30} {status}")
-    
+
     total_passed = sum(1 for _, passed in results if passed)
     print(f"\nTotal: {total_passed}/{len(results)} tests passed")
-    
+
     return all(passed for _, passed in results)
 
 

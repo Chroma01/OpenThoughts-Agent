@@ -42,10 +42,12 @@ def tasks_to_parquet(
     output_path: str | Path,
 ) -> None:
     """Write a list of (path, task_binary) to a parquet file."""
-    table = pa.table({
-        "path": [p for p, _ in tasks],
-        "task_binary": [b for _, b in tasks],
-    })
+    table = pa.table(
+        {
+            "path": [p for p, _ in tasks],
+            "task_binary": [b for _, b in tasks],
+        }
+    )
     pq.write_table(table, str(output_path))
 
 
@@ -105,17 +107,22 @@ def replace_in_tasktrove(
         new_dir = stage_p / new_subdir_name
         new_dir.mkdir(parents=True)
         import shutil
+
         shutil.copy2(parquet_path, new_dir / "tasks.parquet")
 
         # Download + update README
         readme_path = hf_hub_download(
-            REPO, "README.md", repo_type="dataset",
-            local_dir=stage, token=token,
+            REPO,
+            "README.md",
+            repo_type="dataset",
+            local_dir=stage,
+            token=token,
         )
         readme = Path(readme_path).read_text()
 
         # Bump version
         import re
+
         version_match = re.search(r"v3\.(\d+)\s*\(current\)", readme)
         if version_match:
             current_ver = int(version_match.group(1))
@@ -124,8 +131,7 @@ def replace_in_tasktrove(
             new_header = f"v3.{new_ver} (current)"
             old_line = f"> **{old_header}**"
             new_block = (
-                f"> **{new_header}** — {version_note}\n>\n"
-                f"> **v3.{current_ver}**"
+                f"> **{new_header}** — {version_note}\n>\n> **v3.{current_ver}**"
             )
             readme = readme.replace(old_line, new_block, 1)
 

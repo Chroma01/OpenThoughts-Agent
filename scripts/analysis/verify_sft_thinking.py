@@ -8,6 +8,7 @@ Tests three scenarios:
 """
 
 import sys
+
 sys.path.insert(0, "/Users/benjaminfeuer/Documents/LLaMA-Factory/src")
 sys.path.insert(0, "/Users/benjaminfeuer/Documents/OpenThoughts-Agent")
 
@@ -57,7 +58,9 @@ def encode_and_report(template, tokenizer, messages, label):
         decoded_full.lstrip().startswith("<think>")
 
         status = "OK" if think_count == 1 and close_count == 1 else "DOUBLE-THINK BUG"
-        print(f"    Pair {pair_idx}: [{status}] prompt={len(prompt_ids)} tok, response={len(response_ids)} tok")
+        print(
+            f"    Pair {pair_idx}: [{status}] prompt={len(prompt_ids)} tok, response={len(response_ids)} tok"
+        )
         print(f"      <think> count={think_count} </think> count={close_count}")
         print(f"      Response start: {response_preview}")
         print()
@@ -76,7 +79,7 @@ def preprocess_messages(messages):
             orig_preview = original[:80].replace("\n", "\\n")
             new_preview = reformatted[:80].replace("\n", "\\n")
             changed = "CHANGED" if reformatted != original else "UNCHANGED"
-            print(f"    Turn {i//2} assistant: [{changed}] format={fmt_label}")
+            print(f"    Turn {i // 2} assistant: [{changed}] format={fmt_label}")
             if reformatted != original:
                 print(f"      Before: {orig_preview}...")
                 print(f"      After:  {new_preview}...")
@@ -121,7 +124,9 @@ def main():
                 has_think_with_nl = THOUGHT_OPEN in content
                 has_think_bare = "<think>" in content
                 preview = content[:100].replace("\n", "\\n")
-                print(f"    Turn {j//2} assistant: has_think_nl={has_think_with_nl} has_think_bare={has_think_bare}")
+                print(
+                    f"    Turn {j // 2} assistant: has_think_nl={has_think_with_nl} has_think_bare={has_think_bare}"
+                )
                 print(f"      Raw: {preview}...")
 
             encode_and_report(template, tokenizer, messages, "RAW encode_multiturn")
@@ -156,9 +161,13 @@ def main():
             for j in range(1, len(preprocessed), 2):
                 content = preprocessed[j]["content"]
                 guard_passes = THOUGHT_OPEN in content or THOUGHT_CLOSE in content
-                print(f"    Turn {j//2}: guard_check_prevents_double_think={guard_passes}")
+                print(
+                    f"    Turn {j // 2}: guard_check_prevents_double_think={guard_passes}"
+                )
 
-            encode_and_report(template, tokenizer, preprocessed, "PREPROCESSED encode_multiturn")
+            encode_and_report(
+                template, tokenizer, preprocessed, "PREPROCESSED encode_multiturn"
+            )
             break  # first matching row per dataset
 
     # =========================================================================
@@ -172,9 +181,15 @@ def main():
     print("\n--- 3a: No thinking at all ---")
     messages_no_think = [
         {"role": "user", "content": "Hello, please solve this task."},
-        {"role": "assistant", "content": '{"analysis": "I will solve the task", "commands": []}'},
+        {
+            "role": "assistant",
+            "content": '{"analysis": "I will solve the task", "commands": []}',
+        },
         {"role": "user", "content": "The command ran successfully."},
-        {"role": "assistant", "content": '{"analysis": "Task is done", "commands": [], "task_complete": true}'},
+        {
+            "role": "assistant",
+            "content": '{"analysis": "Task is done", "commands": [], "task_complete": true}',
+        },
     ]
     print("  Before preprocessing:")
     preprocessed = preprocess_messages(messages_no_think)
@@ -184,21 +199,35 @@ def main():
     print("\n--- 3b: Think tags WITHOUT newlines (raw format) ---")
     messages_no_nl = [
         {"role": "user", "content": "Hello."},
-        {"role": "assistant", "content": '<think>Let me think.</think>{"analysis": "done", "commands": []}'},
+        {
+            "role": "assistant",
+            "content": '<think>Let me think.</think>{"analysis": "done", "commands": []}',
+        },
         {"role": "user", "content": "OK."},
-        {"role": "assistant", "content": '<think>Almost done.</think>{"analysis": "finished", "commands": [], "task_complete": true}'},
+        {
+            "role": "assistant",
+            "content": '<think>Almost done.</think>{"analysis": "finished", "commands": [], "task_complete": true}',
+        },
     ]
     print("  Before preprocessing:")
     preprocessed = preprocess_messages(messages_no_nl)
-    encode_and_report(template, tokenizer, preprocessed, "Preprocessed no-newline-think")
+    encode_and_report(
+        template, tokenizer, preprocessed, "Preprocessed no-newline-think"
+    )
 
     # 3c: Already correct format (should be unchanged)
     print("\n--- 3c: Already correct Qwen3 format ---")
     messages_correct = [
         {"role": "user", "content": "Hello."},
-        {"role": "assistant", "content": '<think>\nLet me think.\n</think>\n\n{"analysis": "done", "commands": []}'},
+        {
+            "role": "assistant",
+            "content": '<think>\nLet me think.\n</think>\n\n{"analysis": "done", "commands": []}',
+        },
         {"role": "user", "content": "OK."},
-        {"role": "assistant", "content": '<think>\nAlmost done.\n</think>\n\n{"analysis": "finished", "commands": [], "task_complete": true}'},
+        {
+            "role": "assistant",
+            "content": '<think>\nAlmost done.\n</think>\n\n{"analysis": "finished", "commands": [], "task_complete": true}',
+        },
     ]
     print("  Before preprocessing:")
     preprocessed = preprocess_messages(messages_correct)
@@ -208,9 +237,15 @@ def main():
     print("\n--- 3d: Orphaned </think> (missing opening tag) ---")
     messages_orphan = [
         {"role": "user", "content": "Hello."},
-        {"role": "assistant", "content": 'Let me think about this.</think>{"analysis": "done", "commands": []}'},
+        {
+            "role": "assistant",
+            "content": 'Let me think about this.</think>{"analysis": "done", "commands": []}',
+        },
         {"role": "user", "content": "OK."},
-        {"role": "assistant", "content": 'Done thinking.</think>{"analysis": "finished", "commands": [], "task_complete": true}'},
+        {
+            "role": "assistant",
+            "content": 'Done thinking.</think>{"analysis": "finished", "commands": [], "task_complete": true}',
+        },
     ]
     print("  Before preprocessing:")
     preprocessed = preprocess_messages(messages_orphan)

@@ -2,6 +2,7 @@
 """
 Test script for perturbed_docker generation without import issues
 """
+
 from pathlib import Path
 
 from data.commons import create_task_from_dockerfiles_and_questions
@@ -15,7 +16,7 @@ def main():
         "Set up a web server with nginx",
         "Create a script to monitor system resources",
         "Install nodejs and create a simple express server",
-        "Set up a PostgreSQL database"
+        "Set up a PostgreSQL database",
     ]
 
     print("Perturbed Docker Generation Pipeline")
@@ -34,7 +35,9 @@ def main():
     print(f"Generated {len(dockerfiles)} Dockerfiles")
 
     # Create task directories with the environment unit structure
-    final_dataset_dir = create_task_from_dockerfiles_and_questions(dockerfiles, questions)
+    final_dataset_dir = create_task_from_dockerfiles_and_questions(
+        dockerfiles, questions
+    )
 
     print(f"\nGenerated dataset at: {final_dataset_dir}")
     print("\nTask directories created:")

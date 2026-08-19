@@ -33,7 +33,7 @@ def extract_task_description(first_user_message: str) -> str | None:
         if idx == -1:
             return None
 
-    after = first_user_message[idx + len(marker):]
+    after = first_user_message[idx + len(marker) :]
 
     # Trim at "Current terminal state:" or "Current Terminal Screen:"
     for end_marker in ("Current terminal state:", "Current Terminal Screen:"):

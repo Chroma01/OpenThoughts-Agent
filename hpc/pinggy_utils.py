@@ -43,7 +43,9 @@ class PinggyConfig:
     local_host: str = "localhost"  # Local host to tunnel (can be IP from vLLM endpoint)
     health_check_timeout: int = 60  # Seconds to wait for tunnel to be ready
     health_check_interval: int = 2  # Seconds between health checks
-    pinggy_host: str = "pro.pinggy.io"  # Pinggy server (pro.pinggy.io or free.pinggy.io)
+    pinggy_host: str = (
+        "pro.pinggy.io"  # Pinggy server (pro.pinggy.io or free.pinggy.io)
+    )
     # On no-internet clusters (JSC Jupiter/Jureca/Juwels, Leonardo) the compute
     # nodes cannot reach pro.pinggy.io directly, so the outbound ssh must be
     # wrapped with proxychains. Set this to e.g.
@@ -215,7 +217,9 @@ class PinggyTunnel:
         try:
             out = subprocess.run(
                 ["ps", "-o", "stat=", "-p", str(self._process.pid)],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
         except Exception:
             return None
@@ -233,7 +237,9 @@ class PinggyTunnel:
         if state and state.startswith("T"):
             try:
                 os.killpg(os.getpgid(self._process.pid), signal.SIGCONT)
-                print("  [pinggy] tunnel was job-control-stopped (state T); sent SIGCONT to resume")
+                print(
+                    "  [pinggy] tunnel was job-control-stopped (state T); sent SIGCONT to resume"
+                )
             except (ProcessLookupError, PermissionError):
                 pass
             return True
@@ -280,7 +286,9 @@ class PinggyTunnel:
         """
         can_verify = bool(self.config.health_check_url) or bool(self.log_path)
         if not can_verify:
-            print("  Waiting for tunnel process to stabilize (no URL/log to verify against)...")
+            print(
+                "  Waiting for tunnel process to stabilize (no URL/log to verify against)..."
+            )
             for _ in range(5):
                 time.sleep(1)
                 if self._process and self._process.poll() is not None:
@@ -289,7 +297,9 @@ class PinggyTunnel:
                         f"check logs at {self.log_path}"
                     )
                 self._resume_if_stopped()
-            print(f"  Tunnel process running (PID: {self._process.pid}), assuming healthy")
+            print(
+                f"  Tunnel process running (PID: {self._process.pid}), assuming healthy"
+            )
             return
 
         print("  Waiting for tunnel to confirm forwarding...")
@@ -305,7 +315,9 @@ class PinggyTunnel:
             self._resume_if_stopped()
             if self.config.health_check_url:
                 if self._probe_url(self.config.health_check_url):
-                    print(f"  [pinggy] tunnel confirmed forwarding via {self.config.health_check_url}")
+                    print(
+                        f"  [pinggy] tunnel confirmed forwarding via {self.config.health_check_url}"
+                    )
                     return
             elif self._log_shows_bound():
                 print(f"  [pinggy] tunnel bound (URL banner in {self.log_path})")
@@ -498,5 +510,3 @@ if __name__ == "__main__":
                 time.sleep(1)
     except KeyboardInterrupt:
         print("\nStopping...")
-
-

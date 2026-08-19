@@ -27,16 +27,12 @@ def main():
         model_name="gpt-5-nano-2025-08-07",
         agent_name="terminus-2",
         n_concurrent=1_500,
-        agent_kwargs={"max_episodes": 8}
+        agent_kwargs={"max_episodes": 8},
     )
 
     # Upload traces to HuggingFace
     print("\nStep 3: Uploading traces to HuggingFace...")
-    upload_traces_to_hf(
-        hf_dataset,
-        "DCAgent/nl2bash_gpt-5-nano-traces",
-        "SFT"
-    )
+    upload_traces_to_hf(hf_dataset, "DCAgent/nl2bash_gpt-5-nano-traces", "SFT")
 
     print("\n✓ Pipeline completed successfully!")
     print(f"HDF5 file: {hdf5_dataset}")

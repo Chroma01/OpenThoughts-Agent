@@ -45,7 +45,9 @@ class S3StorageConfig:
             missing.append("LAION_ENDPOINT")
 
         if missing:
-            raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+            raise ValueError(
+                f"Missing required environment variables: {', '.join(missing)}"
+            )
 
         # Auto-add https:// prefix if missing from endpoint
         if endpoint_url and not endpoint_url.startswith(("http://", "https://")):
@@ -150,21 +152,21 @@ class PinggyConfig:
         identity_flag = f"-i {self.identity_file} " if self.identity_file else ""
         # Match Pinggy's documented example and avoid interactive password prompts.
         return (
-            f'while true; do '
-            f'ssh -p 443 '
-            f'-R0:{self.local_host}:{self.local_port} '
-            f'-o StrictHostKeyChecking=no '
-            f'-o ServerAliveInterval=30 '
-            f'-o ServerAliveCountMax=3 '
-            f'-o ExitOnForwardFailure=yes '
-            f'-o BatchMode=yes '
-            f'-o PasswordAuthentication=no '
-            f'-o KbdInteractiveAuthentication=no '
-            f'-o IdentitiesOnly=yes '
-            f'{identity_flag}'
-            f'{self.token}@{self.pinggy_host}; '
-            f'sleep 10; '
-            f'done'
+            f"while true; do "
+            f"ssh -p 443 "
+            f"-R0:{self.local_host}:{self.local_port} "
+            f"-o StrictHostKeyChecking=no "
+            f"-o ServerAliveInterval=30 "
+            f"-o ServerAliveCountMax=3 "
+            f"-o ExitOnForwardFailure=yes "
+            f"-o BatchMode=yes "
+            f"-o PasswordAuthentication=no "
+            f"-o KbdInteractiveAuthentication=no "
+            f"-o IdentitiesOnly=yes "
+            f"{identity_flag}"
+            f"{self.token}@{self.pinggy_host}; "
+            f"sleep 10; "
+            f"done"
         )
 
     def get_public_url(self) -> str:
@@ -203,8 +205,12 @@ class ClusterSetupConfig:
     expose_method: str = "pinggy"  # "pinggy" or "loadbalancer"
     pinggy: Optional[PinggyConfig] = None
     loadbalancer: Optional[LoadBalancerConfig] = None
-    filestore: Optional[FilestoreConfig] = None  # Legacy: Shared NFS storage (deprecated)
-    s3_storage: Optional[S3StorageConfig] = None  # S3/MinIO storage for artifact caching
+    filestore: Optional[FilestoreConfig] = (
+        None  # Legacy: Shared NFS storage (deprecated)
+    )
+    s3_storage: Optional[S3StorageConfig] = (
+        None  # S3/MinIO storage for artifact caching
+    )
 
     # Workflow flags
     skip_gke: bool = False

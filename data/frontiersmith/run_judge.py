@@ -27,6 +27,7 @@ The agent's solution is /app/solution.cpp (single C++17 file, reads stdin,
 writes stdout). All per-problem assets (chk.cc, testlib.h, testdata/) live under
 /tests so the shared environment/ stays byte-identical (1 snapshot).
 """
+
 from __future__ import annotations
 
 import json
@@ -70,6 +71,7 @@ def _compile(src: Path, out: Path, extra_inc: Path | None = None) -> tuple[bool,
 
 def _limits(mem_mb: int):
     """preexec_fn applying an address-space (memory) limit to the child."""
+
     def _set():
         # Address-space cap (bytes). Add headroom; testlib/runtime overhead.
         soft = (mem_mb + 64) * 1024 * 1024
@@ -77,11 +79,13 @@ def _limits(mem_mb: int):
             resource.setrlimit(resource.RLIMIT_AS, (soft, soft))
         except (ValueError, OSError):
             pass
+
     return _set
 
 
-def _run_case(case_in: Path, case_ans: Path, time_limit_s: float,
-              mem_mb: int) -> tuple[float, str]:
+def _run_case(
+    case_in: Path, case_ans: Path, time_limit_s: float, mem_mb: int
+) -> tuple[float, str]:
     """Return (ratio, detail) for one case."""
     # 1) run contestant
     try:
@@ -153,11 +157,16 @@ def write_reward(reward: float, passed: bool, detail: dict) -> None:
         if isinstance(v, (int, float)) and not isinstance(v, bool):
             scalar[k] = v
     (LOG_DIR / "reward.json").write_text(json.dumps(scalar, indent=2))
-    (LOG_DIR / "evaluation_detail.json").write_text(json.dumps({
-        "binary_reward": 1 if passed else 0,
-        "continuous_score": float(reward),
-        **detail,
-    }, indent=2))
+    (LOG_DIR / "evaluation_detail.json").write_text(
+        json.dumps(
+            {
+                "binary_reward": 1 if passed else 0,
+                "continuous_score": float(reward),
+                **detail,
+            },
+            indent=2,
+        )
+    )
 
 
 def main() -> int:
@@ -182,8 +191,9 @@ def main() -> int:
     ok, err = _compile(SOLUTION_SRC, SOLUTION_BIN)
     if not ok:
         print(f"ERROR: solution.cpp failed to compile:\n{err}", flush=True)
-        write_reward(0.0, False, {"error": "compile-error", "stderr": err[:4000],
-                                  "tau": tau})
+        write_reward(
+            0.0, False, {"error": "compile-error", "stderr": err[:4000], "tau": tau}
+        )
         return 0
 
     # Compile checker (vendored testlib.h alongside)
@@ -191,8 +201,11 @@ def main() -> int:
         ok, err = _compile(CHK_SRC, CHK_BIN, extra_inc=TESTLIB_INCLUDE)
         if not ok:
             print(f"ERROR: checker chk.cc failed to compile:\n{err}", flush=True)
-            write_reward(0.0, False, {"error": "checker-compile-error",
-                                      "stderr": err[:4000], "tau": tau})
+            write_reward(
+                0.0,
+                False,
+                {"error": "checker-compile-error", "stderr": err[:4000], "tau": tau},
+            )
             return 0
 
     ratios: list[float] = []
@@ -214,14 +227,21 @@ def main() -> int:
 
     reward = sum(ratios) / len(ratios) if ratios else 0.0
     passed = reward >= tau
-    print(f"\nMean ratio (continuous score) = {reward:.6f}  "
-          f"tau = {tau:.6f}  -> {'PASS' if passed else 'FAIL'}", flush=True)
-    write_reward(reward, passed, {
-        "tau": tau,
-        "per_case_ratio": ratios,
-        "per_case_detail": details,
-        "n_cases": n_cases,
-    })
+    print(
+        f"\nMean ratio (continuous score) = {reward:.6f}  "
+        f"tau = {tau:.6f}  -> {'PASS' if passed else 'FAIL'}",
+        flush=True,
+    )
+    write_reward(
+        reward,
+        passed,
+        {
+            "tau": tau,
+            "per_case_ratio": ratios,
+            "per_case_detail": details,
+            "n_cases": n_cases,
+        },
+    )
     return 0
 
 

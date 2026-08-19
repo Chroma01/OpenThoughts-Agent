@@ -62,7 +62,9 @@ def copy_raw_tasks(source_dir: Path, output_dir: Path, on_exist: str = "skip") -
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Extract Harbor tasks from a parquet file.")
+    parser = argparse.ArgumentParser(
+        description="Extract Harbor tasks from a parquet file."
+    )
     parser.add_argument(
         "--parquet",
         required=True,
@@ -147,14 +149,18 @@ def main() -> None:
                 ) from exc
             download_hf_dataset = _download_hf_dataset
 
-        print(f"[extract] Treating '{parquet_input}' as a Hugging Face dataset repo; downloading snapshot...")
+        print(
+            f"[extract] Treating '{parquet_input}' as a Hugging Face dataset repo; downloading snapshot..."
+        )
         snapshot_dir = Path(
             download_hf_dataset(parquet_input, revision=args.tasks_revision)
         )
 
         # Check if it's raw tasks or parquet with task_binary
         if is_raw_tasks_directory(snapshot_dir):
-            print(f"[extract] Detected raw task directory (no extraction needed): {snapshot_dir}")
+            print(
+                f"[extract] Detected raw task directory (no extraction needed): {snapshot_dir}"
+            )
             source_dir = snapshot_dir
         else:
             # Look for parquet files with task_binary column
@@ -166,7 +172,9 @@ def main() -> None:
             if args.parquet_name:
                 matching = [p for p in parquet_files if p.name == args.parquet_name]
                 if not matching:
-                    available = "\n  - ".join(str(p.relative_to(snapshot_dir)) for p in parquet_files[:20])
+                    available = "\n  - ".join(
+                        str(p.relative_to(snapshot_dir)) for p in parquet_files[:20]
+                    )
                     raise FileNotFoundError(
                         f"Could not find parquet named '{args.parquet_name}' in repo '{parquet_input}'. "
                         f"Available examples:\n  - {available}"
@@ -177,16 +185,14 @@ def main() -> None:
             if len(parquet_paths) == 1:
                 print(f"[extract] Using parquet file: {parquet_paths[0]}")
             else:
-                print(f"[extract] Found {len(parquet_paths)} parquet shards; will extract all of them.")
+                print(
+                    f"[extract] Found {len(parquet_paths)} parquet shards; will extract all of them."
+                )
 
     output_dir = Path(args.output_dir).expanduser().resolve()
 
     # Early exit if output already exists
-    if (
-        args.on_exist == "error"
-        and output_dir.exists()
-        and any(output_dir.iterdir())
-    ):
+    if args.on_exist == "error" and output_dir.exists() and any(output_dir.iterdir()):
         print(
             "[extract] Output directory already contains data and on_exist=error; "
             "assuming tasks have already been extracted. Exiting gracefully."
@@ -195,7 +201,9 @@ def main() -> None:
 
     if args.dry_run:
         if source_dir:
-            print(f"[extract] DRY RUN: Would copy raw tasks from {source_dir} to {output_dir}")
+            print(
+                f"[extract] DRY RUN: Would copy raw tasks from {source_dir} to {output_dir}"
+            )
         else:
             for p in parquet_paths:
                 print(f"[extract] DRY RUN: Would extract parquet {p} to {output_dir}")
@@ -215,9 +223,15 @@ def main() -> None:
         # treat 'error' as 'skip' so an empty starting dir doesn't immediately blow up
         # on the 2nd shard. 'overwrite' / 'skip' pass through unchanged.
         for i, parquet_path in enumerate(parquet_paths):
-            label = f"shard {i + 1}/{len(parquet_paths)}: " if len(parquet_paths) > 1 else ""
+            label = (
+                f"shard {i + 1}/{len(parquet_paths)}: "
+                if len(parquet_paths) > 1
+                else ""
+            )
             print(f"[extract] Extracting parquet ({label}{parquet_path})")
-            print(f"[extract] Output directory: {output_dir} (on_exist={args.on_exist})")
+            print(
+                f"[extract] Output directory: {output_dir} (on_exist={args.on_exist})"
+            )
             eff = args.on_exist if (i == 0 or args.on_exist != "error") else "skip"
             tpc.from_parquet(str(parquet_path), str(output_dir), on_exist=eff)
         print(f"[extract] Done. Extracted {len(parquet_paths)} parquet file(s).")

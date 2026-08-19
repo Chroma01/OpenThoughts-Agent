@@ -13,20 +13,19 @@ class IrisTopology(Protocol):
 
 
 class IrisJobApi(Protocol):
-    def build_tpu_alternatives(self, tpu: str) -> Sequence[str]:
-        ...
+    def build_tpu_alternatives(self, tpu: str) -> Sequence[str]: ...
 
-    def get_tpu_topology(self, tpu: str) -> IrisTopology:
-        ...
+    def get_tpu_topology(self, tpu: str) -> IrisTopology: ...
 
-    def parse_gpu_spec(self, gpu: str) -> tuple[str, int]:
-        ...
+    def parse_gpu_spec(self, gpu: str) -> tuple[str, int]: ...
 
-    def build_resources(self, tpu: str | None, gpu: str | None, *, cpu: float, memory: str, disk: str) -> Any:
-        ...
+    def build_resources(
+        self, tpu: str | None, gpu: str | None, *, cpu: float, memory: str, disk: str
+    ) -> Any: ...
 
-    def resolve_multinode_defaults(self, tpu: str | None, gpu: str | None, replicas: int | None) -> tuple[int, Any]:
-        ...
+    def resolve_multinode_defaults(
+        self, tpu: str | None, gpu: str | None, replicas: int | None
+    ) -> tuple[int, Any]: ...
 
 
 class MarinIrisJobApi:
@@ -45,12 +44,16 @@ class MarinIrisJobApi:
 
         return parse_gpu_spec(gpu)
 
-    def build_resources(self, tpu: str | None, gpu: str | None, *, cpu: float, memory: str, disk: str) -> Any:
+    def build_resources(
+        self, tpu: str | None, gpu: str | None, *, cpu: float, memory: str, disk: str
+    ) -> Any:
         from iris.cli.job import build_resources
 
         return build_resources(tpu, gpu, cpu=cpu, memory=memory, disk=disk)
 
-    def resolve_multinode_defaults(self, tpu: str | None, gpu: str | None, replicas: int | None) -> tuple[int, Any]:
+    def resolve_multinode_defaults(
+        self, tpu: str | None, gpu: str | None, replicas: int | None
+    ) -> tuple[int, Any]:
         from iris.cli.job import resolve_multinode_defaults
 
         return resolve_multinode_defaults(tpu, gpu, replicas)
@@ -70,7 +73,9 @@ class ResolvedIrisAccelerator:
     tpu_topology: IrisTopology | None = None
     gpu_variant: str | None = None
     gpu_count: int | None = None
-    iris_api: IrisJobApi = field(default=DEFAULT_IRIS_JOB_API, repr=False, compare=False)
+    iris_api: IrisJobApi = field(
+        default=DEFAULT_IRIS_JOB_API, repr=False, compare=False
+    )
 
     @classmethod
     def from_args(
@@ -84,7 +89,9 @@ class ResolvedIrisAccelerator:
         tpu = getattr(args, "tpu", None) or (None if gpu else default_tpu)
 
         if gpu and tpu:
-            raise SystemExit("--gpu and --tpu are mutually exclusive; pass only one accelerator.")
+            raise SystemExit(
+                "--gpu and --tpu are mutually exclusive; pass only one accelerator."
+            )
         if not gpu and not tpu:
             raise SystemExit("Pass either --tpu <variant> or --gpu <variant>.")
 
@@ -151,7 +158,11 @@ class ResolvedIrisAccelerator:
         return f"GPU:        {self.gpu}"
 
     def build_resources(self, *, cpu: float, memory: str, disk: str):
-        return self.iris_api.build_resources(self.tpu, self.gpu, cpu=cpu, memory=memory, disk=disk)
+        return self.iris_api.build_resources(
+            self.tpu, self.gpu, cpu=cpu, memory=memory, disk=disk
+        )
 
     def resolve_multinode_defaults(self, replicas: int | None):
-        return self.iris_api.resolve_multinode_defaults(self.primary_tpu, self.gpu, replicas)
+        return self.iris_api.resolve_multinode_defaults(
+            self.primary_tpu, self.gpu, replicas
+        )

@@ -3,6 +3,7 @@
 It provides managed subprocess handling for Ray clusters and vLLM servers,
 datagen config parsing, Docker runtime setup, and Harbor command building.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -421,7 +422,9 @@ def start_vllm_controller(
     # setdefault so an explicit VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS (from the inherited env or the
     # datagen config's env_vars) still wins.
     if execute_model_timeout is not None:
-        env.setdefault("VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS", str(int(execute_model_timeout)))
+        env.setdefault(
+            "VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS", str(int(execute_model_timeout))
+        )
 
     cmd = [
         sys.executable,
@@ -514,7 +517,9 @@ def _drop_tpu_unsupported_serve_flags(cli_args: List[str]) -> List[str]:
     return out
 
 
-def _add_tpu_serve_default_flags(cli_args: List[str], default_flags: List[str]) -> List[str]:
+def _add_tpu_serve_default_flags(
+    cli_args: List[str], default_flags: List[str]
+) -> List[str]:
     """Append cluster-level default TPU-serve flags that aren't already present.
 
     Cluster-wide defaults for the iris/TPU vLLM api_server (e.g.
@@ -535,7 +540,9 @@ def _add_tpu_serve_default_flags(cli_args: List[str], default_flags: List[str]) 
             name = name[3:]
         return name
 
-    present = {_stem(tok) for tok in cli_args if isinstance(tok, str) and tok.startswith("--")}
+    present = {
+        _stem(tok) for tok in cli_args if isinstance(tok, str) and tok.startswith("--")
+    }
     out = list(cli_args)
     for flag in default_flags:
         if _stem(flag) not in present:
@@ -708,6 +715,7 @@ def apply_datagen_defaults(args: argparse.Namespace) -> None:
     # Build CLI args and env vars from vllm_server config
     if parsed.vllm_server_config:
         from dataclasses import asdict
+
         vllm_dict = asdict(parsed.vllm_server_config)
         cli_args, env_vars = _build_vllm_cli_args(vllm_dict)
         args._vllm_cli_args = cli_args
@@ -821,9 +829,11 @@ class LocalHarborRunner:
             default=DEFAULT_FD_MONITOR_INTERVAL,
             metavar="SECONDS",
             help=f"Interval for file descriptor monitoring (default: {DEFAULT_FD_MONITOR_INTERVAL}s). "
-                 "Set to 0 to disable.",
+            "Set to 0 to disable.",
         )
-        parser.add_argument("--fd-monitor-interval", dest="fd_monitor_interval", help=argparse.SUPPRESS)
+        parser.add_argument(
+            "--fd-monitor-interval", dest="fd_monitor_interval", help=argparse.SUPPRESS
+        )
 
     def get_env_type(self) -> str:
         """Get the environment type from --harbor-env.
@@ -878,7 +888,9 @@ class LocalHarborRunner:
         print(f"=== Local {self.JOB_PREFIX.title()} Runner ===")
         print(f"  Model: {args.model}")
         if needs_local_vllm:
-            print(f"  TP/PP/DP: {args.tensor_parallel_size}/{args.pipeline_parallel_size}/{args.data_parallel_size}")
+            print(
+                f"  TP/PP/DP: {args.tensor_parallel_size}/{args.pipeline_parallel_size}/{args.data_parallel_size}"
+            )
             print(f"  GPUs: {args.gpus}")
         else:
             print(f"  Engine: {engine_type} (API)")
@@ -901,6 +913,7 @@ class LocalHarborRunner:
         # worker (OT_AGENT_IRIS_SERVE=1) tp/pp/dp are left alone — iris derives
         # tensor-parallel from the TPU chip count.
         from hpc.model_config_apply import apply_to_runner
+
         _iris_serve = os.environ.get("OT_AGENT_IRIS_SERVE") == "1"
         apply_to_runner(
             args,
@@ -934,7 +947,9 @@ class LocalHarborRunner:
         # Validate model - required for local vLLM, optional for API engines
         needs_local_vllm = getattr(args, "_needs_local_vllm", True)
         if args.model is None and needs_local_vllm:
-            raise ValueError("Provide --model or supply a datagen config with vllm_server.model_path.")
+            raise ValueError(
+                "Provide --model or supply a datagen config with vllm_server.model_path."
+            )
 
         # Generate served model ID (only for local vLLM).
         #
@@ -961,7 +976,9 @@ class LocalHarborRunner:
         if args.gpus is None:
             args.gpus = max(
                 1,
-                args.tensor_parallel_size * args.pipeline_parallel_size * args.data_parallel_size,
+                args.tensor_parallel_size
+                * args.pipeline_parallel_size
+                * args.data_parallel_size,
             )
         if args.cpus is None:
             args.cpus = os.cpu_count() or 16
@@ -977,7 +994,11 @@ class LocalHarborRunner:
 
         # Load Harbor config (raw dict for backward compat)
         harbor_config_data = load_harbor_config(args.harbor_config)
-        jobs_dir_value = harbor_config_data.get("jobs_dir") if isinstance(harbor_config_data, dict) else None
+        jobs_dir_value = (
+            harbor_config_data.get("jobs_dir")
+            if isinstance(harbor_config_data, dict)
+            else None
+        )
         args._jobs_dir_path = resolve_jobs_dir_path(jobs_dir_value, self.repo_root)
         # If a --jobs-dir was injected on the CLI (the Iris GPU eval launcher does
         # this to route Harbor's trace_jobs to a pod-local scratch root or durable
@@ -986,7 +1007,9 @@ class LocalHarborRunner:
         # (_maybe_upload_results reads <_jobs_dir_path>/<job_name>) at the same
         # root so it finds the results. Only override for LOCAL filesystem paths;
         # remote schemes (gs://, s3://) are not read back by Path.exists() in-pod.
-        injected_jobs_dir = _extract_injected_jobs_dir(getattr(args, "harbor_extra_arg", None))
+        injected_jobs_dir = _extract_injected_jobs_dir(
+            getattr(args, "harbor_extra_arg", None)
+        )
         if injected_jobs_dir and "://" not in injected_jobs_dir:
             args._jobs_dir_path = Path(injected_jobs_dir).expanduser()
             print(
@@ -1004,6 +1027,7 @@ class LocalHarborRunner:
         # (CLI default is set in add_model_compute_args, check if it's still at that default)
         # Compat with both legacy Harbor (nested orchestrator) and unified Harbor (top-level field).
         from scripts.harbor._harbor_compat import get_orchestrator_field
+
         config_n_concurrent = get_orchestrator_field(harbor_job, "n_concurrent_trials")
         if config_n_concurrent is not None and config_n_concurrent > 0:
             # Only override if the CLI didn't pass it AND it's at the class default.
@@ -1133,7 +1157,9 @@ class LocalHarborRunner:
         # could never be detected as remote and never uploaded (it landed on the
         # worker's ephemeral tmpfs and was lost). The raw arg keeps the scheme so
         # ``literal_log_remote_uri`` resolves the durable ``gs://…/logs/…`` target.
-        literal_experiments_dir = getattr(self.args, "experiments_dir", None) or str(experiments_dir)
+        literal_experiments_dir = getattr(self.args, "experiments_dir", None) or str(
+            experiments_dir
+        )
         with maybe_serve_literal_proxy(
             record_literal,
             upstream,
@@ -1176,13 +1202,17 @@ class LocalHarborRunner:
         # IRIS_TASK_ID is the full task path (e.g. "/user/job/0"); on retried
         # tasks iris appends a ":N" retry suffix (e.g. "/user/job/0:2"). The
         # rank is the trailing path segment with any retry suffix stripped.
-        iris_rank = int(os.environ.get("IRIS_TASK_ID", "0").rsplit("/", 1)[-1].split(":", 1)[0])
+        iris_rank = int(
+            os.environ.get("IRIS_TASK_ID", "0").rsplit("/", 1)[-1].split(":", 1)[0]
+        )
 
         # Set up directories
         experiments_dir, logs_dir = self._setup_directories()
 
         # Set up endpoint JSON path (only used for local vLLM)
-        self._endpoint_json = Path(args.endpoint_json or (experiments_dir / self.DEFAULT_ENDPOINT_FILENAME))
+        self._endpoint_json = Path(
+            args.endpoint_json or (experiments_dir / self.DEFAULT_ENDPOINT_FILENAME)
+        )
         if self._endpoint_json.exists():
             self._endpoint_json.unlink()
 
@@ -1191,8 +1221,14 @@ class LocalHarborRunner:
 
         # Set up log paths
         ray_log = Path(args.ray_log) if args.ray_log else logs_dir / "ray.log"
-        controller_log = Path(args.controller_log) if args.controller_log else logs_dir / "vllm_controller.log"
-        harbor_log = Path(args.harbor_log).expanduser().resolve() if args.harbor_log else None
+        controller_log = (
+            Path(args.controller_log)
+            if args.controller_log
+            else logs_dir / "vllm_controller.log"
+        )
+        harbor_log = (
+            Path(args.harbor_log).expanduser().resolve() if args.harbor_log else None
+        )
 
         # Set up signal handlers
         self._setup_signal_handlers()
@@ -1210,6 +1246,7 @@ class LocalHarborRunner:
         # On GH200 (Jupiter), this ensures Ray/vLLM subprocesses inherit optimal
         # CPU-GPU locality. No-op when SKYRL_ENABLE_NUMA_AFFINITY is unset.
         from hpc.numa_utils import apply_numa_affinity
+
         apply_numa_affinity(gpu_id=0)
 
         # Start Ray and vLLM only if needed (local vLLM engine)
@@ -1233,7 +1270,10 @@ class LocalHarborRunner:
                 pipeline_parallel_size=args.pipeline_parallel_size,
                 data_parallel_size=args.data_parallel_size,
                 endpoint_path=self._endpoint_json,
-                controller_script=self.repo_root / "hpc" / "vllm" / "start_vllm_iris_controller.py",
+                controller_script=self.repo_root
+                / "hpc"
+                / "vllm"
+                / "start_vllm_iris_controller.py",
                 log_path=controller_log,
                 served_model_name=getattr(args, "_served_model_id", None),
                 # TPU serve: strip --swap-space (GPU-only; tpu-inference api_server
@@ -1271,13 +1311,17 @@ class LocalHarborRunner:
             )
             self.processes.append(vllm_proc)
         elif needs_local_vllm:
-            controller_script = self.repo_root / "hpc" / "vllm" / "start_vllm_ray_controller.py"
+            controller_script = (
+                self.repo_root / "hpc" / "vllm" / "start_vllm_ray_controller.py"
+            )
 
             # Convert memory from GB to bytes if provided
             ray_memory = None
             if getattr(args, "ray_memory_gb", None) is not None:
                 ray_memory = int(args.ray_memory_gb * 1024 * 1024 * 1024)
-            ray_object_store = int(getattr(args, "ray_object_store_gb", 40.0) * 1024 * 1024 * 1024)
+            ray_object_store = int(
+                getattr(args, "ray_object_store_gb", 40.0) * 1024 * 1024 * 1024
+            )
 
             ray_proc = start_ray(
                 host=args.host,
@@ -1314,7 +1358,9 @@ class LocalHarborRunner:
             self.processes.append(vllm_proc)
         else:
             engine_type = getattr(args, "_engine_type", "unknown")
-            print(f"[engine] Using {engine_type} API engine - skipping local Ray/vLLM startup")
+            print(
+                f"[engine] Using {engine_type} API engine - skipping local Ray/vLLM startup"
+            )
 
         try:
             # iris worker ranks (IRIS_TASK_ID != 0) are Ray worker nodes for
@@ -1340,7 +1386,9 @@ class LocalHarborRunner:
             # Match the controller's cluster_join_timeout (1200s) when iris_serve.
             if needs_local_vllm:
                 endpoint_timeout = 1200 if iris_serve else 300
-                wait_for_endpoint(self._endpoint_json, vllm_proc, timeout=endpoint_timeout)
+                wait_for_endpoint(
+                    self._endpoint_json, vllm_proc, timeout=endpoint_timeout
+                )
                 run_endpoint_health_check(
                     self._endpoint_json,
                     args.health_max_attempts,
@@ -1356,7 +1404,9 @@ class LocalHarborRunner:
             harbor_model = getattr(args, "_harbor_model_name", args.model)
             job_model_label = args.model or harbor_model or "model"
             dataset_label = self.get_dataset_label()
-            job_name = args.job_name or default_job_name(self.JOB_PREFIX, dataset_label, job_model_label)
+            job_name = args.job_name or default_job_name(
+                self.JOB_PREFIX, dataset_label, job_model_label
+            )
             self._harbor_job_name = job_name
             args._harbor_job_name = job_name
 
@@ -1452,6 +1502,7 @@ class LocalHarborRunner:
                 if not args.dry_run:
                     # Import here to avoid circular imports
                     from hpc.cli_utils import run_harbor_cli
+
                     run_harbor_cli(harbor_cmd, harbor_log)
                     self.post_harbor_hook()
                 else:

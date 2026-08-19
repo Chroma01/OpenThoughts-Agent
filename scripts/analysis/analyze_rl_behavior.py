@@ -75,8 +75,10 @@ def _run_subprocess(cmd: List[str]) -> int:
 
 def _module_runner(module: str, extra: List[str]) -> Callable[[], int]:
     """Build a runner that invokes ``python -m <module> <extra>``."""
+
     def _run() -> int:
         return _run_subprocess([sys.executable, "-m", module] + extra)
+
     return _run
 
 
@@ -97,9 +99,12 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
                 runner=_module_runner(
                     "scripts.analysis.behavioral_delta",
                     [
-                        "--before", args.baseline_eval,
-                        "--after", args.post_rl_eval,
-                        "--output", str(delta_md),
+                        "--before",
+                        args.baseline_eval,
+                        "--after",
+                        args.post_rl_eval,
+                        "--output",
+                        str(delta_md),
                         *(["--max-rows", str(args.max_rows)] if args.max_rows else []),
                     ],
                 ),
@@ -131,13 +136,20 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
                 runner=_module_runner(
                     "scripts.analysis.llm_judge_diff",
                     [
-                        "--before", args.baseline_eval,
-                        "--after", args.post_rl_eval,
-                        "--output", str(mc_md),
-                        "--selection", "behavior-delta",
-                        "--max-pairs", str(args.llm_judge_max_pairs),
-                        "--model", args.llm_judge_model,
-                        "--max-concurrent", str(args.llm_judge_concurrent),
+                        "--before",
+                        args.baseline_eval,
+                        "--after",
+                        args.post_rl_eval,
+                        "--output",
+                        str(mc_md),
+                        "--selection",
+                        "behavior-delta",
+                        "--max-pairs",
+                        str(args.llm_judge_max_pairs),
+                        "--model",
+                        args.llm_judge_model,
+                        "--max-concurrent",
+                        str(args.llm_judge_concurrent),
                         *(["--max-rows", str(args.max_rows)] if args.max_rows else []),
                     ],
                 ),
@@ -161,16 +173,24 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
                 runner=_module_runner(
                     "scripts.analysis.llm_judge_diff",
                     [
-                        "--before", args.baseline_eval,
-                        "--after", args.post_rl_eval,
-                        "--output", str(rand_md),
-                        "--selection", "random",
-                        "--seed", "0",
+                        "--before",
+                        args.baseline_eval,
+                        "--after",
+                        args.post_rl_eval,
+                        "--output",
+                        str(rand_md),
+                        "--selection",
+                        "random",
+                        "--seed",
+                        "0",
                         "--exclude-tasks-file",
                         str(out / "Q1_llm_judge_most_changed" / "selected_tasks.json"),
-                        "--max-pairs", str(args.llm_judge_max_pairs),
-                        "--model", args.llm_judge_model,
-                        "--max-concurrent", str(args.llm_judge_concurrent),
+                        "--max-pairs",
+                        str(args.llm_judge_max_pairs),
+                        "--model",
+                        args.llm_judge_model,
+                        "--max-concurrent",
+                        str(args.llm_judge_concurrent),
                         *(["--max-rows", str(args.max_rows)] if args.max_rows else []),
                     ],
                 ),
@@ -194,9 +214,12 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
                     "scripts.analysis.temporal_trace_analysis",
                     [
                         args.rl_traces,
-                        "--bin-hours", str(args.rl_bin_hours),
-                        "--output", str(temp_marker),
-                        "--plot", str(temp_plot),
+                        "--bin-hours",
+                        str(args.rl_bin_hours),
+                        "--output",
+                        str(temp_marker),
+                        "--plot",
+                        str(temp_plot),
                     ],
                 ),
             )
@@ -212,10 +235,15 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
         skyrl_marker = skyrl_dir / "summary.md"
 
         def _run_skyrl(args=args, skyrl_dir=skyrl_dir, marker=skyrl_marker) -> int:
-            rc = _run_subprocess([
-                sys.executable, "-m", "scripts.analysis.parse_skyrl_metrics",
-                args.training_log_dir, str(skyrl_dir),
-            ])
+            rc = _run_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "scripts.analysis.parse_skyrl_metrics",
+                    args.training_log_dir,
+                    str(skyrl_dir),
+                ]
+            )
             if rc != 0:
                 return rc
             reports = sorted(skyrl_dir.glob("*_metrics_report.md"))
@@ -230,7 +258,9 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
             if marker.exists() or marker.is_symlink():
                 marker.unlink()
             try:
-                marker.symlink_to(latest.name)  # relative symlink stays valid if dir moves
+                marker.symlink_to(
+                    latest.name
+                )  # relative symlink stays valid if dir moves
             except OSError:
                 # Fall back to copy on filesystems that can't symlink.
                 shutil.copy2(latest, marker)
@@ -258,7 +288,10 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
         eval_specs.extend(["--eval-traces", post_spec])
         if args.baseline_eval and args.baseline_eval_ts:
             eval_specs.extend(
-                ["--eval-traces", f"{args.baseline_eval}@baseline:{args.baseline_eval_ts}"]
+                [
+                    "--eval-traces",
+                    f"{args.baseline_eval}@baseline:{args.baseline_eval_ts}",
+                ]
             )
         if args.extra_eval:
             for s in args.extra_eval:
@@ -272,9 +305,12 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
                 runner=_module_runner(
                     "scripts.analysis.eval_temporal_overlay",
                     [
-                        "--rl-traces", args.rl_traces,
-                        "--bin-hours", str(args.rl_bin_hours),
-                        "--output", str(overlay_png),
+                        "--rl-traces",
+                        args.rl_traces,
+                        "--bin-hours",
+                        str(args.rl_bin_hours),
+                        "--output",
+                        str(overlay_png),
                         *eval_specs,
                         *(["--max-rows", str(args.max_rows)] if args.max_rows else []),
                     ],
@@ -295,10 +331,14 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
                 runner=_module_runner(
                     "scripts.analysis.trace_pair_render",
                     [
-                        "--before", args.baseline_eval,
-                        "--after", args.post_rl_eval,
-                        "--output", str(pair_html),
-                        "--top-n", str(args.pair_top_n),
+                        "--before",
+                        args.baseline_eval,
+                        "--after",
+                        args.post_rl_eval,
+                        "--output",
+                        str(pair_html),
+                        "--top-n",
+                        str(args.pair_top_n),
                         *(["--max-rows", str(args.max_rows)] if args.max_rows else []),
                     ],
                 ),
@@ -319,8 +359,10 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
                 runner=_module_runner(
                     "scripts.analysis.post_training_comparison",
                     [
-                        "--config", args.post_training_config,
-                        "--output", str(ptc_md),
+                        "--config",
+                        args.post_training_config,
+                        "--output",
+                        str(ptc_md),
                     ],
                 ),
             )
@@ -342,7 +384,8 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
                     [
                         args.baseline_eval,
                         args.post_rl_eval,
-                        "--plot", str(sr_png),
+                        "--plot",
+                        str(sr_png),
                     ],
                 ),
             )
@@ -352,10 +395,14 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
     # Inserted at the FRONT (must run before Q1 behavioral_delta picks up the labels).
     if args.annotate_failure_modes:
         prefix: List[Step] = []
-        for label, repo in [("baseline", args.baseline_eval), ("post-rl", args.post_rl_eval)]:
+        for label, repo in [
+            ("baseline", args.baseline_eval),
+            ("post-rl", args.post_rl_eval),
+        ]:
             if not repo:
                 continue
             marker = out / f"Q0_failure_mode_{label}" / "done.txt"
+
             # update_hf_failure_modes writes back to the HF repo when --push
             # is set; we just record the run-attempt locally.
             def _annotate(repo=repo, marker=marker) -> int:
@@ -371,8 +418,11 @@ def _build_steps(args: argparse.Namespace) -> List[Step]:
                 )
                 if rc == 0:
                     marker.parent.mkdir(parents=True, exist_ok=True)
-                    marker.write_text(f"annotated {repo} at {datetime.utcnow().isoformat()}\n")
+                    marker.write_text(
+                        f"annotated {repo} at {datetime.utcnow().isoformat()}\n"
+                    )
                 return rc
+
             prefix.append(
                 Step(
                     name=f"Q0.annotate_failure_modes.{label}",
@@ -408,12 +458,18 @@ def parse_args() -> argparse.Namespace:
         "--baseline-eval",
         help="Pre-RL eval traces. Pair with --post-rl-eval for Q1/Q3/Q4 diffs.",
     )
-    parser.add_argument("--baseline-eval-ts", help="ISO timestamp for the baseline eval marker (Q3 overlay)")
+    parser.add_argument(
+        "--baseline-eval-ts",
+        help="ISO timestamp for the baseline eval marker (Q3 overlay)",
+    )
     parser.add_argument(
         "--post-rl-eval",
         help="Post-RL eval traces. Pair with --baseline-eval for Q1/Q3/Q4 diffs.",
     )
-    parser.add_argument("--post-rl-eval-ts", help="ISO timestamp for the post-RL eval marker (Q3 overlay)")
+    parser.add_argument(
+        "--post-rl-eval-ts",
+        help="ISO timestamp for the post-RL eval marker (Q3 overlay)",
+    )
     parser.add_argument(
         "--extra-eval",
         action="append",
@@ -488,7 +544,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=20,
         help="Pairs judged PER probe (default 20). Applied to BOTH the most-changed "
-             "and the random-control judge runs, so total GPT-5 pairs ≈ 2× this.",
+        "and the random-control judge runs, so total GPT-5 pairs ≈ 2× this.",
     )
     parser.add_argument(
         "--llm-judge-concurrent",
@@ -502,9 +558,21 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Root directory where each step's output is written",
     )
-    parser.add_argument("--rl-bin-hours", type=float, default=4.0, help="Hours per RL temporal bin")
-    parser.add_argument("--pair-top-n", type=int, default=25, help="Number of side-by-side trace pairs to render")
-    parser.add_argument("--max-rows", type=int, default=None, help="Per-source row cap (for smoke testing)")
+    parser.add_argument(
+        "--rl-bin-hours", type=float, default=4.0, help="Hours per RL temporal bin"
+    )
+    parser.add_argument(
+        "--pair-top-n",
+        type=int,
+        default=25,
+        help="Number of side-by-side trace pairs to render",
+    )
+    parser.add_argument(
+        "--max-rows",
+        type=int,
+        default=None,
+        help="Per-source row cap (for smoke testing)",
+    )
     parser.add_argument(
         "--skip",
         default="",
@@ -515,7 +583,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Comma-separated step names to run exclusively (everything else skipped)",
     )
-    parser.add_argument("--force", action="store_true", help="Re-run steps even if their output marker exists")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run steps even if their output marker exists",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -551,6 +623,7 @@ def run(args: argparse.Namespace) -> int:
             print("[orchestrator] --list-evals requires --model-repo", file=sys.stderr)
             return 2
         from scripts.analysis.auto_resolve import list_evals_for_model
+
         info = list_evals_for_model(
             rl_traces=args.rl_traces or "",
             model_repo=args.model_repo,
@@ -561,19 +634,27 @@ def run(args: argparse.Namespace) -> int:
             return 2
         print(f"model_id={info['model_id']}  base_model_id={info.get('base_model_id')}")
         if info["matched"]:
-            print("\nMatched pairs (sorted by delta desc; pass --eval-benchmark <id> to pin):")
+            print(
+                "\nMatched pairs (sorted by delta desc; pass --eval-benchmark <id> to pin):"
+            )
             print(f"  {'benchmark':<38} {'post':>8} {'base':>8} {'delta':>8}")
             for r in info["matched"]:
                 ps = "—" if r["post_score"] is None else f"{r['post_score']:.4f}"
-                bs = "—" if r["baseline_score"] is None else f"{r['baseline_score']:.4f}"
+                bs = (
+                    "—" if r["baseline_score"] is None else f"{r['baseline_score']:.4f}"
+                )
                 d = "—" if r["delta"] is None else f"{r['delta']:+.4f}"
                 print(f"  {r['benchmark_id']:<38} {ps:>8} {bs:>8} {d:>8}")
         if info["post_only"]:
-            print(f"\nPost-RL only ({len(info['post_only'])} benchmark(s); no baseline pair):")
+            print(
+                f"\nPost-RL only ({len(info['post_only'])} benchmark(s); no baseline pair):"
+            )
             for r in info["post_only"]:
                 print(f"  {r['benchmark_id']:<38} score={r['post_score']}")
         if info["baseline_only"]:
-            print(f"\nBaseline only ({len(info['baseline_only'])} benchmark(s); no post-RL pair):")
+            print(
+                f"\nBaseline only ({len(info['baseline_only'])} benchmark(s); no post-RL pair):"
+            )
             for r in info["baseline_only"]:
                 print(f"  {r['benchmark_id']:<38} score={r['baseline_score']}")
         return 0
@@ -588,6 +669,7 @@ def run(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         from scripts.analysis.auto_resolve import resolve as _resolve
+
         resolved = _resolve(
             rl_traces=args.rl_traces or "",
             model_repo=args.model_repo,
@@ -656,22 +738,30 @@ def run(args: argparse.Namespace) -> int:
             status = "skipped:not-in-only"
         elif step.name in skip_set:
             status = "skipped:--skip"
-        elif step.output_marker.exists() and step.output_marker.stat().st_size > 0 and not args.force:
+        elif (
+            step.output_marker.exists()
+            and step.output_marker.stat().st_size > 0
+            and not args.force
+        ):
             status = f"skipped:already-present ({step.output_marker})"
-        plan.append({
-            "name": step.name,
-            "question": step.question,
-            "description": step.description,
-            "output_marker": str(step.output_marker),
-            "status": status,
-            "optional": step.optional,
-        })
+        plan.append(
+            {
+                "name": step.name,
+                "question": step.question,
+                "description": step.description,
+                "output_marker": str(step.output_marker),
+                "status": status,
+                "optional": step.optional,
+            }
+        )
     plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
 
     # Print plan summary.
     print(f"\n[orchestrator] Plan ({args.output_dir}/pipeline_plan.json):")
     for p in plan:
-        print(f"  [{p['status']:30s}] {p['name']:40s} {p['question']:4s} {p['description']}")
+        print(
+            f"  [{p['status']:30s}] {p['name']:40s} {p['question']:4s} {p['description']}"
+        )
     if args.dry_run:
         return 0
 
@@ -690,7 +780,12 @@ def run(args: argparse.Namespace) -> int:
 
     # Write the final index report.
     index_path = args.output_dir / "INDEX.md"
-    index = ["# RL Behavioral Analysis", "", f"Generated {datetime.utcnow().isoformat()}Z", ""]
+    index = [
+        "# RL Behavioral Analysis",
+        "",
+        f"Generated {datetime.utcnow().isoformat()}Z",
+        "",
+    ]
     for q_label, q_name in [
         ("Q1", "What model behaviors are changing as a result of RL?"),
         ("Q2", "Are reward changes attributable to behavior changes or other factors?"),
@@ -701,18 +796,29 @@ def run(args: argparse.Namespace) -> int:
         for step, p in zip(steps, plan):
             if step.question != q_label:
                 continue
-            link = step.output_marker.relative_to(args.output_dir) if step.output_marker.exists() else None
+            link = (
+                step.output_marker.relative_to(args.output_dir)
+                if step.output_marker.exists()
+                else None
+            )
             if link:
-                index.append(f"- **{step.name}** — [{link}]({link}) — {step.description}")
+                index.append(
+                    f"- **{step.name}** — [{link}]({link}) — {step.description}"
+                )
             else:
-                index.append(f"- **{step.name}** — _(not produced)_ — {step.description}")
+                index.append(
+                    f"- **{step.name}** — _(not produced)_ — {step.description}"
+                )
         index.append("")
     index_path.write_text("\n".join(index) + "\n", encoding="utf-8")
     print(f"\n[orchestrator] index → {index_path}")
     print(f"[orchestrator] plan → {plan_path}")
 
     if failures:
-        print(f"[orchestrator] {len(failures)} required step(s) failed: {', '.join(failures)}", file=sys.stderr)
+        print(
+            f"[orchestrator] {len(failures)} required step(s) failed: {', '.join(failures)}",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

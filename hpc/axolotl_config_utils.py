@@ -19,7 +19,9 @@ import os
 
 # axolotl plugin module paths (assembled into the emitted `plugins:` list from the
 # enabled fork-key flags). Names must match the fork's integration modules.
-_PLUGIN_TEMPLATE_INTEGRITY = "axolotl.integrations.template_integrity.TemplateIntegrityPlugin"
+_PLUGIN_TEMPLATE_INTEGRITY = (
+    "axolotl.integrations.template_integrity.TemplateIntegrityPlugin"
+)
 _PLUGIN_MFU = "axolotl.integrations.mfu.MFUPlugin"
 _PLUGIN_SUPABASE = "axolotl.integrations.supabase_registry.SupabaseRegistryPlugin"
 _PLUGIN_LIGER = "axolotl.integrations.liger.LigerPlugin"
@@ -88,8 +90,12 @@ def _build_datasets(base_config: dict, exp_args: dict, dataset_paths):
     Gate M / Open-decision #6 = "match LF exactly").
     """
     role_tag = exp_args.get("role_tag") or base_config.get("role_tag") or "from"
-    content_tag = exp_args.get("content_tag") or base_config.get("content_tag") or "value"
-    messages_field = exp_args.get("messages") or base_config.get("messages") or "conversations"
+    content_tag = (
+        exp_args.get("content_tag") or base_config.get("content_tag") or "value"
+    )
+    messages_field = (
+        exp_args.get("messages") or base_config.get("messages") or "conversations"
+    )
 
     # LF's ShareGPT default: role under `from`, content under `value`, turns under
     # `conversations`. Map to axolotl property mappings + field_messages.
@@ -133,8 +139,15 @@ def _assemble_plugins(base_config: dict) -> list:
     return plugins
 
 
-def translate_lf_to_axolotl(base_config: dict, exp_args: dict, dataset_paths, model_path: str,
-                            *, num_nodes: int, gpus_per_node: int) -> dict:
+def translate_lf_to_axolotl(
+    base_config: dict,
+    exp_args: dict,
+    dataset_paths,
+    model_path: str,
+    *,
+    num_nodes: int,
+    gpus_per_node: int,
+) -> dict:
     """Pure translation: LF-schema `base_config` + geometry -> axolotl-schema dict.
 
     No I/O; unit-testable. `base_config` may carry the LF keys and/or already-merged
@@ -155,16 +168,34 @@ def translate_lf_to_axolotl(base_config: dict, exp_args: dict, dataset_paths, mo
 
     # --- same-name passthroughs ---
     for key in (
-        "learning_rate", "warmup_ratio", "warmup_steps", "weight_decay", "max_grad_norm",
-        "gradient_checkpointing", "trust_remote_code", "logging_steps",
-        "seed", "output_dir", "save_steps", "save_total_limit", "num_epochs", "max_steps",
-        "sequence_len", "sample_packing", "val_set_size", "adam_beta1", "adam_beta2",
-        "special_tokens", "dataset_num_proc", "dataset_prepared_path",
+        "learning_rate",
+        "warmup_ratio",
+        "warmup_steps",
+        "weight_decay",
+        "max_grad_norm",
+        "gradient_checkpointing",
+        "trust_remote_code",
+        "logging_steps",
+        "seed",
+        "output_dir",
+        "save_steps",
+        "save_total_limit",
+        "num_epochs",
+        "max_steps",
+        "sequence_len",
+        "sample_packing",
+        "val_set_size",
+        "adam_beta1",
+        "adam_beta2",
+        "special_tokens",
+        "dataset_num_proc",
+        "dataset_prepared_path",
         # resume-from-checkpoint (so --max_restarts / an afterany chain leg RESUMES for the
         # axolotl backend instead of restarting from step 0 — axolotl only auto-resumes when
         # auto_resume_from_checkpoints/resume_from_checkpoint is set; HF-Trainer's implicit
         # auto-resume that the LF path relies on does NOT apply here).
-        "auto_resume_from_checkpoints", "resume_from_checkpoint",
+        "auto_resume_from_checkpoints",
+        "resume_from_checkpoint",
         # ddp_timeout -> HF TrainingArguments.ddp_timeout -> accelerate InitProcessGroupKwargs
         # -> the c10d/NCCL collective-watchdog timeout (axolotl forwards it in causal.py). Lets a
         # transient IB blip during a ZeRO-3 reduce-scatter self-heal instead of SIGABRT at the 600s
@@ -180,7 +211,9 @@ def translate_lf_to_axolotl(base_config: dict, exp_args: dict, dataset_paths, mo
         ax["dataset_prepared_path"] = os.path.expandvars(ax["dataset_prepared_path"])
 
     # --- optimizer ---
-    ax["optimizer"] = _map_optimizer(base_config.get("optim") or base_config.get("optimizer"))
+    ax["optimizer"] = _map_optimizer(
+        base_config.get("optim") or base_config.get("optimizer")
+    )
 
     # --- bf16 / tf32 (semantics close; assert dtype in the GPU smoke) ---
     if base_config.get("bf16") or str(base_config.get("bf16")).lower() == "auto":
@@ -190,7 +223,11 @@ def translate_lf_to_axolotl(base_config: dict, exp_args: dict, dataset_paths, mo
     # --- effective batch: global_batch_size -> micro_batch_size + grad_accum ---
     # Reuse the LF math (per_device=1, dp = nodes*gpus). Non-1:1 shape (README §map).
     gbs = base_config.get("global_batch_size")
-    micro = base_config.get("micro_batch_size") or base_config.get("per_device_train_batch_size") or 1
+    micro = (
+        base_config.get("micro_batch_size")
+        or base_config.get("per_device_train_batch_size")
+        or 1
+    )
     if gbs is not None:
         # CLI passes --global_batch_size as a string; cast (mirrors the int()
         # coercion already applied to micro/num_nodes/gpus_per_node below) so the
@@ -210,7 +247,9 @@ def translate_lf_to_axolotl(base_config: dict, exp_args: dict, dataset_paths, mo
         if "micro_batch_size" in base_config:
             ax["micro_batch_size"] = base_config["micro_batch_size"]
         if "gradient_accumulation_steps" in base_config:
-            ax["gradient_accumulation_steps"] = base_config["gradient_accumulation_steps"]
+            ax["gradient_accumulation_steps"] = base_config[
+                "gradient_accumulation_steps"
+            ]
 
     # --- attention: LF `attn`/`fa2` -> axolotl attn_implementation (varlen) ---
     # An explicit `attn_implementation` in the base config wins (e.g. `sdpa` on
@@ -221,7 +260,11 @@ def translate_lf_to_axolotl(base_config: dict, exp_args: dict, dataset_paths, mo
     lf_attn = base_config.get("attn")
     if base_config.get("attn_implementation"):
         ax["attn_implementation"] = base_config["attn_implementation"]
-    elif lf_attn in ("fa2", "fa3") or base_config.get("flash_attention") or ax.get("sample_packing"):
+    elif (
+        lf_attn in ("fa2", "fa3")
+        or base_config.get("flash_attention")
+        or ax.get("sample_packing")
+    ):
         ax["attn_implementation"] = "flash_attention_2"
 
     # --- chat_template + fork keys ---
@@ -260,8 +303,10 @@ def translate_lf_to_axolotl(base_config: dict, exp_args: dict, dataset_paths, mo
 
     # --- deepspeed (ZeRO-3 intent; use axolotl's proven json, not the LF one) ---
     if base_config.get("deepspeed") or base_config.get("deepspeed_config"):
-        ax["deepspeed"] = base_config.get("deepspeed_config") or \
-            "sft/axolotl/deepspeed_configs/zero3_bf16.json"
+        ax["deepspeed"] = (
+            base_config.get("deepspeed_config")
+            or "sft/axolotl/deepspeed_configs/zero3_bf16.json"
+        )
 
     # --- hub push (mirror LF offline handling: omit hub_model_id offline) ---
     if exp_args.get("internet_node"):
@@ -305,7 +350,9 @@ def construct_axolotl_config_yaml(exp_args):
     from hpc.sft_launch_utils import configure_sft_reporting, resolve_job_and_paths
 
     train_config_path = exp_args.get("train_config_path")
-    datasets_dir = os.path.expandvars(os.environ.get("DATASETS_DIR", exp_args.get("datasets_dir") or ""))
+    datasets_dir = os.path.expandvars(
+        os.environ.get("DATASETS_DIR", exp_args.get("datasets_dir") or "")
+    )
     checkpoints_dir = os.path.expandvars(
         os.environ.get("CHECKPOINTS_DIR", exp_args.get("checkpoints_dir") or "")
     )
@@ -335,7 +382,9 @@ def construct_axolotl_config_yaml(exp_args):
         base_config["model_name_or_path"] = base_config["base_model"]
     exp_args["_original_model_name_or_path"] = base_config.get("model_name_or_path")
 
-    artifacts = _materialize_dataset_and_model(base_config, exp_args, dataset_entries, datasets_dir)
+    artifacts = _materialize_dataset_and_model(
+        base_config, exp_args, dataset_entries, datasets_dir
+    )
 
     # Reporting/offline handling (sets model_name_or_path=model_path, push_to_hub).
     base_config = configure_sft_reporting(base_config, exp_args, artifacts.model_path)
@@ -358,7 +407,9 @@ def construct_axolotl_config_yaml(exp_args):
     if "output_dir" not in axolotl_config and base_config.get("output_dir"):
         axolotl_config["output_dir"] = base_config["output_dir"]
 
-    train_config_path_out = _write_train_config(configs_dir, exp_args["job_name"], axolotl_config)
+    train_config_path_out = _write_train_config(
+        configs_dir, exp_args["job_name"], axolotl_config
+    )
     exp_args["output_dir"] = axolotl_config.get("output_dir")
     exp_args["model_name_or_path"] = axolotl_config.get("base_model")
     exp_args["hub_model_id"] = axolotl_config.get("hub_model_id")
@@ -374,7 +425,9 @@ def validate_axolotl_config(axolotl_config: dict):
     """
     import sys
 
-    axolotl_src = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sft", "axolotl", "src")
+    axolotl_src = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "sft", "axolotl", "src"
+    )
     if os.path.isdir(axolotl_src) and axolotl_src not in sys.path:
         sys.path.insert(0, axolotl_src)
 

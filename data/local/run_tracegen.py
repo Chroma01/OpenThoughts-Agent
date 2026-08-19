@@ -57,18 +57,24 @@ class TracegenRunner(LocalHarborRunner):
             required=True,
             help="Path to datagen YAML with vLLM settings.",
         )
-        parser.add_argument("--datagen-config", dest="datagen_config", help=argparse.SUPPRESS)
+        parser.add_argument(
+            "--datagen-config", dest="datagen_config", help=argparse.SUPPRESS
+        )
 
         # Harbor environment backend (unified --harbor_env, with legacy aliases)
         # Default=None to allow inference from harbor config's environment.type field
-        add_harbor_env_arg(parser, default=None, legacy_names=["--trace-env", "--trace_env"])
+        add_harbor_env_arg(
+            parser, default=None, legacy_names=["--trace-env", "--trace_env"]
+        )
 
         parser.add_argument(
             "--experiments_dir",
             default=str(PROJECT_ROOT / cls.DEFAULT_EXPERIMENTS_SUBDIR),
             help="Directory for logs + endpoint JSON.",
         )
-        parser.add_argument("--experiments-dir", dest="experiments_dir", help=argparse.SUPPRESS)
+        parser.add_argument(
+            "--experiments-dir", dest="experiments_dir", help=argparse.SUPPRESS
+        )
 
         # HuggingFace upload options (shared from arg_groups)
         add_hf_upload_args(parser)
@@ -84,6 +90,7 @@ class TracegenRunner(LocalHarborRunner):
             return self.args.harbor_env
         # Infer from harbor config if not explicitly specified
         from hpc.harbor_utils import get_harbor_env_from_config
+
         return get_harbor_env_from_config(self.args.harbor_config)
 
     def get_dataset_label(self) -> str:
@@ -130,7 +137,9 @@ class TracegenRunner(LocalHarborRunner):
         print(f"  Model: {args.model}")
         print(f"  Tasks: {args.tasks_input_path}")
         if needs_local_vllm:
-            print(f"  TP/PP/DP: {args.tensor_parallel_size}/{args.pipeline_parallel_size}/{args.data_parallel_size}")
+            print(
+                f"  TP/PP/DP: {args.tensor_parallel_size}/{args.pipeline_parallel_size}/{args.data_parallel_size}"
+            )
             print(f"  GPUs: {args.gpus}")
         else:
             print(f"  Engine: {engine_type} (API)")

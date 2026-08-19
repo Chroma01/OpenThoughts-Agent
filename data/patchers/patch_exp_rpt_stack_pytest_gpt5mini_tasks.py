@@ -45,6 +45,7 @@ CLI mirrors ``patch_stack_pytest_synthetic_v4_tasks.py``::
 
 Target HF repo: ``laion/exp_rpt_stack-pytest-gpt5mini-v2``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -198,8 +199,16 @@ def main() -> int:
     print("=" * 60)
     yld = counts["keep"] / total * 100 if total else 0.0
     print(f"Total: {total}  Kept: {counts['keep']} ({yld:.1f}%)  Dry={args.dry_run}")
-    for k in ("keep", "drop_syntax", "drop_import", "drop_fixture",
-              "drop_relative", "drop_other", "patched", "patch_skipped"):
+    for k in (
+        "keep",
+        "drop_syntax",
+        "drop_import",
+        "drop_fixture",
+        "drop_relative",
+        "drop_other",
+        "patched",
+        "patch_skipped",
+    ):
         v = counts[k]
         print(f"  {k:<14}: {v:>5}")
         for ex in examples.get(k, [])[:5]:

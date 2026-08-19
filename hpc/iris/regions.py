@@ -368,7 +368,9 @@ def discover_region_for_tpu(
     rows = _iris_query(cluster_config, sql)
     # Drop rows for regions we can't route to a known single-region output
     # bucket — picking one would just re-create the cross-region problem.
-    candidates = [r for r in rows if r.get("region") and output_bucket_for_region(r["region"])]
+    candidates = [
+        r for r in rows if r.get("region") and output_bucket_for_region(r["region"])
+    ]
     if not candidates:
         return None, rows
     return candidates[0]["region"], rows

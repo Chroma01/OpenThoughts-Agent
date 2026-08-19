@@ -68,9 +68,7 @@ def docker_available() -> bool:
     if not shutil.which("docker"):
         return False
     try:
-        subprocess.run(
-            ["docker", "info"], check=True, capture_output=True, timeout=15
-        )
+        subprocess.run(["docker", "info"], check=True, capture_output=True, timeout=15)
         return True
     except Exception:
         return False
@@ -92,8 +90,14 @@ def wait_for_shim(timeout: float = 600.0) -> bool:
 def start_shim(which: str) -> subprocess.Popen:
     env = dict(os.environ, TOKVIZ_SERVE_MODEL=which)
     proc = subprocess.Popen(
-        [RT_PY, str(HERE / "serve_hf_openai.py"), "--model", which,
-         "--port", str(SHIM_PORT)],
+        [
+            RT_PY,
+            str(HERE / "serve_hf_openai.py"),
+            "--model",
+            which,
+            "--port",
+            str(SHIM_PORT),
+        ],
         cwd=str(HERE),
         env=env,
     )
@@ -113,14 +117,18 @@ def model_name_for(which: str) -> str:
 def sweagent_cmd(which: str, repo: Path, bundled_config: Path) -> list[str]:
     issue = repo / "ISSUE.md"
     return [
-        SWEAGENT_BIN, "run",
+        SWEAGENT_BIN,
+        "run",
         # Bundled default first (tool bundles + system/instance templates +
         # the variant's parser), then our small-model override
         # (model/limits/no-demo) on top. The override does NOT set
         # parse_function, so each variant keeps its own parser.
-        "--config", str(bundled_config),
-        "--config", str(OVERRIDE_CONFIG),
-        "--agent.model.name", model_name_for(which),
+        "--config",
+        str(bundled_config),
+        "--config",
+        str(OVERRIDE_CONFIG),
+        "--agent.model.name",
+        model_name_for(which),
         f"--problem_statement.path={issue}",
         f"--env.repo.path={repo}",
     ]
@@ -146,17 +154,22 @@ def run_variant(which: str, do_sweagent: bool) -> None:
     shim = start_shim(which)
     try:
         for parser_key, bundled_config, _suffix in VARIANTS:
-            print(f"\n[{which} / {parser_key}] driving swe-agent "
-                  f"(config={bundled_config.name})")
+            print(
+                f"\n[{which} / {parser_key}] driving swe-agent "
+                f"(config={bundled_config.name})"
+            )
             if do_sweagent:
                 for repo in sorted(p for p in REPOS_DIR.iterdir() if p.is_dir()):
                     run_sweagent_on_repo(which, repo, bundled_config)
             else:
-                print(f"[{which} / {parser_key}] swe-agent skipped "
-                      "(Docker/install missing). Manual commands printed below.")
+                print(
+                    f"[{which} / {parser_key}] swe-agent skipped "
+                    "(Docker/install missing). Manual commands printed below."
+                )
                 for repo in sorted(p for p in REPOS_DIR.iterdir() if p.is_dir()):
-                    print("  MANUAL:", " ".join(
-                        sweagent_cmd(which, repo, bundled_config)))
+                    print(
+                        "  MANUAL:", " ".join(sweagent_cmd(which, repo, bundled_config))
+                    )
     finally:
         shim.terminate()
         try:
@@ -170,11 +183,11 @@ def run_variant(which: str, do_sweagent: bool) -> None:
 # tool-doc fingerprints (command names that only appear if {{command_docs}}
 # rendered the bundled tool bundles). The captured prompt must contain BOTH.
 ISSUE_FINGERPRINTS = [
-    "sum of integers from 1 to n",      # offbyone
-    "forgets to return",                # returnsnone
-    "supposed to multiply",             # wrongop
-    "return the reversed string",       # reversed
-    "maximum element of a non-empty",   # emptylist
+    "sum of integers from 1 to n",  # offbyone
+    "forgets to return",  # returnsnone
+    "supposed to multiply",  # wrongop
+    "return the reversed string",  # reversed
+    "maximum element of a non-empty",  # emptylist
 ]
 # These command/tool names come from the bundled tool bundles. In
 # thought_action they appear as TEXT under "COMMANDS:" via {{command_docs}}; in
@@ -191,7 +204,7 @@ def _has_open_think(prompt: str) -> bool:
     idx = prompt.rfind("<think>")
     if idx == -1:
         return False
-    tail = prompt[idx + len("<think>"):]
+    tail = prompt[idx + len("<think>") :]
     # Open block: nothing but whitespace before EOS (no </think> close follows).
     return "</think>" not in tail
 
@@ -224,14 +237,18 @@ def verify_capture() -> None:
         r.get("templated_prompt", "") for r in records if r.get("which") == "instruct"
     ]
     if any(_has_open_think(p) for p in instruct_prompts):
-        print("[verify] GATE A: at least one instruct prompt has an OPEN <think> "
-              "tail (thinking enabled). OK")
+        print(
+            "[verify] GATE A: at least one instruct prompt has an OPEN <think> "
+            "tail (thinking enabled). OK"
+        )
     else:
         # Thinking is model-specific: Qwen3.5 uses <think>; other families
         # (e.g. Gemma) have a different or no thinking convention, so an absent
         # open-<think> tail is NOT a failure there. Warn, don't abort.
-        print("[verify] GATE A: no OPEN <think> tail found — expected for models "
-              "without Qwen-style thinking (e.g. Gemma). Skipping (soft).")
+        print(
+            "[verify] GATE A: no OPEN <think> tail found — expected for models "
+            "without Qwen-style thinking (e.g. Gemma). Skipping (soft)."
+        )
 
     # Split captured records by parser variant via the shim's has_tools flag.
     def matches(r, parser_key):
@@ -241,8 +258,9 @@ def verify_capture() -> None:
 
     for parser_key, _cfg, _suffix in VARIANTS:
         for which in ("instruct", "base"):
-            recs = [r for r in records
-                    if r.get("which") == which and matches(r, parser_key)]
+            recs = [
+                r for r in records if r.get("which") == which and matches(r, parser_key)
+            ]
             ok = None
             for r in recs:
                 p = r.get("templated_prompt", "")
@@ -268,9 +286,11 @@ def verify_capture() -> None:
             if ok is None:
                 if not recs:
                     # base+function_calling may legitimately be absent (fallback).
-                    print(f"[verify] WARNING: no captured '{which}' / "
-                          f"'{parser_key}' records (acceptable fallback for "
-                          f"base+function_calling).")
+                    print(
+                        f"[verify] WARNING: no captured '{which}' / "
+                        f"'{parser_key}' records (acceptable fallback for "
+                        f"base+function_calling)."
+                    )
                     continue
                 sample = recs[0].get("templated_prompt", "<no records>")
                 raise AssertionError(
@@ -282,9 +302,11 @@ def verify_capture() -> None:
                     f"--- first captured prompt ({len(sample)} chars) ---\n"
                     f"{sample[:4000]}\n--- end ---"
                 )
-            print(f"[verify] GATE B '{which}'/'{parser_key}': captured prompt "
-                  f"OK (len={len(ok.get('templated_prompt',''))} chars, "
-                  f"<tools>={'<tools>' in ok.get('templated_prompt','')}).")
+            print(
+                f"[verify] GATE B '{which}'/'{parser_key}': captured prompt "
+                f"OK (len={len(ok.get('templated_prompt', ''))} chars, "
+                f"<tools>={'<tools>' in ok.get('templated_prompt', '')})."
+            )
 
 
 def main() -> None:
@@ -294,8 +316,10 @@ def main() -> None:
     have_docker = docker_available()
     have_sweagent = Path(SWEAGENT_BIN).exists()
     do_sweagent = have_docker and have_sweagent
-    print(f"docker_available={have_docker}  sweagent_installed={have_sweagent}  "
-          f"-> run_sweagent={do_sweagent}")
+    print(
+        f"docker_available={have_docker}  sweagent_installed={have_sweagent}  "
+        f"-> run_sweagent={do_sweagent}"
+    )
 
     for which in ("instruct", "base"):
         run_variant(which, do_sweagent)
@@ -311,6 +335,7 @@ def main() -> None:
 
     def loader(mid: str):
         from transformers import AutoTokenizer
+
         return AutoTokenizer.from_pretrained(mid)
 
     produced = render_first_calls_per_which(loader)

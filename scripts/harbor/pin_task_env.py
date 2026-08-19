@@ -110,6 +110,7 @@ def detect_installs_from_dockerfile(dockerfile: Path) -> DetectionResult:
                     else:
                         apt_unpinned.append(p)
         i += 1
+
     # de-dup while preserving order
     def _dedup(xs: Iterable[str]) -> list[str]:
         seen: set[str] = set()
@@ -181,7 +182,9 @@ def rewrite_dockerfile_with_pins(
     new_lines: list[str] = []
     inserted_req_copy = False
     inserted_apt_prefs_copy = False
-    pending_apt_update = False  # track a standalone RUN apt-get update to merge with next install
+    pending_apt_update = (
+        False  # track a standalone RUN apt-get update to merge with next install
+    )
     lines2 = original.splitlines()
     li = 0
     while li < len(lines2):
@@ -194,9 +197,8 @@ def rewrite_dockerfile_with_pins(
                 run_cmd = run_cmd[:-1].rstrip() + " " + lines2[li + 1].strip()
                 li += 1
             # If this RUN contains only an apt update (no install), defer it to merge
-            if (
-                re.search(r"\bapt(-get)?\s+update\b", run_cmd)
-                and not re.search(r"\bapt(-get)?\s+install\b", run_cmd)
+            if re.search(r"\bapt(-get)?\s+update\b", run_cmd) and not re.search(
+                r"\bapt(-get)?\s+install\b", run_cmd
             ):
                 pending_apt_update = True
                 # Skip emitting this line; will be merged into next install RUN
@@ -207,6 +209,7 @@ def rewrite_dockerfile_with_pins(
                 if not re.search(r"\bapt(-get)?\s+update\b", run_cmd):
                     run_cmd = f"apt-get update && {run_cmd}"
                 pending_apt_update = False
+
             # Only rewrite pip invocations; leave others intact
             def _rewrite_sub(part: str) -> str:
                 s = part
@@ -273,10 +276,24 @@ def rewrite_dockerfile_with_pins(
             else:
                 rebuilt = run_cmd.strip()
             # Insert COPY lines immediately before first relevant RUN
-            if use_requirements and (re.search(r"\bpip(3)?\s+install\b", run_cmd) or re.search(r"\buv\s+(add|pip\s+install)\b", run_cmd)) and requirements_filename and not inserted_req_copy:
-                new_lines.append(f"COPY {requirements_filename} /tmp/{requirements_filename}")
+            if (
+                use_requirements
+                and (
+                    re.search(r"\bpip(3)?\s+install\b", run_cmd)
+                    or re.search(r"\buv\s+(add|pip\s+install)\b", run_cmd)
+                )
+                and requirements_filename
+                and not inserted_req_copy
+            ):
+                new_lines.append(
+                    f"COPY {requirements_filename} /tmp/{requirements_filename}"
+                )
                 inserted_req_copy = True
-            if apt_prefs_filename and re.search(r"\bapt(-get)?\s+install\b", run_cmd) and not inserted_apt_prefs_copy:
+            if (
+                apt_prefs_filename
+                and re.search(r"\bapt(-get)?\s+install\b", run_cmd)
+                and not inserted_apt_prefs_copy
+            ):
                 new_lines.append(
                     f"COPY {apt_prefs_filename} /etc/apt/preferences.d/zzz-task-pins"
                 )
@@ -377,7 +394,11 @@ def _write_apt_prefs(
     return prefs_path
 
 
-def _write_env_sensitivity(env_dir: Path, pip_diff: dict[str, tuple[str, str]], apt_diff: dict[str, tuple[str, str]]) -> Path:
+def _write_env_sensitivity(
+    env_dir: Path,
+    pip_diff: dict[str, tuple[str, str]],
+    apt_diff: dict[str, tuple[str, str]],
+) -> Path:
     path = env_dir / "env-sensitivity.json"
     data = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -402,7 +423,9 @@ def _read_env_sensitivity(env_dir: Path) -> tuple[set[str], set[str], dict | Non
 
 
 def _append_env_sensitivity_note(
-    task_dir: Path, pip_diff: dict[str, tuple[str, str]], apt_diff: dict[str, tuple[str, str]]
+    task_dir: Path,
+    pip_diff: dict[str, tuple[str, str]],
+    apt_diff: dict[str, tuple[str, str]],
 ):
     md_path = task_dir / "env-notes.md"
     note_lines: list[str] = []
@@ -422,7 +445,12 @@ def _append_env_sensitivity_note(
             dv, yv = apt_diff[name]
             note_lines.append(f"- {name}: docker={dv} daytona={yv}")
     prefix = md_path.read_text() if md_path.exists() else ""
-    md_path.write_text(prefix + ("\n" if prefix and not prefix.endswith("\n") else "") + "\n".join(note_lines) + "\n")
+    md_path.write_text(
+        prefix
+        + ("\n" if prefix and not prefix.endswith("\n") else "")
+        + "\n".join(note_lines)
+        + "\n"
+    )
 
 
 def _parse_final_base_image(dockerfile: Path) -> str | None:
@@ -457,11 +485,7 @@ def _snapshot_pip(image: str) -> dict[str, str]:
     rc, out = _docker_run(
         image,
         # Try common options; tolerate absence
-        (
-            "python3 -m pip freeze 2>/dev/null || "
-            "pip freeze 2>/dev/null || "
-            "true"
-        ),
+        ("python3 -m pip freeze 2>/dev/null || pip freeze 2>/dev/null || true"),
     )
     pkgs: dict[str, str] = {}
     for line in out.splitlines():
@@ -494,7 +518,9 @@ def _snapshot_apt(image: str) -> dict[str, str]:
     return pkgs
 
 
-def _dict_diff_added_or_changed(base: dict[str, str], final: dict[str, str]) -> dict[str, str]:
+def _dict_diff_added_or_changed(
+    base: dict[str, str], final: dict[str, str]
+) -> dict[str, str]:
     """Return items that are new or changed in final vs base."""
     out: dict[str, str] = {}
     for k, v in final.items():
@@ -517,9 +543,7 @@ def build_image_and_resolve_versions(
 
     # Build image
     print(f"[resolve] docker build -t {tag} {env_dir}")
-    subprocess.run([
-        "docker", "build", "-t", tag, str(env_dir)
-    ], check=True)
+    subprocess.run(["docker", "build", "-t", tag, str(env_dir)], check=True)
 
     # Determine base image (final stage)
     dockerfile = env_dir / "Dockerfile"
@@ -649,7 +673,9 @@ def main() -> None:
     for k, v in proposal.pip_pins.items():
         print(f"  {k} -> {v}")
     if proposal.apt_pins:
-        print("\nNote: apt packages detected without versions. Consider pinning exact versions or using apt preferences:")
+        print(
+            "\nNote: apt packages detected without versions. Consider pinning exact versions or using apt preferences:"
+        )
         for k in proposal.apt_pins:
             print(f"  {k} -> {k}=<RESOLVE_VERSION>")
 
@@ -684,9 +710,7 @@ def main() -> None:
                 await env.start(force_build=True)
                 try:
                     # pip snapshot
-                    pip_cmd = (
-                        "python3 -m pip freeze 2>/dev/null || pip freeze 2>/dev/null || true"
-                    )
+                    pip_cmd = "python3 -m pip freeze 2>/dev/null || pip freeze 2>/dev/null || true"
                     res = await env.exec(pip_cmd)
                     pip_pkgs: dict[str, str] = {}
                     for line in (res.stdout or "").splitlines():
@@ -746,7 +770,9 @@ def main() -> None:
             from harbor.environments.factory import EnvironmentFactory as _EF
             import asyncio as _asyncio
 
-            trial_paths2 = _TP(trial_dir=(args.trials_dir / "_pin_env_snapshot_daytona"))
+            trial_paths2 = _TP(
+                trial_dir=(args.trials_dir / "_pin_env_snapshot_daytona")
+            )
             trial_paths2.mkdir()
             env2 = _EF.create_environment(
                 type=_EnvType.DAYTONA,
@@ -852,7 +878,10 @@ def main() -> None:
             for name in direct_apt_names:
                 ver = apt_closure.get(name)
                 if ver and (name in proposal.apt_pins):
-                    if not _is_hw_sensitive_apt(name, ver) and name not in cached_apt_sensitive:
+                    if (
+                        not _is_hw_sensitive_apt(name, ver)
+                        and name not in cached_apt_sensitive
+                    ):
                         proposal.apt_pins[name] = ver
     except Exception as e:
         print(f"[resolve] Skipping version resolution due to error: {e}")
@@ -909,26 +938,37 @@ def main() -> None:
         )
         from harbor.trial.trial import Trial
 
-        def _run_once(label: str, timeout_sec: float | None = None) -> tuple[float | None, Path | None, float | None]:
-            trials_dir: Path = args.trials_dir / f"{label}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        def _run_once(
+            label: str, timeout_sec: float | None = None
+        ) -> tuple[float | None, Path | None, float | None]:
+            trials_dir: Path = (
+                args.trials_dir / f"{label}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            )
             trials_dir.mkdir(parents=True, exist_ok=True)
 
             # Select environment type per --env
             from harbor.models.environment_type import EnvironmentType as _EnvType
+
             env_type = _EnvType.DOCKER if args.env == "docker" else _EnvType.DAYTONA
 
             config = TrialConfig(
                 task=TaskConfig(path=task_dir),
                 trials_dir=trials_dir,
                 agent=AgentConfig(name=AgentName.ORACLE.value),
-                environment=EnvironmentConfig(type=env_type, force_build=True, delete=False),
+                environment=EnvironmentConfig(
+                    type=env_type, force_build=True, delete=False
+                ),
             )
 
-            print(f"\n[validate] Running Oracle ({args.env}) (trials_dir={trials_dir})...")
+            print(
+                f"\n[validate] Running Oracle ({args.env}) (trials_dir={trials_dir})..."
+            )
             try:
                 start = time.monotonic()
                 if timeout_sec and timeout_sec > 0:
-                    result = asyncio.run(asyncio.wait_for(Trial(config).run(), timeout=timeout_sec))
+                    result = asyncio.run(
+                        asyncio.wait_for(Trial(config).run(), timeout=timeout_sec)
+                    )
                 else:
                     result = asyncio.run(Trial(config).run())
                 elapsed = time.monotonic() - start
@@ -936,9 +976,7 @@ def main() -> None:
                 print(f"[validate] Trial run failed: {e}")
                 return None, trials_dir, None
 
-            reward = (
-                result.verifier_result.reward if result.verifier_result else None
-            )
+            reward = result.verifier_result.reward if result.verifier_result else None
             print(f"[validate] Reward: {reward}")
             return reward, trials_dir, elapsed
 
@@ -947,7 +985,9 @@ def main() -> None:
             # Restore original Dockerfile
             if backup and backup.exists():
                 dockerfile.write_text(original)
-                print("[validate] Reverted Dockerfile to original content due to validation failure.")
+                print(
+                    "[validate] Reverted Dockerfile to original content due to validation failure."
+                )
             # Remove created artifacts
             for p in created_artifacts:
                 try:
@@ -975,17 +1015,29 @@ def main() -> None:
             # Prewarm Docker build caches to avoid counting build time against timeout
             try:
                 env_dir = task_dir / "environment"
-                print(f"[validate] Prewarming Docker build cache: docker build {env_dir}")
-                subprocess.run([
-                    "docker", "build", "-t", f"sb-prewarm:{task_dir.name}", str(env_dir)
-                ], check=False)
+                print(
+                    f"[validate] Prewarming Docker build cache: docker build {env_dir}"
+                )
+                subprocess.run(
+                    [
+                        "docker",
+                        "build",
+                        "-t",
+                        f"sb-prewarm:{task_dir.name}",
+                        str(env_dir),
+                    ],
+                    check=False,
+                )
             except Exception as e:
                 print(f"[validate] Prewarm build failed (non-fatal): {e}")
 
             # Compute timeout as multiplier x baseline, with a floor
             timeout_sec = None
             if base_elapsed and base_elapsed > 0:
-                timeout_sec = max(base_elapsed * float(args.post_apply_timeout_multiplier), float(args.post_apply_timeout_min))
+                timeout_sec = max(
+                    base_elapsed * float(args.post_apply_timeout_multiplier),
+                    float(args.post_apply_timeout_min),
+                )
                 print(
                     f"[validate] Post-pin run timeout set to {timeout_sec:.1f}s "
                     f"({args.post_apply_timeout_multiplier}x baseline {base_elapsed:.1f}s, min {args.post_apply_timeout_min:.0f}s)"
@@ -994,17 +1046,23 @@ def main() -> None:
             # Post-pin run with timeout
             post_reward, post_dir, _ = _run_once("post_pin", timeout_sec=timeout_sec)
             if post_reward is None:
-                print("[validate] Environment failed to launch/crashed or timed out during post-pin validation. Reverting pins.")
+                print(
+                    "[validate] Environment failed to launch/crashed or timed out during post-pin validation. Reverting pins."
+                )
                 # Revert
                 if backup and backup.exists():
                     dockerfile.write_text(original)
-                    print("[validate] Reverted Dockerfile to original content due to validation failure.")
+                    print(
+                        "[validate] Reverted Dockerfile to original content due to validation failure."
+                    )
                 return
             if isinstance(post_reward, (int, float)) and float(post_reward) == 0.0:
                 print("[validate] Reward is 0.0 after applying pins. Reverting pins.")
                 if backup and backup.exists():
                     dockerfile.write_text(original)
-                    print("[validate] Reverted Dockerfile to original content due to zero reward.")
+                    print(
+                        "[validate] Reverted Dockerfile to original content due to zero reward."
+                    )
                 return
 
         if not args.keep_trials:

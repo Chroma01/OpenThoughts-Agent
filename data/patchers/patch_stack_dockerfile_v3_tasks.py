@@ -115,6 +115,7 @@ The patcher in this file does the same logic on already-extracted
 task dirs so we can re-upload v3 without touching ``commons.py``,
 but the upstream fix is recommended before generating new corpora.
 """
+
 from __future__ import annotations
 
 import argparse

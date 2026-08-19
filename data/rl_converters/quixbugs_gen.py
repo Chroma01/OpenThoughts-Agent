@@ -7,6 +7,7 @@ references in :mod:`quixbugs_correct` and baked as literals, so the verifier
 only needs the agent's ``/app/solution.py`` plus (for graph/linked tasks) a
 ``Node`` fixture helper.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,16 +17,46 @@ from . import quixbugs_correct as qc
 
 # Algorithm order matches the exp_rpt_quixbugs-python parquet exactly.
 ALGOS = [
-    "bitcount", "breadth_first_search", "bucketsort", "depth_first_search",
-    "detect_cycle", "find_first_in_sorted", "find_in_sorted", "flatten",
-    "gcd", "get_factors", "hanoi", "is_valid_parenthesization",
-    "kheapsort", "knapsack", "kth", "lcs_length", "levenshtein", "lis",
-    "longest_common_subsequence", "max_sublist_sum", "mergesort",
-    "minimum_spanning_tree", "next_palindrome", "next_permutation", "pascal",
-    "possible_change", "powerset", "quicksort", "reverse_linked_list",
-    "rpn_eval", "shortest_path_length", "shortest_path_lengths",
-    "shortest_paths", "shunting_yard", "sieve", "sqrt", "subsequences",
-    "to_base", "topological_ordering", "wrap",
+    "bitcount",
+    "breadth_first_search",
+    "bucketsort",
+    "depth_first_search",
+    "detect_cycle",
+    "find_first_in_sorted",
+    "find_in_sorted",
+    "flatten",
+    "gcd",
+    "get_factors",
+    "hanoi",
+    "is_valid_parenthesization",
+    "kheapsort",
+    "knapsack",
+    "kth",
+    "lcs_length",
+    "levenshtein",
+    "lis",
+    "longest_common_subsequence",
+    "max_sublist_sum",
+    "mergesort",
+    "minimum_spanning_tree",
+    "next_palindrome",
+    "next_permutation",
+    "pascal",
+    "possible_change",
+    "powerset",
+    "quicksort",
+    "reverse_linked_list",
+    "rpn_eval",
+    "shortest_path_length",
+    "shortest_path_lengths",
+    "shortest_paths",
+    "shunting_yard",
+    "sieve",
+    "sqrt",
+    "subsequences",
+    "to_base",
+    "topological_ordering",
+    "wrap",
 ]
 
 
@@ -46,30 +77,74 @@ class Node:
 # Pure (non-graph) inputs: algo -> list of arg tuples.
 PURE_INPUTS = {
     "bitcount": [(0,), (1,), (7,), (127,), (255,), (13,), (3005,), (1023,)],
-    "bucketsort": [([3, 1, 4, 1, 5, 9, 2, 6], 10), ([5, 5, 5], 6), ([], 3), ([0, 1, 2], 3)],
-    "find_first_in_sorted": [([1, 2, 3, 4, 5], 3), ([1, 1, 2, 2, 3, 3], 2), ([1, 2, 3, 4], 5), ([2, 4, 6, 8], 2)],
-    "find_in_sorted": [([1, 2, 3, 4, 5, 6, 7], 5), ([1, 2, 3, 4, 6, 7, 8], 5), ([2, 4, 6, 8, 10], 8), ([], 1)],
+    "bucketsort": [
+        ([3, 1, 4, 1, 5, 9, 2, 6], 10),
+        ([5, 5, 5], 6),
+        ([], 3),
+        ([0, 1, 2], 3),
+    ],
+    "find_first_in_sorted": [
+        ([1, 2, 3, 4, 5], 3),
+        ([1, 1, 2, 2, 3, 3], 2),
+        ([1, 2, 3, 4], 5),
+        ([2, 4, 6, 8], 2),
+    ],
+    "find_in_sorted": [
+        ([1, 2, 3, 4, 5, 6, 7], 5),
+        ([1, 2, 3, 4, 6, 7, 8], 5),
+        ([2, 4, 6, 8, 10], 8),
+        ([], 1),
+    ],
     "flatten": [([1, [2, [3, 4], 5], 6],), ([[1, 2], [3, 4]],), ([],), ([1, 2, 3],)],
     "gcd": [(17, 0), (13, 13), (37, 600), (20, 100), (624129, 2061517), (3, 12)],
     "get_factors": [(1,), (2,), (12,), (100,), (17,), (64,)],
     "hanoi": [(0,), (1,), (2,), (3,)],
     "is_valid_parenthesization": [("(()())",), ("())(",), ("((()))",), ("",), ("(",)],
     "kheapsort": [([3, 1, 4, 1, 5, 9, 2, 6], 3), ([1, 2, 3], 1), ([5, 4, 3, 2, 1], 2)],
-    "knapsack": [(5, [(1, 2), (2, 3), (3, 4)]), (0, [(1, 1)]), (10, [(5, 10), (4, 7), (6, 8)])],
-    "kth": [([1, 2, 3, 4, 5], 0), ([3, 1, 4, 1, 5, 9], 2), ([5, 4, 3, 2, 1], 3), ([2, 1], 1)],
+    "knapsack": [
+        (5, [(1, 2), (2, 3), (3, 4)]),
+        (0, [(1, 1)]),
+        (10, [(5, 10), (4, 7), (6, 8)]),
+    ],
+    "kth": [
+        ([1, 2, 3, 4, 5], 0),
+        ([3, 1, 4, 1, 5, 9], 2),
+        ([5, 4, 3, 2, 1], 3),
+        ([2, 1], 1),
+    ],
     "lcs_length": [("abcde", "ace"), ("abc", "abc"), ("", "abc"), ("aaaa", "aa")],
-    "levenshtein": [("kitten", "sitting"), ("", "abc"), ("abc", "abc"), ("flaw", "lawn")],
+    "levenshtein": [
+        ("kitten", "sitting"),
+        ("", "abc"),
+        ("abc", "abc"),
+        ("flaw", "lawn"),
+    ],
     "lis": [([1, 2, 3, 4, 5],), ([5, 4, 3, 2, 1],), ([3, 1, 4, 1, 5, 9, 2, 6],), ([],)],
     "longest_common_subsequence": [("abcde", "ace"), ("abc", "def"), ("aaaa", "aa")],
-    "max_sublist_sum": [([-2, 1, -3, 4, -1, 2, 1, -5, 4],), ([1, 2, 3, 4],), ([-1, -2, -3],)],
+    "max_sublist_sum": [
+        ([-2, 1, -3, 4, -1, 2, 1, -5, 4],),
+        ([1, 2, 3, 4],),
+        ([-1, -2, -3],),
+    ],
     "mergesort": [([3, 1, 4, 1, 5, 9, 2, 6],), ([],), ([1],), ([5, 4, 3, 2, 1],)],
-    "next_palindrome": [([1, 2, 3],), ([9, 9, 9],), ([1, 2, 9],), ([8, 9, 9, 9],), ([1],)],
+    "next_palindrome": [
+        ([1, 2, 3],),
+        ([9, 9, 9],),
+        ([1, 2, 9],),
+        ([8, 9, 9, 9],),
+        ([1],),
+    ],
     "next_permutation": [([1, 2, 3],), ([3, 2, 1],), ([1, 1, 5],), ([1, 3, 2],)],
     "pascal": [(1,), (2,), (3,), (5,)],
     "possible_change": [([1, 5, 10], 5), ([1, 2, 5], 10), ([5], 0), ([], 3)],
     "powerset": [([1, 2, 3],), ([],), ([1],)],
     "quicksort": [([3, 1, 4, 1, 5, 9, 2, 6],), ([],), ([1],), ([5, 4, 3, 2, 1],)],
-    "rpn_eval": [([3.0, 4.0, "+"],), ([7.0, 2.0, "-", 3.0, "+"],), ([5.0, 1.0, 2.0, "+", "*"],), ([3.0, 4.0, "/"],)],
+    "rpn_eval": [
+        ([3.0, 4.0, "+"],),
+        ([7.0, 2.0, "-", 3.0, "+"],),
+        ([5.0, 1.0, 2.0, "+", "*"],),
+        ([3.0, 4.0, "/"],),
+    ],
     "shortest_path_lengths": [
         (3, {(0, 1): 1, (1, 2): 2}),
         (4, {(0, 1): 5, (1, 2): 3, (0, 3): 10, (2, 3): 1}),
@@ -99,6 +174,7 @@ def _lit(v) -> str:
 def _dump_cases(cases) -> str:
     """repr() a case list, rendering float('inf')/'-inf'/'nan' portably."""
     import re
+
     text = repr(cases)
     text = re.sub(r"(?<![A-Za-z0-9_.'\)])inf(?![A-Za-z0-9_])", "float('inf')", text)
     text = re.sub(r"(?<![A-Za-z0-9_.])nan(?![A-Za-z0-9_])", "float('nan')", text)
@@ -134,6 +210,7 @@ def _normalize_expr(name, var):
 def _gold_source(name: str) -> str:
     """The gold solution = the correct reference, written as solution.py."""
     import inspect
+
     func = getattr(qc, name)
     src = inspect.getsource(func)
     # Drop leading "def " indentation artifacts from module layout.
@@ -174,6 +251,7 @@ def _build_pure_test(name: str) -> str:
 # Graph / linked-list algorithm tests
 # --------------------------------------------------------------------------- #
 
+
 def _build_graph_test(name: str) -> str:
     if name == "breadth_first_search":
         return _bfs_dfs_test(name)
@@ -207,39 +285,41 @@ def _bfs_dfs_test(name: str) -> str:
     outside = qc.Node(label=99)
     noreach = ref(start2, outside)
     cases = [("reachable", reach), ("unreachable", noreach)]
-    return "\n".join([
-        "import sys",
-        "sys.path.insert(0, '/app')",
-        "",
-        "import pytest",
-        NODE_HELPER,
-        "",
-        "",
-        "def _graph():",
-        "    n0, n1, n2, n3 = (Node(label=i) for i in range(4))",
-        "    n0.successors = [n1, n2]",
-        "    n1.successors = [n3]",
-        "    n2.successors = [n3]",
-        "    n3.successors = []",
-        "    return n0, n3",
-        "",
-        "",
-        f"from solution import {name}",
-        "",
-        "",
-        f"_EXPECTED = {repr(cases)}",
-        "",
-        "",
-        "@pytest.mark.parametrize('label,expected', _EXPECTED)",
-        "def test_case(label, expected):",
-        "    start, goal = _graph()",
-        "    if label == 'reachable':",
-        f"        assert {name}(start, goal) == expected",
-        "    else:",
-        "        outside = Node(label=99)",
-        f"        assert {name}(start, outside) == expected",
-        "",
-    ])
+    return "\n".join(
+        [
+            "import sys",
+            "sys.path.insert(0, '/app')",
+            "",
+            "import pytest",
+            NODE_HELPER,
+            "",
+            "",
+            "def _graph():",
+            "    n0, n1, n2, n3 = (Node(label=i) for i in range(4))",
+            "    n0.successors = [n1, n2]",
+            "    n1.successors = [n3]",
+            "    n2.successors = [n3]",
+            "    n3.successors = []",
+            "    return n0, n3",
+            "",
+            "",
+            f"from solution import {name}",
+            "",
+            "",
+            f"_EXPECTED = {repr(cases)}",
+            "",
+            "",
+            "@pytest.mark.parametrize('label,expected', _EXPECTED)",
+            "def test_case(label, expected):",
+            "    start, goal = _graph()",
+            "    if label == 'reachable':",
+            f"        assert {name}(start, goal) == expected",
+            "    else:",
+            "        outside = Node(label=99)",
+            f"        assert {name}(start, outside) == expected",
+            "",
+        ]
+    )
 
 
 def _detect_cycle_test() -> str:
@@ -260,35 +340,37 @@ def _detect_cycle_test() -> str:
 
     nocyc = qc.detect_cycle(make_nocycle())
     cyc = qc.detect_cycle(make_cycle())
-    return "\n".join([
-        "import sys",
-        "sys.path.insert(0, '/app')",
-        "",
-        "import pytest",
-        NODE_HELPER,
-        "",
-        "",
-        "def _no_cycle():",
-        "    a, b, c = (Node(label=x) for x in 'abc')",
-        "    a.successor = b; b.successor = c; c.successor = None",
-        "    return a",
-        "",
-        "",
-        "def _cycle():",
-        "    x, y, z = (Node(label=x) for x in 'xyz')",
-        "    x.successor = y; y.successor = z; z.successor = y",
-        "    return x",
-        "",
-        "",
-        "from solution import detect_cycle",
-        "",
-        "",
-        "@pytest.mark.parametrize('builder,expected', "
-        f"[(_no_cycle, {repr(nocyc)}), (_cycle, {repr(cyc)})])",
-        "def test_case(builder, expected):",
-        "    assert detect_cycle(builder()) == expected",
-        "",
-    ])
+    return "\n".join(
+        [
+            "import sys",
+            "sys.path.insert(0, '/app')",
+            "",
+            "import pytest",
+            NODE_HELPER,
+            "",
+            "",
+            "def _no_cycle():",
+            "    a, b, c = (Node(label=x) for x in 'abc')",
+            "    a.successor = b; b.successor = c; c.successor = None",
+            "    return a",
+            "",
+            "",
+            "def _cycle():",
+            "    x, y, z = (Node(label=x) for x in 'xyz')",
+            "    x.successor = y; y.successor = z; z.successor = y",
+            "    return x",
+            "",
+            "",
+            "from solution import detect_cycle",
+            "",
+            "",
+            "@pytest.mark.parametrize('builder,expected', "
+            f"[(_no_cycle, {repr(nocyc)}), (_cycle, {repr(cyc)})])",
+            "def test_case(builder, expected):",
+            "    assert detect_cycle(builder()) == expected",
+            "",
+        ]
+    )
 
 
 def _reverse_linked_list_test() -> str:
@@ -307,36 +389,38 @@ def _reverse_linked_list_test() -> str:
     while cur is not None:
         order.append(cur.label)
         cur = cur.successor
-    return "\n".join([
-        "import sys",
-        "sys.path.insert(0, '/app')",
-        "",
-        "import pytest",
-        NODE_HELPER,
-        "",
-        "",
-        "def _list():",
-        "    a, b, c = (Node(label=x) for x in 'abc')",
-        "    a.successor = b; b.successor = c; c.successor = None",
-        "    return a",
-        "",
-        "",
-        "from solution import reverse_linked_list",
-        "",
-        "",
-        f"_EXPECTED = {repr(order)}",
-        "",
-        "",
-        "def test_case():",
-        "    head = reverse_linked_list(_list())",
-        "    labels = []",
-        "    cur = head",
-        "    while cur is not None:",
-        "        labels.append(cur.label)",
-        "        cur = cur.successor",
-        "    assert labels == _EXPECTED, f'reversed order {{labels}} != {{_EXPECTED}}'",
-        "",
-    ])
+    return "\n".join(
+        [
+            "import sys",
+            "sys.path.insert(0, '/app')",
+            "",
+            "import pytest",
+            NODE_HELPER,
+            "",
+            "",
+            "def _list():",
+            "    a, b, c = (Node(label=x) for x in 'abc')",
+            "    a.successor = b; b.successor = c; c.successor = None",
+            "    return a",
+            "",
+            "",
+            "from solution import reverse_linked_list",
+            "",
+            "",
+            f"_EXPECTED = {repr(order)}",
+            "",
+            "",
+            "def test_case():",
+            "    head = reverse_linked_list(_list())",
+            "    labels = []",
+            "    cur = head",
+            "    while cur is not None:",
+            "        labels.append(cur.label)",
+            "        cur = cur.successor",
+            "    assert labels == _EXPECTED, f'reversed order {{labels}} != {{_EXPECTED}}'",
+            "",
+        ]
+    )
 
 
 def _shortest_path_length_test() -> str:
@@ -351,32 +435,34 @@ def _shortest_path_length_test() -> str:
 
     A, D, lbe = make()
     dist = qc.shortest_path_length(lbe, A, D)
-    return "\n".join([
-        "import sys",
-        "sys.path.insert(0, '/app')",
-        "",
-        "import pytest",
-        NODE_HELPER,
-        "",
-        "",
-        "def _graph():",
-        "    A, B, C, D = (Node(label=x) for x in 'ABCD')",
-        "    A.successors = [B, C]; B.successors = [C]; C.successors = [D]; D.successors = []",
-        "    lbe = {(A, B): 1, (A, C): 4, (B, C): 1, (C, D): 1}",
-        "    return A, D, lbe",
-        "",
-        "",
-        "from solution import shortest_path_length",
-        "",
-        "",
-        f"_EXPECTED = {repr(dist)}",
-        "",
-        "",
-        "def test_case():",
-        "    start, goal, lbe = _graph()",
-        "    assert shortest_path_length(lbe, start, goal) == _EXPECTED",
-        "",
-    ])
+    return "\n".join(
+        [
+            "import sys",
+            "sys.path.insert(0, '/app')",
+            "",
+            "import pytest",
+            NODE_HELPER,
+            "",
+            "",
+            "def _graph():",
+            "    A, B, C, D = (Node(label=x) for x in 'ABCD')",
+            "    A.successors = [B, C]; B.successors = [C]; C.successors = [D]; D.successors = []",
+            "    lbe = {(A, B): 1, (A, C): 4, (B, C): 1, (C, D): 1}",
+            "    return A, D, lbe",
+            "",
+            "",
+            "from solution import shortest_path_length",
+            "",
+            "",
+            f"_EXPECTED = {repr(dist)}",
+            "",
+            "",
+            "def test_case():",
+            "    start, goal, lbe = _graph()",
+            "    assert shortest_path_length(lbe, start, goal) == _EXPECTED",
+            "",
+        ]
+    )
 
 
 def _topological_test() -> str:
@@ -392,35 +478,37 @@ def _topological_test() -> str:
 
     nodes = make()
     order = [n.label for n in qc.topological_ordering(nodes)]
-    return "\n".join([
-        "import sys",
-        "sys.path.insert(0, '/app')",
-        "",
-        "import pytest",
-        NODE_HELPER,
-        "",
-        "",
-        "def _dag():",
-        "    X = Node(label='X', incoming_nodes=set(), outgoing_nodes=[])",
-        "    Y = Node(label='Y', incoming_nodes={X}, outgoing_nodes=[])",
-        "    Z = Node(label='Z', incoming_nodes={X}, outgoing_nodes=[])",
-        "    W = Node(label='W', incoming_nodes={Y, Z}, outgoing_nodes=[])",
-        "    X.outgoing_nodes = [Y, Z]; Y.outgoing_nodes = [W]; Z.outgoing_nodes = [W]",
-        "    return [X, Y, Z, W]",
-        "",
-        "",
-        "from solution import topological_ordering",
-        "",
-        "",
-        f"_EXPECTED = {repr(order)}",
-        "",
-        "",
-        "def test_case():",
-        "    result = topological_ordering(_dag())",
-        "    labels = [n.label for n in result]",
-        "    assert labels == _EXPECTED, f'topo order {{labels}} != {{_EXPECTED}}'",
-        "",
-    ])
+    return "\n".join(
+        [
+            "import sys",
+            "sys.path.insert(0, '/app')",
+            "",
+            "import pytest",
+            NODE_HELPER,
+            "",
+            "",
+            "def _dag():",
+            "    X = Node(label='X', incoming_nodes=set(), outgoing_nodes=[])",
+            "    Y = Node(label='Y', incoming_nodes={X}, outgoing_nodes=[])",
+            "    Z = Node(label='Z', incoming_nodes={X}, outgoing_nodes=[])",
+            "    W = Node(label='W', incoming_nodes={Y, Z}, outgoing_nodes=[])",
+            "    X.outgoing_nodes = [Y, Z]; Y.outgoing_nodes = [W]; Z.outgoing_nodes = [W]",
+            "    return [X, Y, Z, W]",
+            "",
+            "",
+            "from solution import topological_ordering",
+            "",
+            "",
+            f"_EXPECTED = {repr(order)}",
+            "",
+            "",
+            "def test_case():",
+            "    result = topological_ordering(_dag())",
+            "    labels = [n.label for n in result]",
+            "    assert labels == _EXPECTED, f'topo order {{labels}} != {{_EXPECTED}}'",
+            "",
+        ]
+    )
 
 
 def build_test_solution(name: str) -> str:
@@ -438,8 +526,10 @@ if __name__ == "__main__":
     # whose gold passes its own test.
     import subprocess
     import sys
+
     tmp = Path("/tmp/qb_selftest")
     import shutil
+
     if tmp.exists():
         shutil.rmtree(tmp)
     tmp.mkdir(parents=True)
@@ -451,7 +541,8 @@ if __name__ == "__main__":
         (tmp / "test_solution.py").write_text(test)
         r = subprocess.run(
             [sys.executable, "-m", "pytest", str(tmp / "test_solution.py"), "-q"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         ok = r.returncode == 0
         n_ok += ok

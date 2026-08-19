@@ -592,7 +592,9 @@ def from_parquet(
     total_rows = pf.metadata.num_rows
     if max_tasks is not None and max_tasks <= 0:
         raise ValueError("max_tasks must be positive")
-    extraction_rows = min(total_rows, max_tasks) if max_tasks is not None else total_rows
+    extraction_rows = (
+        min(total_rows, max_tasks) if max_tasks is not None else total_rows
+    )
 
     # Validate schema on first row group
     schema_names = [f.name for f in pf.schema_arrow]

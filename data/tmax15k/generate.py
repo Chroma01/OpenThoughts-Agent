@@ -127,6 +127,7 @@ SHARED_DOCKERFILE = dedent(
 # Instruction preamble: tell the agent the env is materialized by setup.sh.
 # --------------------------------------------------------------------------- #
 
+
 def build_instruction(description: str, setup_sh: str) -> str:
     """Agent-facing instruction with the environment-setup script INLINED.
 
@@ -143,16 +144,12 @@ def build_instruction(description: str, setup_sh: str) -> str:
         "before grading, so the state it checks is exactly the one this produces.\n"
         "\n"
         "```bash\n"
-        "cat > /tmp/task_setup.sh <<'TMAX_SETUP_EOF'\n"
-        + setup_sh.rstrip("\n")
-        + "\n"
+        "cat > /tmp/task_setup.sh <<'TMAX_SETUP_EOF'\n" + setup_sh.rstrip("\n") + "\n"
         "TMAX_SETUP_EOF\n"
         "bash /tmp/task_setup.sh\n"
         "```\n"
         "\n"
-        "---\n\n"
-        + description.strip()
-        + "\n"
+        "---\n\n" + description.strip() + "\n"
     )
 
 
@@ -164,15 +161,60 @@ def build_instruction(description: str, setup_sh: str) -> str:
 # `apt-get install` to avoid needless re-installs (the line still runs for the
 # long tail of rare packages).
 BASE_APT = {
-    "bash", "coreutils", "findutils", "grep", "sed", "gawk",
-    "python3", "python3-pip", "python3-venv", "python3-dev",
-    "gcc", "g++", "make", "cmake", "build-essential", "binutils", "libc6-dev",
-    "gdb", "valgrind", "strace", "golang-go", "golang", "cargo", "rustc",
-    "git", "curl", "wget", "ca-certificates", "openssh-client",
-    "sqlite3", "libsqlite3-dev", "jq", "bc", "xxd", "file", "patch", "sudo",
-    "tar", "gzip", "zip", "unzip", "procps", "psmisc", "cron", "logrotate",
-    "netcat-openbsd", "socat", "expect", "tcpdump", "iproute2",
-    "openssl", "libssl-dev", "tzdata", "locales",
+    "bash",
+    "coreutils",
+    "findutils",
+    "grep",
+    "sed",
+    "gawk",
+    "python3",
+    "python3-pip",
+    "python3-venv",
+    "python3-dev",
+    "gcc",
+    "g++",
+    "make",
+    "cmake",
+    "build-essential",
+    "binutils",
+    "libc6-dev",
+    "gdb",
+    "valgrind",
+    "strace",
+    "golang-go",
+    "golang",
+    "cargo",
+    "rustc",
+    "git",
+    "curl",
+    "wget",
+    "ca-certificates",
+    "openssh-client",
+    "sqlite3",
+    "libsqlite3-dev",
+    "jq",
+    "bc",
+    "xxd",
+    "file",
+    "patch",
+    "sudo",
+    "tar",
+    "gzip",
+    "zip",
+    "unzip",
+    "procps",
+    "psmisc",
+    "cron",
+    "logrotate",
+    "netcat-openbsd",
+    "socat",
+    "expect",
+    "tcpdump",
+    "iproute2",
+    "openssl",
+    "libssl-dev",
+    "tzdata",
+    "locales",
 }
 
 
@@ -268,12 +310,19 @@ def build_setup_script(container_def: str) -> str:
 
     footer = '\ntouch "$SENTINEL" 2>/dev/null || true\n'
 
-    return header + "\n# --- begin original %post body ---\n" + post + "\n# --- end original %post body ---\n" + footer
+    return (
+        header
+        + "\n# --- begin original %post body ---\n"
+        + post
+        + "\n# --- end original %post body ---\n"
+        + footer
+    )
 
 
 # --------------------------------------------------------------------------- #
 # tests/test.sh : run setup.sh, then pytest the final-state suite -> reward.txt
 # --------------------------------------------------------------------------- #
+
 
 def build_test_sh() -> str:
     return dedent(
@@ -432,7 +481,7 @@ def _hub_fixtures_block(env_dir: Path) -> str:
         parts = shlex.split(s)
         if len(parts) < 3:
             continue
-        src_rel = parts[1][len("_fixtures/"):]  # path under _fixtures/
+        src_rel = parts[1][len("_fixtures/") :]  # path under _fixtures/
         dest = parts[2]
         src_path = fixtures_root / src_rel
         if not src_path.is_file():
@@ -440,20 +489,32 @@ def _hub_fixtures_block(env_dir: Path) -> str:
         b64 = base64.b64encode(src_path.read_bytes()).decode("ascii")
         dest_q = shlex.quote(dest)
         blocks.append(
-            f"mkdir -p \"$(dirname {dest_q})\"\n"
+            f'mkdir -p "$(dirname {dest_q})"\n'
             f"base64 -d > {dest_q} <<'TMAX_FIXTURE_EOF'\n{b64}\nTMAX_FIXTURE_EOF"
         )
     if not blocks:
         return ""
-    return "\n# --- restore external fixtures (was COPY _fixtures/...) ---\n" + "\n".join(blocks) + "\n"
+    return (
+        "\n# --- restore external fixtures (was COPY _fixtures/...) ---\n"
+        + "\n".join(blocks)
+        + "\n"
+    )
 
 
 def _build_hub_setup_script(task_dir: Path, base_install: str) -> str:
     """Render an idempotent setup.sh from a hub task's base_install + post_install + fixtures."""
     env_dir = task_dir / "environment"
-    post = (env_dir / "post_install.sh").read_text(encoding="utf-8", errors="replace") if (env_dir / "post_install.sh").exists() else ""
+    post = (
+        (env_dir / "post_install.sh").read_text(encoding="utf-8", errors="replace")
+        if (env_dir / "post_install.sh").exists()
+        else ""
+    )
     # Drop a redundant `export DEBIAN_FRONTEND` (set in the shared image env).
-    post = "\n".join(l for l in post.splitlines() if not re.match(r"\s*export\s+DEBIAN_FRONTEND", l))  # noqa: E741
+    post = "\n".join(
+        line
+        for line in post.splitlines()
+        if not re.match(r"\s*export\s+DEBIAN_FRONTEND", line)
+    )
     fixtures = _hub_fixtures_block(env_dir)
 
     header = dedent(
@@ -524,8 +585,7 @@ def convert_from_hub_export(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     task_subdirs = sorted(
-        d for d in hub_dir.iterdir()
-        if d.is_dir() and (d / "instruction.md").exists()
+        d for d in hub_dir.iterdir() if d.is_dir() and (d / "instruction.md").exists()
     )
 
     # The shared base_install.sh is identical across all hub tasks; grab one copy.
@@ -556,8 +616,11 @@ def convert_from_hub_export(
             "source": "tmax/TMax-15K-Harbor",
             "hub_task_dir": d.name,
         }
-        toml = TASK_TOML.format(difficulty="medium", category="terminal",
-                                tags=json.dumps(["tmax15k", "synthetic", "terminal", "full"]))
+        toml = TASK_TOML.format(
+            difficulty="medium",
+            category="terminal",
+            tags=json.dumps(["tmax15k", "synthetic", "terminal", "full"]),
+        )
 
         task_dir = create_task_directory_unified(
             output_dir=output_dir,
@@ -575,7 +638,9 @@ def convert_from_hub_export(
         # Ship the shared base_install.sh inside environment/ (referenced by the shared
         # Dockerfile COPY). It is identical for every task, so it does NOT change the
         # environment/ content hash across tasks => still 1 snapshot.
-        (task_dir / "environment" / "base_install.sh").write_text(base_install, encoding="utf-8")
+        (task_dir / "environment" / "base_install.sh").write_text(
+            base_install, encoding="utf-8"
+        )
 
         (task_dir / "tests" / "test_state.py").write_text(test_state, encoding="utf-8")
         for sub in ("tests", "solution"):
@@ -630,7 +695,9 @@ def convert(
 
         toml = TASK_TOML.format(
             difficulty=_difficulty(record.get("task_complexity", "")),
-            category=re.sub(r"[^a-zA-Z0-9_-]", "-", (record.get("domain") or "terminal").lower()),
+            category=re.sub(
+                r"[^a-zA-Z0-9_-]", "-", (record.get("domain") or "terminal").lower()
+            ),
             tags=_toml_tags(record),
         )
 
@@ -675,7 +742,9 @@ def main() -> None:
     p.add_argument("--output-dir", required=True, type=Path)
     p.add_argument("--limit", type=int, default=0, help="<=0 means no cap (max size)")
     p.add_argument("--split", default="train")
-    p.add_argument("--target-repo", default=None, help="HF repo to upload to (laion/...)")
+    p.add_argument(
+        "--target-repo", default=None, help="HF repo to upload to (laion/...)"
+    )
     p.add_argument("--hf-token", default=None)
     p.add_argument("--no-upload", action="store_true")
     p.add_argument(
@@ -695,11 +764,15 @@ def main() -> None:
         made, skipped = convert_from_hub_export(
             args.from_hub_export, args.output_dir, limit=args.limit
         )
-        print(f"Regenerated {made} FULL-set tasks (skipped {skipped} no-test) "
-              f"from hub export {args.from_hub_export} -> {args.output_dir}")
+        print(
+            f"Regenerated {made} FULL-set tasks (skipped {skipped} no-test) "
+            f"from hub export {args.from_hub_export} -> {args.output_dir}"
+        )
     else:
         made, skipped = convert(args.output_dir, limit=args.limit, split=args.split)
-        print(f"Converted {made} tasks (skipped {skipped} unbuildable) -> {args.output_dir}")
+        print(
+            f"Converted {made} tasks (skipped {skipped} unbuildable) -> {args.output_dir}"
+        )
 
     if args.target_repo and not args.no_upload:
         url = upload_tasks_to_hf(

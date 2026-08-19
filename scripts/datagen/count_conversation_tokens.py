@@ -68,7 +68,9 @@ def serialize_conversations(raw_value: object) -> str:
 def main() -> None:
     args = parse_args()
 
-    print(f"[tokens] Loading dataset {args.repo_id} (split={args.split}, config={args.config})...")
+    print(
+        f"[tokens] Loading dataset {args.repo_id} (split={args.split}, config={args.config})..."
+    )
     dataset = (
         load_dataset(args.repo_id, args.config, split=args.split)
         if args.config
@@ -99,14 +101,20 @@ def main() -> None:
         except ValueError as exc:
             invalid_count += 1
             if invalid_count == 1:
-                print(f"[tokens] Warning: skipping invalid {args.representation} example: {exc}")
+                print(
+                    f"[tokens] Warning: skipping invalid {args.representation} example: {exc}"
+                )
 
     processed = len(dataset) if hasattr(dataset, "__len__") else "unknown"
 
     if missing_count:
-        print(f"[tokens] Warning: skipped {missing_count} example(s) missing `conversations`.")
+        print(
+            f"[tokens] Warning: skipped {missing_count} example(s) missing `conversations`."
+        )
     if invalid_count:
-        print(f"[tokens] Warning: skipped {invalid_count} invalid {args.representation} example(s).")
+        print(
+            f"[tokens] Warning: skipped {invalid_count} invalid {args.representation} example(s)."
+        )
 
     print(f"[tokens] Examples processed: {processed}")
     print(f"[tokens] Representation: {args.representation}")

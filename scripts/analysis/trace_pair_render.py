@@ -61,6 +61,7 @@ try:
     from pygments.formatters import HtmlFormatter  # type: ignore[import-not-found]
     from pygments.lexers import get_lexer_by_name, guess_lexer  # type: ignore[import-not-found]
     from pygments.util import ClassNotFound  # type: ignore[import-not-found]
+
     _PYGMENTS_AVAILABLE = True
 except ImportError:  # pragma: no cover - optional dep
     highlight = None  # type: ignore[assignment]
@@ -71,8 +72,12 @@ except ImportError:  # pragma: no cover - optional dep
     _PYGMENTS_AVAILABLE = False
 
 
-_THINK_BLOCK_RE = re.compile(r"<think(?:ing)?\s*>(.*?)</think(?:ing)?\s*>", re.DOTALL | re.IGNORECASE)
-_TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL | re.IGNORECASE)
+_THINK_BLOCK_RE = re.compile(
+    r"<think(?:ing)?\s*>(.*?)</think(?:ing)?\s*>", re.DOTALL | re.IGNORECASE
+)
+_TOOL_CALL_BLOCK_RE = re.compile(
+    r"<tool_call>(.*?)</tool_call>", re.DOTALL | re.IGNORECASE
+)
 _CODE_FENCE_RE = re.compile(r"```([a-zA-Z0-9_+\-]*)\n?(.*?)```", re.DOTALL)
 
 
@@ -156,7 +161,7 @@ def _render_tool_call_block(payload: str) -> str:
         name = None
     chip = (
         f'<span class="tool-call-chip">tool_call'
-        f'{": " + html.escape(name) if name else ""}</span>'
+        f"{': ' + html.escape(name) if name else ''}</span>"
     )
     body = _highlight_code(pretty, "json")
     return f'<div class="tool-call-wrapper">{chip}{body}</div>'
@@ -220,9 +225,9 @@ def _render_message_content(content: str) -> str:
         elif kind == "think":
             parts.append(
                 '<details class="think-block" open>'
-                '<summary>thinking</summary>'
+                "<summary>thinking</summary>"
                 f'<pre class="think-text">{html.escape(payload.strip())}</pre>'
-                '</details>'
+                "</details>"
             )
         elif kind == "tool_call":
             parts.append(_render_tool_call_block(payload))
@@ -237,7 +242,7 @@ def _preview(content: str, max_chars: int = 90) -> str:
     for line in content.splitlines():
         stripped = line.strip()
         if stripped:
-            return (stripped[:max_chars] + ("…" if len(stripped) > max_chars else ""))
+            return stripped[:max_chars] + ("…" if len(stripped) > max_chars else "")
     return ""
 
 
@@ -266,8 +271,10 @@ def _format_message_html(
         badges.append('<span class="badge code">code</span>')
     badge_html = "".join(badges)
 
-    rendered = _render_message_content(content) if content else (
-        '<pre class="content-text"><em>(empty)</em></pre>'
+    rendered = (
+        _render_message_content(content)
+        if content
+        else ('<pre class="content-text"><em>(empty)</em></pre>')
     )
 
     open_attr = " open" if open_by_default else ""
@@ -276,10 +283,10 @@ def _format_message_html(
         f'<summary class="msg-summary">'
         f'<span class="msg-idx">#{idx + 1}/{total}</span>'
         f'<span class="msg-role">{role_safe}</span>'
-        f'{badge_html}'
+        f"{badge_html}"
         f'<span class="msg-toks">{tok} tok</span>'
         f'<span class="msg-preview">{preview}</span>'
-        f'</summary>'
+        f"</summary>"
         f'<div class="msg-body">{rendered}</div>'
         f"</details>"
     )
@@ -293,18 +300,28 @@ def _trial_panel_html(t: Trace, encoder) -> str:
     b = t.behavioral
     tool_summary = f" · {b.tool_calls_total} tool calls"
     if b.tool_responses:
-        tool_summary += f" ({b.tool_error_rate:.0%} errors)" if b.tool_error_rate is not None else ""
+        tool_summary += (
+            f" ({b.tool_error_rate:.0%} errors)"
+            if b.tool_error_rate is not None
+            else ""
+        )
     header = (
         '<div class="trial-header">'
-        f'reward: <b>{reward}</b> · turns: <b>{len(msgs)}</b>{tool_summary}{err}{fm}'
+        f"reward: <b>{reward}</b> · turns: <b>{len(msgs)}</b>{tool_summary}{err}{fm}"
         f'<div class="trial-source">{html.escape(t.source or "")}</div>'
-        '</div>'
+        "</div>"
     )
 
     # Decide which messages start expanded. Default policy: first user
     # message, last assistant message. Reviewer can click any other open.
-    user_idxs = [i for i, m in enumerate(msgs) if isinstance(m, dict) and m.get("role") == "user"]
-    asst_idxs = [i for i, m in enumerate(msgs) if isinstance(m, dict) and m.get("role") == "assistant"]
+    user_idxs = [
+        i for i, m in enumerate(msgs) if isinstance(m, dict) and m.get("role") == "user"
+    ]
+    asst_idxs = [
+        i
+        for i, m in enumerate(msgs)
+        if isinstance(m, dict) and m.get("role") == "assistant"
+    ]
     open_idxs: set[int] = set()
     if user_idxs:
         open_idxs.add(user_idxs[0])
@@ -323,7 +340,7 @@ def _trial_panel_html(t: Trace, encoder) -> str:
         '<div class="panel-controls">'
         '<button type="button" class="ctrl-btn" data-action="expand-all">Expand all</button>'
         '<button type="button" class="ctrl-btn" data-action="collapse-all">Collapse all</button>'
-        '</div>'
+        "</div>"
     )
     return header + controls + "".join(body_parts)
 
@@ -333,13 +350,15 @@ def _diff_card(before: Trace, after: Trace) -> str:
     bb = before.behavioral
     ab = after.behavioral
 
-    def _delta_cell(label: str, b: Optional[float], a: Optional[float], fmt: str = ".2f") -> str:
+    def _delta_cell(
+        label: str, b: Optional[float], a: Optional[float], fmt: str = ".2f"
+    ) -> str:
         if b is None or a is None:
             return (
                 f'<div class="metric-cell">'
                 f'<div class="metric-label">{html.escape(label)}</div>'
                 f'<div class="metric-values">— → —</div>'
-                f'</div>'
+                f"</div>"
             )
         delta = a - b
         cls = "up" if delta > 0 else ("dn" if delta < 0 else "flat")
@@ -351,20 +370,37 @@ def _diff_card(before: Trace, after: Trace) -> str:
             f'<div class="metric-label">{html.escape(label)}</div>'
             f'<div class="metric-values">{b_str} → {a_str}</div>'
             f'<div class="metric-delta {cls}">Δ {delta_str}</div>'
-            f'</div>'
+            f"</div>"
         )
 
     return (
         '<div class="diff-card">'
-        + _delta_cell("reward",          before.reward,     after.reward,     ".3f")
-        + _delta_cell("turns",           float(before.turns) if before.turns else None,
-                                          float(after.turns) if after.turns else None, ".0f")
-        + _delta_cell("tool calls",      float(bb.tool_calls_total), float(ab.tool_calls_total), ".0f")
-        + _delta_cell("tool errors",     float(bb.tool_errors),      float(ab.tool_errors),      ".0f")
-        + _delta_cell("asst tokens",     float(bb.assistant_tokens), float(ab.assistant_tokens), ".0f")
-        + _delta_cell("think tokens",    float(bb.think_tokens),     float(ab.think_tokens),     ".0f")
-        + _delta_cell("self-corr",       float(bb.self_correction_hits), float(ab.self_correction_hits), ".0f")
-        + '</div>'
+        + _delta_cell("reward", before.reward, after.reward, ".3f")
+        + _delta_cell(
+            "turns",
+            float(before.turns) if before.turns else None,
+            float(after.turns) if after.turns else None,
+            ".0f",
+        )
+        + _delta_cell(
+            "tool calls", float(bb.tool_calls_total), float(ab.tool_calls_total), ".0f"
+        )
+        + _delta_cell(
+            "tool errors", float(bb.tool_errors), float(ab.tool_errors), ".0f"
+        )
+        + _delta_cell(
+            "asst tokens", float(bb.assistant_tokens), float(ab.assistant_tokens), ".0f"
+        )
+        + _delta_cell(
+            "think tokens", float(bb.think_tokens), float(ab.think_tokens), ".0f"
+        )
+        + _delta_cell(
+            "self-corr",
+            float(bb.self_correction_hits),
+            float(ab.self_correction_hits),
+            ".0f",
+        )
+        + "</div>"
     )
 
 
@@ -478,22 +514,26 @@ def render_html(
         f"<h1>Trace pair render: <code>{html.escape(before_label)}</code> vs "
         f"<code>{html.escape(after_label)}</code></h1>",
         f'<p class="intro">{len(pairs)} task pairs rendered '
-        '(highest-reward trial from each side). Each pair starts with a '
-        'diff summary card; messages are collapsed by default — click the '
-        '<code>&gt;</code> arrow on any message to expand it. Only the '
-        'first user message and the last assistant message are open by '
-        'default.</p>',
+        "(highest-reward trial from each side). Each pair starts with a "
+        "diff summary card; messages are collapsed by default — click the "
+        "<code>&gt;</code> arrow on any message to expand it. Only the "
+        "first user message and the last assistant message are open by "
+        "default.</p>",
     ]
     for task, before, after in pairs:
         diff = _diff_card(before, after)
         parts.append('<section class="pair-block">')
-        parts.append(f'<h2>Task: <code>{html.escape(task)}</code></h2>')
+        parts.append(f"<h2>Task: <code>{html.escape(task)}</code></h2>")
         parts.append(diff)
         parts.append('<div class="pair">')
-        parts.append(f'<div class="col before"><h3>Before — {html.escape(before_label)}</h3>')
+        parts.append(
+            f'<div class="col before"><h3>Before — {html.escape(before_label)}</h3>'
+        )
         parts.append(_trial_panel_html(before, encoder))
         parts.append("</div>")
-        parts.append(f'<div class="col after"><h3>After — {html.escape(after_label)}</h3>')
+        parts.append(
+            f'<div class="col after"><h3>After — {html.escape(after_label)}</h3>'
+        )
         parts.append(_trial_panel_html(after, encoder))
         parts.append("</div></div></section>")
     parts.append(f"<script>{JS}</script>")
@@ -578,14 +618,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--before", required=True, help="Pre-RL trace source")
     parser.add_argument("--after", required=True, help="Post-RL trace source")
     parser.add_argument("--output", type=Path, required=True, help="HTML output path")
-    parser.add_argument("--top-n", type=int, default=20, help="Number of task pairs to render")
+    parser.add_argument(
+        "--top-n", type=int, default=20, help="Number of task pairs to render"
+    )
     parser.add_argument(
         "--prefer",
         choices=("flips", "reward-delta", "behavior-delta", "any"),
         default="flips",
         help="How to rank which task pairs to render first",
     )
-    parser.add_argument("--max-rows", type=int, default=None, help="Cap rows loaded per side")
+    parser.add_argument(
+        "--max-rows", type=int, default=None, help="Cap rows loaded per side"
+    )
     return parser.parse_args()
 
 
@@ -596,7 +640,9 @@ def run(args: argparse.Namespace) -> int:
     aa = group_by_task(after)
     pairs = select_pairs(bb, aa, args.top_n, args.prefer)
     if not pairs:
-        print("[trace-pair-render] no common tasks between before/after", file=sys.stderr)
+        print(
+            "[trace-pair-render] no common tasks between before/after", file=sys.stderr
+        )
         return 2
     args.output.parent.mkdir(parents=True, exist_ok=True)
     render_html(pairs, args.before, args.after, args.output)

@@ -34,10 +34,10 @@ from typing import List, Optional, Sequence
 _BYTE_TOKEN_RE = re.compile(r"^<0x([0-9A-Fa-f]{2})>$")
 
 # Visible glyphs for otherwise-invisible characters.
-GLYPH_SPACE = "·"      # middle dot  ·
-GLYPH_NEWLINE = "↵"    # downwards arrow with corner leftwards  ↵
-GLYPH_TAB = "→"        # rightwards arrow  →
-GLYPH_CR = "␍"         # symbol for carriage return  ␍
+GLYPH_SPACE = "·"  # middle dot  ·
+GLYPH_NEWLINE = "↵"  # downwards arrow with corner leftwards  ↵
+GLYPH_TAB = "→"  # rightwards arrow  →
+GLYPH_CR = "␍"  # symbol for carriage return  ␍
 
 
 # --------------------------------------------------------------------------- #
@@ -230,16 +230,11 @@ def _render_tokens_html(
             classes.append("gen")
         if is_special:
             classes.append("special")
-            body = (
-                f"{html.escape(decoded)}"
-                f"<span class='lbl'> #{tid}</span>"
-            )
+            body = f"{html.escape(decoded)}<span class='lbl'> #{tid}</span>"
         else:
             body = escape_visible(decoded, raw)
 
-        spans.append(
-            f"<span class='{' '.join(classes)}' title='{title}'>{body}</span>"
-        )
+        spans.append(f"<span class='{' '.join(classes)}' title='{title}'>{body}</span>")
 
     rendered = "".join(spans)
     if gen_start is not None:
@@ -288,7 +283,9 @@ def render_to_html(
         tokenizer, all_ids, pieces, special_ids, gen_start
     )
 
-    note_html = f"<div class='sub'>{html.escape(extra_note)}</div>" if extra_note else ""
+    note_html = (
+        f"<div class='sub'>{html.escape(extra_note)}</div>" if extra_note else ""
+    )
 
     legend = """
     <div class='legend'>

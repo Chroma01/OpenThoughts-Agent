@@ -86,7 +86,6 @@ def main():
     tool_call_parser = os.environ.get("VLLM_TOOL_CALL_PARSER", "glm47")
     reasoning_parser = os.environ.get("VLLM_REASONING_PARSER", "glm45")
 
-
     hf_token = os.environ.get("HF_TOKEN", "")
 
     # Print configuration

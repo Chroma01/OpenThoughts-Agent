@@ -67,10 +67,13 @@ def resolve_conda_activate(hpc, exp_args: dict) -> str:
         conda_prefix = os.environ.get("CONDA_PREFIX", "")
         if conda_prefix:
             import re as _re
+
             base = _re.sub(r"/envs/[^/]+$", "", conda_prefix)
             return f"source {base}/etc/profile.d/conda.sh && conda activate {conda_env_override}"
         return f"conda activate {conda_env_override}"
     return hpc.conda_activate or "# No conda activation configured"
+
+
 """Provider prefix expected by LiteLLM when routing to managed vLLM endpoints."""
 
 # Placeholder API key for local vLLM endpoints (Harbor agents require this to be set)
@@ -308,6 +311,7 @@ def generate_served_model_id(job_name: Optional[str] = None) -> str:
     """
     if job_name:
         import hashlib
+
         digest_hex = hashlib.sha256(job_name.encode("utf-8")).hexdigest()
         # Take the top 64 bits, convert to decimal, truncate to 16 chars.
         # 64 bits → up to 20 decimal digits; truncate for vLLM-friendly length.
@@ -375,7 +379,10 @@ def setup_hosted_vllm_api_key(*, force: bool = False) -> bool:
 # Endpoint File Utilities
 # =============================================================================
 
-def cleanup_endpoint_file(path_like: PathInput, *, descriptor: str = "endpoint file") -> None:
+
+def cleanup_endpoint_file(
+    path_like: PathInput, *, descriptor: str = "endpoint file"
+) -> None:
     """Remove a stale endpoint JSON if it exists."""
 
     if not path_like:
@@ -418,6 +425,7 @@ def validate_trace_backend(
 # =============================================================================
 # CLI Argument Normalization
 # =============================================================================
+
 
 def normalize_cli_args(args_spec: Any) -> list[str]:
     """Normalize a YAML-provided CLI arg spec into a flat list of strings.
@@ -478,6 +486,7 @@ def normalize_cli_args(args_spec: Any) -> list[str]:
 # Environment Override Utilities
 # =============================================================================
 
+
 def get_daytona_api_key_override(exp_args: Dict[str, Any]) -> str:
     """Return the Daytona API key override for sbatch template substitution.
 
@@ -530,12 +539,14 @@ def maybe_prebuild_daytona_snapshots(
     # Import lazily so test environments without the daytona SDK can still
     # import hpc.launch_utils.
     from hpc.snapshot_manager import ensure_snapshots
+
     return ensure_snapshots(resolved_data_paths, orgs, **passthrough)
 
 
 # =============================================================================
 # Dict Utilities
 # =============================================================================
+
 
 def set_or_pop(d: dict, key: str, value) -> None:
     """Set key in dict if value is not None, otherwise remove it.
@@ -565,6 +576,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # =============================================================================
 # Path Resolution Utilities
 # =============================================================================
+
 
 def resolve_repo_path(path_like: str) -> Path:
     """Resolve a path relative to PROJECT_ROOT if not absolute.
@@ -599,6 +611,7 @@ def resolve_workspace_path(path_like: str) -> Path:
 @dataclass
 class ExperimentsPaths:
     """Paths for experiment artifacts."""
+
     root: Path
     sbatch: Path
     configs: Path
@@ -679,7 +692,12 @@ def setup_experiments_dir(
     # decided how to handle the existing dir and wants the launcher to land
     # at the same path).
     renamed_for_collision = False
-    if create_dirs and not disable_dedup and experiments_abs.exists() and (experiments_abs / "configs").exists():
+    if (
+        create_dirs
+        and not disable_dedup
+        and experiments_abs.exists()
+        and (experiments_abs / "configs").exists()
+    ):
         existing_configs = list((experiments_abs / "configs").glob("*.json")) + list(
             (experiments_abs / "configs").glob("*.yaml")
         )
@@ -691,11 +709,15 @@ def setup_experiments_dir(
                 if (experiments_abs / "configs").exists()
                 else []
             ):
-                experiments_abs = base.parent / numbered_experiment_fork_name(base.name, suffix)
+                experiments_abs = base.parent / numbered_experiment_fork_name(
+                    base.name, suffix
+                )
                 suffix += 1
             renamed_for_collision = experiments_abs != base
             if renamed_for_collision:
-                print(f"[launch_utils] Experiment dir collision detected. Using {experiments_abs} instead of {base}")
+                print(
+                    f"[launch_utils] Experiment dir collision detected. Using {experiments_abs} instead of {base}"
+                )
 
     # Propagate the (possibly renamed) experiments_dir back into exp_args so
     # downstream consumers that derive auxiliary paths from
@@ -734,6 +756,7 @@ def setup_experiments_dir(
 @dataclass
 class JobSetupResult:
     """Result of resolve_job_and_paths()."""
+
     job_name: str
     paths: ExperimentsPaths
 
@@ -782,6 +805,7 @@ def resolve_job_and_paths(
     if str(job_type or "").lower() == "datagen":
         try:
             from hpc.resume_manager import resolve_resume_policy_for_launch
+
             policy = resolve_resume_policy_for_launch(exp_args, job_name=job_name)
             if policy is not None:
                 disable_dedup = True
@@ -823,7 +847,9 @@ def repo_relative(path_str: str, repo_root: Optional[Path] = None) -> str:
     try:
         relative = abs_path.relative_to(repo_root)
     except ValueError as exc:
-        raise ValueError(f"Path '{abs_path}' must live inside the repo ({repo_root})") from exc
+        raise ValueError(
+            f"Path '{abs_path}' must live inside the repo ({repo_root})"
+        ) from exc
     return relative.as_posix()
 
 
@@ -916,8 +942,14 @@ def build_sbatch_directives(
     partition = partition or exp_args.get("partition") or hpc.partition
     account = account or exp_args.get("account") or hpc.account
     qos = qos or exp_args.get("qos") or ""
-    gpus_requested = int(gpus if gpus is not None else (exp_args.get("gpus_per_node") or hpc.gpus_per_node or 0))
-    gpu_type_resolved = gpu_type or exp_args.get("gpu_type") or None  # Let hpc.get_gpu_directive use its default
+    gpus_requested = int(
+        gpus
+        if gpus is not None
+        else (exp_args.get("gpus_per_node") or hpc.gpus_per_node or 0)
+    )
+    gpu_type_resolved = (
+        gpu_type or exp_args.get("gpu_type") or None
+    )  # Let hpc.get_gpu_directive use its default
 
     directives = []
     if partition:
@@ -970,6 +1002,7 @@ def build_sbatch_directives(
 # JSON/Config Parsing Utilities
 # =============================================================================
 
+
 def coerce_agent_kwargs(value: Any) -> Dict[str, Any]:
     """Parse agent kwargs from various input formats.
 
@@ -1000,6 +1033,7 @@ def coerce_agent_kwargs(value: Any) -> Dict[str, Any]:
 # =============================================================================
 # vLLM Endpoint Utilities
 # =============================================================================
+
 
 def default_vllm_endpoint_path(
     experiments_dir: str | os.PathLike[str],
@@ -1034,6 +1068,7 @@ def default_vllm_endpoint_path(
 # Local Execution Utilities
 # =============================================================================
 
+
 def is_local_mode(hpc) -> bool:
     """Check if HPC config indicates local (non-SLURM) execution."""
     return bool(getattr(hpc, "local_mode", False))
@@ -1054,7 +1089,9 @@ def run_local_script(script_path: str) -> str:
     print(f"Running locally: bash {script_path}")
     result = subprocess.run(["bash", script_path], check=False)
     if result.returncode != 0:
-        raise RuntimeError(f"Local execution failed (exit {result.returncode}) for {script_path}")
+        raise RuntimeError(
+            f"Local execution failed (exit {result.returncode}) for {script_path}"
+        )
     return f"local_{Path(script_path).stem}"
 
 
@@ -1078,7 +1115,9 @@ def submit_script(
     """
     if is_local_mode(hpc):
         if dependency:
-            print(f"Warning: ignoring job dependency '{dependency}' for local execution.")
+            print(
+                f"Warning: ignoring job dependency '{dependency}' for local execution."
+            )
         if array:
             raise RuntimeError("Job arrays are not supported for local execution.")
         return run_local_script(script_path)
@@ -1131,7 +1170,7 @@ def derive_datagen_job_name(cli_args: Mapping[str, Any]) -> str:
         filename = Path(config_path).stem  # Remove .yaml extension
         for prefix in ("trace_", "harbor_"):
             if filename.startswith(prefix):
-                filename = filename[len(prefix):]
+                filename = filename[len(prefix) :]
         if len(filename) > 30:
             filename = filename[:30].rstrip("-_")
         return filename
@@ -1149,7 +1188,9 @@ def derive_datagen_job_name(cli_args: Mapping[str, Any]) -> str:
         parts.append(_sanitize_component(str(dataset_path)))
 
     # --- then model (truncated) ---
-    repo_candidate = cli_args.get("datagen_target_repo") or cli_args.get("trace_target_repo")
+    repo_candidate = cli_args.get("datagen_target_repo") or cli_args.get(
+        "trace_target_repo"
+    )
     model_candidate = cli_args.get("datagen_model") or cli_args.get("trace_model")
     if model_candidate:
         parts.append(shorten_model_name(str(model_candidate)))
@@ -1167,7 +1208,7 @@ def derive_datagen_job_name(cli_args: Mapping[str, Any]) -> str:
     if job_type_hint == JobType.EVAL.value:
         eval_prefix = f"eval{JOB_NAME_SEP}"
         if job_name.startswith(eval_prefix):
-            job_name = "eval-" + job_name[len(eval_prefix):]
+            job_name = "eval-" + job_name[len(eval_prefix) :]
         elif job_name == "eval":
             job_name = "eval-run"
         elif not job_name.startswith("eval-"):
@@ -1222,7 +1263,9 @@ def derive_default_job_name(cli_args: Mapping[str, Any]) -> str:
         dataset_raw = cli_args.get(dk) or dataset_raw
     # Dataset: may be comma-separated or JSON list (multi-dataset)
     dataset_parts: list[str] = []
-    for ds in str(dataset_raw).replace("[", "").replace("]", "").replace('"', "").split(","):
+    for ds in (
+        str(dataset_raw).replace("[", "").replace("]", "").replace('"', "").split(",")
+    ):
         ds_name = ds.strip().split("/")[-1]
         if ds_name and ds_name != "None":
             dataset_parts.append(ds_name)
@@ -1232,7 +1275,11 @@ def derive_default_job_name(cli_args: Mapping[str, Any]) -> str:
     model_raw = ""
     for mk in _MODEL_KEYS:
         model_raw = cli_args.get(mk) or model_raw
-    model_component = shorten_model_name(str(model_raw)) if model_raw and str(model_raw) != "None" else ""
+    model_component = (
+        shorten_model_name(str(model_raw))
+        if model_raw and str(model_raw) != "None"
+        else ""
+    )
 
     # Config: stem only (no .yaml/.yml extension)
     config_component = ""
@@ -1292,7 +1339,9 @@ def derive_default_job_name(cli_args: Mapping[str, Any]) -> str:
 def get_job_name(cli_args: Mapping[str, Any]) -> str:
     """Derive a stable job name from user-provided CLI arguments."""
 
-    job_type = str(cli_args.get("job_type", JobType.default_value()) or JobType.default_value()).lower()
+    job_type = str(
+        cli_args.get("job_type", JobType.default_value()) or JobType.default_value()
+    ).lower()
     if job_type == JobType.CONSOLIDATE.value:
         return derive_consolidate_job_name(cli_args)
     if job_type in (JobType.DATAGEN.value, JobType.EVAL.value):
@@ -1309,6 +1358,7 @@ def get_job_name(cli_args: Mapping[str, Any]) -> str:
     if job_type == JobType.SFT_MCA.value:
         return f"sft-mca{JOB_NAME_SEP}{base_name}"
     return base_name
+
 
 def _parse_optional_int(value: Any, label: Optional[str] = None) -> Optional[int]:
     """Parse a value as int, returning None if empty/missing.
@@ -1412,7 +1462,9 @@ def apply_env_overrides(
 
     # Perlmutter requires exactly 4 GPUs per node
     if hpc_name == "perlmutter":
-        requested = cli_args_filtered.get("gpus_per_node") or exp_args.get("gpus_per_node")
+        requested = cli_args_filtered.get("gpus_per_node") or exp_args.get(
+            "gpus_per_node"
+        )
         if requested not in (None, "", "None"):
             requested_int = _parse_optional_int(requested, "--gpus_per_node")
             if requested_int is not None and requested_int != 4:
@@ -1420,27 +1472,41 @@ def apply_env_overrides(
         exp_args = update_exp_args(exp_args, {"gpus_per_node": 4})
 
     # Normalize GPU count
-    gpus_per_node_norm = _parse_optional_int(exp_args.get("gpus_per_node"), "--gpus_per_node") or 0
+    gpus_per_node_norm = (
+        _parse_optional_int(exp_args.get("gpus_per_node"), "--gpus_per_node") or 0
+    )
     exp_args = update_exp_args(exp_args, {"gpus_per_node": gpus_per_node_norm})
 
     # Normalize CPU counts
-    cpus_per_node_norm = _parse_optional_int(exp_args.get("cpus_per_node"), "--cpus_per_node")
+    cpus_per_node_norm = _parse_optional_int(
+        exp_args.get("cpus_per_node"), "--cpus_per_node"
+    )
     if cpus_per_node_norm is not None:
         exp_args = update_exp_args(exp_args, {"cpus_per_node": cpus_per_node_norm})
 
-    cpus_per_gpu_norm = _parse_optional_int(exp_args.get("cpus_per_gpu"), "--cpus_per_gpu")
+    cpus_per_gpu_norm = _parse_optional_int(
+        exp_args.get("cpus_per_gpu"), "--cpus_per_gpu"
+    )
     if cpus_per_gpu_norm is not None:
         exp_args = update_exp_args(exp_args, {"cpus_per_gpu": cpus_per_gpu_norm})
 
-    cpus_per_node_cli_norm = _parse_optional_int(cli_args_filtered.get("cpus_per_node"), "--cpus_per_node")
-    cpus_per_gpu_cli_norm = _parse_optional_int(cli_args_filtered.get("cpus_per_gpu"), "--cpus_per_gpu")
+    cpus_per_node_cli_norm = _parse_optional_int(
+        cli_args_filtered.get("cpus_per_node"), "--cpus_per_node"
+    )
+    cpus_per_gpu_cli_norm = _parse_optional_int(
+        cli_args_filtered.get("cpus_per_gpu"), "--cpus_per_gpu"
+    )
 
     # Handle cpus_per_gpu -> cpus_per_node derivation
     if cpus_per_gpu_cli_norm is not None:
         if cpus_per_node_cli_norm is not None:
-            raise ValueError("Provide only one of --cpus_per_node or --cpus_per_gpu, not both.")
+            raise ValueError(
+                "Provide only one of --cpus_per_node or --cpus_per_gpu, not both."
+            )
         if gpus_per_node_norm <= 0:
-            raise ValueError("--cpus_per_gpu requires --gpus_per_node to be greater than zero.")
+            raise ValueError(
+                "--cpus_per_gpu requires --gpus_per_node to be greater than zero."
+            )
         cpus_per_node_norm = cpus_per_gpu_cli_norm * gpus_per_node_norm
         exp_args = update_exp_args(
             exp_args,
@@ -1451,7 +1517,11 @@ def apply_env_overrides(
         )
         cpus_per_gpu_norm = cpus_per_gpu_cli_norm
     else:
-        if cpus_per_node_norm is None and cpus_per_gpu_norm is not None and gpus_per_node_norm > 0:
+        if (
+            cpus_per_node_norm is None
+            and cpus_per_gpu_norm is not None
+            and gpus_per_node_norm > 0
+        ):
             cpus_per_node_norm = cpus_per_gpu_norm * gpus_per_node_norm
             exp_args = update_exp_args(exp_args, {"cpus_per_node": cpus_per_node_norm})
         elif (
@@ -1459,11 +1529,15 @@ def apply_env_overrides(
             and (cpus_per_gpu_norm is None or cpus_per_gpu_norm == 0)
             and gpus_per_node_norm > 0
         ):
-            derived_cpus_per_gpu = max(1, math.ceil(cpus_per_node_norm / gpus_per_node_norm))
+            derived_cpus_per_gpu = max(
+                1, math.ceil(cpus_per_node_norm / gpus_per_node_norm)
+            )
             exp_args = update_exp_args(exp_args, {"cpus_per_gpu": derived_cpus_per_gpu})
 
     # Validate job_creator
-    job_creator = str(exp_args.get("job_creator", "mlfoundations-dev") or "mlfoundations-dev").strip()
+    job_creator = str(
+        exp_args.get("job_creator", "mlfoundations-dev") or "mlfoundations-dev"
+    ).strip()
     if not job_creator:
         raise ValueError("--job_creator must be a non-empty string.")
     if len(job_creator) > 96:
@@ -1473,7 +1547,8 @@ def apply_env_overrides(
     # Handle Frontier extended partition time limits (max 24 hours)
     partition = exp_args.get("partition") or getattr(hpc, "partition", "")
     is_frontier_extended = (
-        getattr(hpc, "name", "").lower() == "frontier" and partition.lower() == "extended"
+        getattr(hpc, "name", "").lower() == "frontier"
+        and partition.lower() == "extended"
     )
     frontier_extended_max = "23:59:00"
 
@@ -1638,7 +1713,9 @@ def launch_sbatch(
             break
 
         # Log and retry
-        print(f"  sbatch failed (attempt {attempt + 1}/{max_retries + 1}): {err or msg}")
+        print(
+            f"  sbatch failed (attempt {attempt + 1}/{max_retries + 1}): {err or msg}"
+        )
         print(f"  Retrying in {delay:.1f}s...")
         time.sleep(delay)
         delay = min(delay * 2, max_delay)
@@ -1776,6 +1853,7 @@ def derive_benchmark_from_job_dir(job_dir: PathInput) -> str:
         Benchmark name string (e.g., "terminal-bench@2.0").
     """
     import json
+
     job_path = Path(job_dir)
 
     # Method 1: Try to read from config.json
@@ -1867,15 +1945,20 @@ def convert_parquet_to_tasks(
     print(f"[convert_parquet_to_tasks] Found parquet file: {parquet_file_path}")
 
     if datasets_dir is None:
-        datasets_dir = os.environ.get("DATASETS_DIR", os.path.join(os.getcwd(), "datasets"))
+        datasets_dir = os.environ.get(
+            "DATASETS_DIR", os.path.join(os.getcwd(), "datasets")
+        )
     tasks_base_dir = os.path.join(datasets_dir, "tasks_from_parquet")
     os.makedirs(tasks_base_dir, exist_ok=True)
     dataset_name = dataset_identifier.split("/")[-1]
     tasks_output_dir = os.path.join(tasks_base_dir, dataset_name)
 
-    print(f"[convert_parquet_to_tasks] Converting parquet to tasks folder at {tasks_output_dir}")
+    print(
+        f"[convert_parquet_to_tasks] Converting parquet to tasks folder at {tasks_output_dir}"
+    )
     # Lazy import to avoid torch dependency at module load time
     from scripts.harbor.tasks_parquet_converter import find_tasks, from_parquet
+
     from_parquet(
         parquet_file_path,
         tasks_output_dir,
@@ -1899,7 +1982,9 @@ def convert_parquet_to_tasks(
             raise ValueError(
                 f"Dataset {dataset_identifier} did not materialize exactly {cohort_size} tasks"
             )
-    print(f"[convert_parquet_to_tasks] Converted parquet to tasks folder: {tasks_output_dir}")
+    print(
+        f"[convert_parquet_to_tasks] Converted parquet to tasks folder: {tasks_output_dir}"
+    )
     return tasks_output_dir
 
 
@@ -1911,6 +1996,7 @@ def convert_parquet_to_tasks(
 def _ensure_database_module_path() -> None:
     """Add the database module directory to sys.path if not already present."""
     import sys
+
     db_path = PROJECT_ROOT / "database"
     if db_path.exists():
         db_path_str = str(db_path)
@@ -1967,7 +2053,9 @@ def upload_traces_to_hf(
 
     token = hf_token or os.environ.get("HF_TOKEN")
     if not token:
-        print("[upload] No HF token provided (set HF_TOKEN env var); skipping HF upload.")
+        print(
+            "[upload] No HF token provided (set HF_TOKEN env var); skipping HF upload."
+        )
         return None
 
     _ensure_database_module_path()
@@ -2062,7 +2150,12 @@ def sync_eval_to_database(
 
     if dry_run:
         print(f"[upload] DRY RUN: Would sync eval results from {job_dir} to database")
-        return {"success": True, "dry_run": True, "job_id": None, "n_trials_uploaded": 0}
+        return {
+            "success": True,
+            "dry_run": True,
+            "job_id": None,
+            "n_trials_uploaded": 0,
+        }
 
     if not job_dir:
         print("[upload] No job directory provided; skipping database sync.")
@@ -2070,15 +2163,21 @@ def sync_eval_to_database(
 
     job_path = Path(job_dir)
     if not job_path.exists():
-        print(f"[upload] Job directory {job_path} does not exist; skipping database sync.")
+        print(
+            f"[upload] Job directory {job_path} does not exist; skipping database sync."
+        )
         return {"success": False, "error": f"Job directory does not exist: {job_path}"}
 
-    resolved_username = username or os.environ.get("UPLOAD_USERNAME") or getpass.getuser()
+    resolved_username = (
+        username or os.environ.get("UPLOAD_USERNAME") or getpass.getuser()
+    )
     token = hf_token or os.environ.get("HF_TOKEN")
 
     # Warn if HF repo requested but no token
     if hf_repo_id and not token:
-        print("[upload] HF repo requested but no token provided; skipping HF upload step.")
+        print(
+            "[upload] HF repo requested but no token provided; skipping HF upload step."
+        )
         hf_repo_id = None
 
     # Sanitize HF repo ID if provided (defensive - callers should also sanitize)
@@ -2097,11 +2196,15 @@ def sync_eval_to_database(
                 resolved_version_hash = hashlib.sha256(raw_hash.encode()).hexdigest()
             else:
                 resolved_version_hash = raw_hash
-            print(f"[upload] Auto-detected benchmark_version_hash from path: {resolved_version_hash[:16]}...")
+            print(
+                f"[upload] Auto-detected benchmark_version_hash from path: {resolved_version_hash[:16]}..."
+            )
         elif benchmark_name:
             # Generate deterministic hash from benchmark name
             resolved_version_hash = hashlib.sha256(benchmark_name.encode()).hexdigest()
-            print(f"[upload] Generated benchmark_version_hash from name: {resolved_version_hash[:16]}...")
+            print(
+                f"[upload] Generated benchmark_version_hash from name: {resolved_version_hash[:16]}..."
+            )
 
     _ensure_database_module_path()
     try:
@@ -2112,7 +2215,9 @@ def sync_eval_to_database(
             "Install the database extras or ensure unified_db is on PYTHONPATH."
         ) from exc
 
-    print(f"[upload] Syncing eval results from {job_path} to database (user: {resolved_username})")
+    print(
+        f"[upload] Syncing eval results from {job_path} to database (user: {resolved_username})"
+    )
     result = upload_eval_results(
         job_dir=str(job_path),
         username=resolved_username,
@@ -2132,7 +2237,9 @@ def sync_eval_to_database(
     uploaded = result.get("n_trials_uploaded", 0)
     job_id = result.get("job_id")
     hf_url = result.get("hf_dataset_url")
-    print(f"[upload] Database sync complete (job_id={job_id}, trials={uploaded}, hf={hf_url or 'n/a'})")
+    print(
+        f"[upload] Database sync complete (job_id={job_id}, trials={uploaded}, hf={hf_url or 'n/a'})"
+    )
     return result
 
 

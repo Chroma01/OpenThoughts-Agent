@@ -35,7 +35,10 @@ class LogCollector:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
-        self._log_file = self.output_dir / f"beta9_deploy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        self._log_file = (
+            self.output_dir
+            / f"beta9_deploy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        )
 
     def start(self):
         """Start collecting logs in background threads."""
@@ -57,7 +60,9 @@ class LogCollector:
         self._threads.append(logs_thread)
 
         # Thread to collect pod descriptions (for debugging crash reasons)
-        describe_thread = threading.Thread(target=self._collect_pod_describe, daemon=True)
+        describe_thread = threading.Thread(
+            target=self._collect_pod_describe, daemon=True
+        )
         describe_thread.start()
         self._threads.append(describe_thread)
 
@@ -71,9 +76,9 @@ class LogCollector:
     def _write_log(self, section: str, content: str):
         """Write content to log file with timestamp."""
         with open(self._log_file, "a") as f:
-            f.write(f"\n{'='*60}\n")
+            f.write(f"\n{'=' * 60}\n")
             f.write(f"[{datetime.now().isoformat()}] {section}\n")
-            f.write(f"{'='*60}\n")
+            f.write(f"{'=' * 60}\n")
             f.write(content)
             f.write("\n")
 
@@ -99,7 +104,14 @@ class LogCollector:
         while not self._stop_event.is_set():
             try:
                 result = subprocess.run(
-                    ["kubectl", "get", "events", "-n", self.namespace, "--sort-by=.lastTimestamp"],
+                    [
+                        "kubectl",
+                        "get",
+                        "events",
+                        "-n",
+                        self.namespace,
+                        "--sort-by=.lastTimestamp",
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=30,
@@ -119,8 +131,15 @@ class LogCollector:
             try:
                 # Get list of pods with their container info (including init containers)
                 result = subprocess.run(
-                    ["kubectl", "get", "pods", "-n", self.namespace, "-o",
-                     "jsonpath={range .items[*]}{.metadata.name},{.status.phase},{.status.containerStatuses[*].name},{.status.containerStatuses[*].restartCount},{.status.initContainerStatuses[*].name}|{end}"],
+                    [
+                        "kubectl",
+                        "get",
+                        "pods",
+                        "-n",
+                        self.namespace,
+                        "-o",
+                        "jsonpath={range .items[*]}{.metadata.name},{.status.phase},{.status.containerStatuses[*].name},{.status.containerStatuses[*].restartCount},{.status.initContainerStatuses[*].name}|{end}",
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=30,
@@ -146,7 +165,7 @@ class LogCollector:
                                     pod_phase,
                                     0,  # Init containers don't restart
                                     last_log_hash,
-                                    is_init=True
+                                    is_init=True,
                                 )
 
                             # Collect logs for each container
@@ -155,8 +174,10 @@ class LogCollector:
                                     pod_name,
                                     container,
                                     pod_phase,
-                                    int(restart_counts[i]) if i < len(restart_counts) else 0,
-                                    last_log_hash
+                                    int(restart_counts[i])
+                                    if i < len(restart_counts)
+                                    else 0,
+                                    last_log_hash,
                                 )
             except Exception as e:
                 self._write_log("POD LOG COLLECTION ERROR", str(e))
@@ -170,7 +191,7 @@ class LogCollector:
         pod_phase: str,
         restart_count: int,
         last_log_hash: dict[str, str],
-        is_init: bool = False
+        is_init: bool = False,
     ):
         """Collect logs from a specific container, including previous crash logs."""
         log_key = f"{pod_name}/{container}"
@@ -178,7 +199,16 @@ class LogCollector:
         try:
             # Get current logs
             result = subprocess.run(
-                ["kubectl", "logs", "-n", self.namespace, pod_name, "-c", container, "--tail=200"],
+                [
+                    "kubectl",
+                    "logs",
+                    "-n",
+                    self.namespace,
+                    pod_name,
+                    "-c",
+                    container,
+                    "--tail=200",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -197,7 +227,17 @@ class LogCollector:
             if restart_count > 0:
                 prev_key = f"{log_key}/previous"
                 prev_result = subprocess.run(
-                    ["kubectl", "logs", "-n", self.namespace, pod_name, "-c", container, "--previous", "--tail=200"],
+                    [
+                        "kubectl",
+                        "logs",
+                        "-n",
+                        self.namespace,
+                        pod_name,
+                        "-c",
+                        container,
+                        "--previous",
+                        "--tail=200",
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=30,
@@ -206,7 +246,10 @@ class LogCollector:
                     prev_hash = hash(prev_result.stdout)
                     if last_log_hash.get(prev_key) != prev_hash:
                         last_log_hash[prev_key] = prev_hash
-                        self._write_log(f"PREVIOUS LOGS: {pod_name} -c {container}", prev_result.stdout)
+                        self._write_log(
+                            f"PREVIOUS LOGS: {pod_name} -c {container}",
+                            prev_result.stdout,
+                        )
 
         except Exception as e:
             self._write_log(f"CONTAINER LOG ERROR: {pod_name}/{container}", str(e))
@@ -218,7 +261,15 @@ class LogCollector:
         while not self._stop_event.is_set():
             try:
                 result = subprocess.run(
-                    ["kubectl", "get", "pods", "-n", self.namespace, "-o", "jsonpath={.items[*].metadata.name}"],
+                    [
+                        "kubectl",
+                        "get",
+                        "pods",
+                        "-n",
+                        self.namespace,
+                        "-o",
+                        "jsonpath={.items[*].metadata.name}",
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=30,
@@ -229,20 +280,31 @@ class LogCollector:
                         if pod_name and pod_name not in described_pods:
                             described_pods.add(pod_name)
                             describe_result = subprocess.run(
-                                ["kubectl", "describe", "pod", "-n", self.namespace, pod_name],
+                                [
+                                    "kubectl",
+                                    "describe",
+                                    "pod",
+                                    "-n",
+                                    self.namespace,
+                                    pod_name,
+                                ],
                                 capture_output=True,
                                 text=True,
                                 timeout=30,
                             )
                             if describe_result.stdout:
-                                self._write_log(f"DESCRIBE: {pod_name}", describe_result.stdout)
+                                self._write_log(
+                                    f"DESCRIBE: {pod_name}", describe_result.stdout
+                                )
             except Exception:
                 pass
 
             self._stop_event.wait(60)  # Describe once per minute for new pods
 
 
-def start_log_collection(namespace: str, output_dir: Optional[Path] = None) -> LogCollector:
+def start_log_collection(
+    namespace: str, output_dir: Optional[Path] = None
+) -> LogCollector:
     """Start background log collection.
 
     Args:
@@ -273,7 +335,9 @@ def stop_log_collection():
 def check_helm_installed() -> bool:
     """Check if Helm CLI is installed."""
     if not shutil.which("helm"):
-        logger.error("helm not found. Install from: https://helm.sh/docs/intro/install/")
+        logger.error(
+            "helm not found. Install from: https://helm.sh/docs/intro/install/"
+        )
         return False
     return True
 
@@ -301,7 +365,9 @@ def add_helm_repo(dry_run: bool = False, config: Optional[Beta9Config] = None) -
 
     # Find the project root (where scripts/beam/helm-chart is)
     current_file = Path(__file__).resolve()
-    project_root = current_file.parent.parent.parent  # scripts/beam -> scripts -> project root
+    project_root = (
+        current_file.parent.parent.parent
+    )  # scripts/beam -> scripts -> project root
     local_chart_path = project_root / config.helm_chart_local_path
 
     if dry_run:
@@ -482,24 +548,30 @@ def _build_config_json(s3_config: Optional[S3StorageConfig]) -> str:
         logger.info("[CONFIG]   JuiceFS fsName: beta9-fs")
         logger.info(f"[CONFIG]   Workspace endpoint: {s3_config.endpoint_url}")
 
-        config["storage"]["juicefs"].update({
-            "awsS3Bucket": juicefs_bucket_url,
-            "awsAccessKey": s3_config.access_key,
-            "awsSecretKey": s3_config.secret_key,
-            "storageType": "minio",  # Use minio for S3-compatible storage (not AWS S3)
-        })
+        config["storage"]["juicefs"].update(
+            {
+                "awsS3Bucket": juicefs_bucket_url,
+                "awsAccessKey": s3_config.access_key,
+                "awsSecretKey": s3_config.secret_key,
+                "storageType": "minio",  # Use minio for S3-compatible storage (not AWS S3)
+            }
+        )
 
         # Workspace storage (container images) - uses separate prefix
-        config["storage"]["workspaceStorage"].update({
-            "defaultBucketPrefix": "beta9-workspace",
-            "defaultAccessKey": s3_config.access_key,
-            "defaultSecretKey": s3_config.secret_key,
-            "defaultEndpointUrl": s3_config.endpoint_url,
-        })
+        config["storage"]["workspaceStorage"].update(
+            {
+                "defaultBucketPrefix": "beta9-workspace",
+                "defaultAccessKey": s3_config.access_key,
+                "defaultSecretKey": s3_config.secret_key,
+                "defaultEndpointUrl": s3_config.endpoint_url,
+            }
+        )
 
         # Image service - store built images in S3 (scalable, multi-node)
         # Use same bucket as other storage
-        logger.info(f"[CONFIG]   Image registry: S3 (bucket: {s3_config.bucket_name}, endpoint: {s3_config.endpoint_url})")
+        logger.info(
+            f"[CONFIG]   Image registry: S3 (bucket: {s3_config.bucket_name}, endpoint: {s3_config.endpoint_url})"
+        )
         config["imageService"] = {
             "registryStore": "s3",
             "registries": {
@@ -511,7 +583,7 @@ def _build_config_json(s3_config: Optional[S3StorageConfig]) -> str:
                     "endpoint": s3_config.endpoint_url,
                     "forcePathStyle": True,  # Required for MinIO compatibility
                 }
-            }
+            },
         }
 
         # Worker config - disable PVC mounting when using S3 storage
@@ -521,21 +593,27 @@ def _build_config_json(s3_config: Optional[S3StorageConfig]) -> str:
     else:
         # Fall back to LocalStack (for testing without external S3).
         # awsS3Bucket must be a FULL URL (endpoint + bucket).
-        logger.warning("[CONFIG] FALLBACK: No S3 config provided, using LocalStack defaults!")
+        logger.warning(
+            "[CONFIG] FALLBACK: No S3 config provided, using LocalStack defaults!"
+        )
         logger.warning("[CONFIG]   JuiceFS bucket URL: http://localstack:4566/juicefs")
         logger.warning("[CONFIG]   This will FAIL if LocalStack is not deployed!")
 
-        config["storage"]["juicefs"].update({
-            "awsS3Bucket": "http://localstack:4566/juicefs",
-            "awsAccessKey": "test",
-            "awsSecretKey": "test",
-        })
-        config["storage"]["workspaceStorage"].update({
-            "defaultBucketPrefix": "beta9-images",
-            "defaultAccessKey": "test",
-            "defaultSecretKey": "test",
-            "defaultEndpointUrl": "http://localstack:4566",
-        })
+        config["storage"]["juicefs"].update(
+            {
+                "awsS3Bucket": "http://localstack:4566/juicefs",
+                "awsAccessKey": "test",
+                "awsSecretKey": "test",
+            }
+        )
+        config["storage"]["workspaceStorage"].update(
+            {
+                "defaultBucketPrefix": "beta9-images",
+                "defaultAccessKey": "test",
+                "defaultSecretKey": "test",
+                "defaultEndpointUrl": "http://localstack:4566",
+            }
+        )
 
         # Image service - use S3 for LocalStack too
         config["imageService"] = {
@@ -549,7 +627,7 @@ def _build_config_json(s3_config: Optional[S3StorageConfig]) -> str:
                     "endpoint": "http://localstack:4566",
                     "forcePathStyle": True,  # Required for LocalStack/MinIO
                 }
-            }
+            },
         }
 
         # Worker config - disable PVC mounting when using S3 storage
@@ -631,7 +709,9 @@ def deploy_beta9(
         logger.info(f"[CONFIG]   Workspace endpoint: {s3_config.endpoint_url}")
 
         # Add S3 config to Helm values - this updates the mounted config file
-        logger.info(f"[CONFIG]   Image registry: S3 (bucket: {s3_config.bucket_name}, endpoint: {s3_config.endpoint_url})")
+        logger.info(
+            f"[CONFIG]   Image registry: S3 (bucket: {s3_config.bucket_name}, endpoint: {s3_config.endpoint_url})"
+        )
         values["config"] = {
             "debugMode": True,  # Enable debug logging to see what config is loaded
             "storage": {
@@ -664,7 +744,9 @@ def deploy_beta9(
             },
         }
     else:
-        logger.warning("[CONFIG] FALLBACK: No S3 config provided, using LocalStack defaults!")
+        logger.warning(
+            "[CONFIG] FALLBACK: No S3 config provided, using LocalStack defaults!"
+        )
         logger.warning("[CONFIG]   JuiceFS bucket URL: http://localstack:4566/juicefs")
         logger.warning("[CONFIG]   JuiceFS fsName: {config.juicefs_fs_name}")
         logger.warning("[CONFIG]   This will FAIL if LocalStack is not deployed!")
@@ -714,17 +796,21 @@ def deploy_beta9(
     start_log_collection(config.namespace)
 
     # Write values to temp file (Helm --values properly deep-merges with values.yaml)
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         yaml.dump(values, f, default_flow_style=False)
         values_file = f.name
 
     try:
         actual_cmd = [
-            "helm", "upgrade", "--install",
+            "helm",
+            "upgrade",
+            "--install",
             config.helm_release_name,
             chart_path_str,
-            "--namespace", config.namespace,
-            "--values", values_file,
+            "--namespace",
+            config.namespace,
+            "--values",
+            values_file,
             # No --wait: let wait_for_gateway_ready() handle waiting with crash detection
         ]
 
@@ -760,9 +846,11 @@ def uninstall_beta9(config: Beta9Config, dry_run: bool = False) -> bool:
         True if uninstall successful.
     """
     cmd = [
-        "helm", "uninstall",
+        "helm",
+        "uninstall",
         config.helm_release_name,
-        "--namespace", config.namespace,
+        "--namespace",
+        config.namespace,
     ]
 
     if dry_run:
@@ -796,9 +884,13 @@ def delete_namespace_pvcs(namespace: str, dry_run: bool = False) -> bool:
     """
     # First, list PVCs to show what will be deleted
     list_cmd = [
-        "kubectl", "get", "pvc",
-        "--namespace", namespace,
-        "-o", "jsonpath={.items[*].metadata.name}",
+        "kubectl",
+        "get",
+        "pvc",
+        "--namespace",
+        namespace,
+        "-o",
+        "jsonpath={.items[*].metadata.name}",
     ]
 
     result = subprocess.run(list_cmd, capture_output=True, text=True)
@@ -808,7 +900,7 @@ def delete_namespace_pvcs(namespace: str, dry_run: bool = False) -> bool:
         return True
 
     pvcs = result.stdout.strip().split()
-    if not pvcs or pvcs == ['']:
+    if not pvcs or pvcs == [""]:
         logger.info("No PVCs to delete in namespace")
         return True
 
@@ -820,8 +912,12 @@ def delete_namespace_pvcs(namespace: str, dry_run: bool = False) -> bool:
 
     # Delete all PVCs in the namespace (with timeout to avoid hanging)
     delete_cmd = [
-        "kubectl", "delete", "pvc", "--all",
-        "--namespace", namespace,
+        "kubectl",
+        "delete",
+        "pvc",
+        "--all",
+        "--namespace",
+        namespace,
         "--timeout=60s",  # Don't wait forever
     ]
 
@@ -833,9 +929,14 @@ def delete_namespace_pvcs(namespace: str, dry_run: bool = False) -> bool:
         logger.warning("PVC deletion timed out, removing finalizers...")
         for pvc in pvcs:
             patch_cmd = [
-                "kubectl", "patch", "pvc", pvc,
-                "--namespace", namespace,
-                "-p", '{"metadata":{"finalizers":null}}',
+                "kubectl",
+                "patch",
+                "pvc",
+                pvc,
+                "--namespace",
+                namespace,
+                "-p",
+                '{"metadata":{"finalizers":null}}',
             ]
             subprocess.run(patch_cmd, capture_output=True, text=True, timeout=30)
         logger.info(f"Forced deletion of {len(pvcs)} PVCs")
@@ -856,10 +957,14 @@ def get_gateway_cluster_ip(config: Beta9Config) -> Optional[str]:
     """
     result = subprocess.run(
         [
-            "kubectl", "get", "service",
+            "kubectl",
+            "get",
+            "service",
             config.gateway_service_name,
-            "--namespace", config.namespace,
-            "-o", "jsonpath={.spec.clusterIP}",
+            "--namespace",
+            config.namespace,
+            "-o",
+            "jsonpath={.spec.clusterIP}",
         ],
         capture_output=True,
         text=True,
@@ -903,10 +1008,15 @@ def wait_for_gateway_ready(
         # Label selector: app.kubernetes.io/name=beta9,app.kubernetes.io/component=gateway
         result = subprocess.run(
             [
-                "kubectl", "get", "pods",
-                "--namespace", config.namespace,
-                "-l", f"app.kubernetes.io/name={config.helm_release_name},app.kubernetes.io/component=gateway",
-                "-o", "jsonpath={range .items[*]}{.metadata.name}:{.status.phase}:{.status.containerStatuses[*].state.waiting.reason}:{.status.containerStatuses[*].restartCount}{\"\\n\"}{end}",
+                "kubectl",
+                "get",
+                "pods",
+                "--namespace",
+                config.namespace,
+                "-l",
+                f"app.kubernetes.io/name={config.helm_release_name},app.kubernetes.io/component=gateway",
+                "-o",
+                'jsonpath={range .items[*]}{.metadata.name}:{.status.phase}:{.status.containerStatuses[*].state.waiting.reason}:{.status.containerStatuses[*].restartCount}{"\\n"}{end}',
             ],
             capture_output=True,
             text=True,
@@ -916,26 +1026,39 @@ def wait_for_gateway_ready(
             for line in result.stdout.strip().split("\n"):
                 parts = line.split(":")
                 if len(parts) >= 4:
-                    pod_name, phase, waiting_reason, restart_count = parts[0], parts[1], parts[2], parts[3]
+                    pod_name, phase, waiting_reason, restart_count = (
+                        parts[0],
+                        parts[1],
+                        parts[2],
+                        parts[3],
+                    )
 
                     # Check for CrashLoopBackOff
                     if waiting_reason == "CrashLoopBackOff":
                         crash_count += 1
-                        logger.warning(f"Gateway pod in CrashLoopBackOff (restarts: {restart_count}, detection: {crash_count}/{max_crash_retries})")
+                        logger.warning(
+                            f"Gateway pod in CrashLoopBackOff (restarts: {restart_count}, detection: {crash_count}/{max_crash_retries})"
+                        )
 
                         if crash_count >= max_crash_retries:
                             logger.error("Gateway pod is stuck in CrashLoopBackOff")
-                            logger.error("Check logs at: beta9_logs/ for debugging info")
+                            logger.error(
+                                "Check logs at: beta9_logs/ for debugging info"
+                            )
                             return False
 
                     elif phase == "Running" and not waiting_reason:
                         # Check if container is actually ready
                         ready_result = subprocess.run(
                             [
-                                "kubectl", "get", "pods",
-                                "--namespace", config.namespace,
+                                "kubectl",
+                                "get",
+                                "pods",
+                                "--namespace",
+                                config.namespace,
                                 pod_name,
-                                "-o", "jsonpath={.status.containerStatuses[*].ready}",
+                                "-o",
+                                "jsonpath={.status.containerStatuses[*].ready}",
                             ],
                             capture_output=True,
                             text=True,
@@ -946,7 +1069,9 @@ def wait_for_gateway_ready(
 
                             # Bootstrap the admin workspace via Authorize so workers can register.
                             if not bootstrap_workspace_via_port_forward(config):
-                                logger.warning("Workspace bootstrap failed, workers may not register correctly")
+                                logger.warning(
+                                    "Workspace bootstrap failed, workers may not register correctly"
+                                )
                                 # Continue anyway - validation will retry
 
                             return True
@@ -961,7 +1086,9 @@ def wait_for_gateway_ready(
     return False
 
 
-def bootstrap_workspace_via_port_forward(config: Beta9Config, timeout: int = 60) -> bool:
+def bootstrap_workspace_via_port_forward(
+    config: Beta9Config, timeout: int = 60
+) -> bool:
     """Bootstrap the admin workspace via Authorize over port-forward.
 
     Args:
@@ -978,16 +1105,20 @@ def bootstrap_workspace_via_port_forward(config: Beta9Config, timeout: int = 60)
     # Find a free local port
     def find_free_port():
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('', 0))
+            s.bind(("", 0))
             return s.getsockname()[1]
 
     local_port = find_free_port()
-    logger.info(f"Bootstrapping workspace via port-forward (localhost:{local_port} -> gateway:1993)")
+    logger.info(
+        f"Bootstrapping workspace via port-forward (localhost:{local_port} -> gateway:1993)"
+    )
 
     # Start port-forward in background
     port_forward_cmd = [
-        "kubectl", "port-forward",
-        "-n", config.namespace,
+        "kubectl",
+        "port-forward",
+        "-n",
+        config.namespace,
         "svc/beta9-gateway",
         f"{local_port}:1993",
     ]
@@ -1003,7 +1134,11 @@ def bootstrap_workspace_via_port_forward(config: Beta9Config, timeout: int = 60)
         time.sleep(3)
 
         if port_forward_proc.poll() is not None:
-            stderr = port_forward_proc.stderr.read().decode() if port_forward_proc.stderr else ""
+            stderr = (
+                port_forward_proc.stderr.read().decode()
+                if port_forward_proc.stderr
+                else ""
+            )
             logger.warning(f"Port-forward failed to start: {stderr}")
             return False
 
@@ -1015,7 +1150,9 @@ def bootstrap_workspace_via_port_forward(config: Beta9Config, timeout: int = 60)
             try:
                 token = get_or_create_token("localhost", local_port, force_refresh=True)
                 if token:
-                    logger.info("Workspace bootstrapped successfully - workers can now register")
+                    logger.info(
+                        "Workspace bootstrapped successfully - workers can now register"
+                    )
                     return True
             except Exception as e:
                 logger.debug(f"Authorize attempt failed: {e}")
@@ -1037,9 +1174,14 @@ def bootstrap_workspace_via_port_forward(config: Beta9Config, timeout: int = 60)
 def log_mounted_config(config: Beta9Config) -> None:
     """Log the mounted gateway config with sensitive fields redacted."""
     cmd = [
-        "kubectl", "exec", "-n", config.namespace,
-        "deploy/beta9-gateway", "--",
-        "cat", "/config-copy/beta9-config.yaml",
+        "kubectl",
+        "exec",
+        "-n",
+        config.namespace,
+        "deploy/beta9-gateway",
+        "--",
+        "cat",
+        "/config-copy/beta9-config.yaml",
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1085,10 +1227,13 @@ def get_deployment_status(config: Beta9Config) -> dict:
     # Check if Helm release exists
     result = subprocess.run(
         [
-            "helm", "status",
+            "helm",
+            "status",
             config.helm_release_name,
-            "--namespace", config.namespace,
-            "-o", "json",
+            "--namespace",
+            config.namespace,
+            "-o",
+            "json",
         ],
         capture_output=True,
         text=True,
@@ -1100,9 +1245,13 @@ def get_deployment_status(config: Beta9Config) -> dict:
     # Get pod status
     pod_result = subprocess.run(
         [
-            "kubectl", "get", "pods",
-            "--namespace", config.namespace,
-            "-o", "json",
+            "kubectl",
+            "get",
+            "pods",
+            "--namespace",
+            config.namespace,
+            "-o",
+            "json",
         ],
         capture_output=True,
         text=True,

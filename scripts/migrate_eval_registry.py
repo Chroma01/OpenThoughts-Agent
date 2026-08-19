@@ -14,6 +14,7 @@ Run from the repo root:
     python scripts/migrate_eval_registry.py --dry-run   # preview
     python scripts/migrate_eval_registry.py             # write
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,8 +29,12 @@ SRC = REPO / "eval" / "configs" / "model_configs.yaml"
 DST = REPO / "model_config"
 
 INTRINSIC = {
-    "trust_remote_code", "hf_overrides", "limit_mm_per_prompt",
-    "max_model_len", "tool_call_parser", "reasoning_parser",
+    "trust_remote_code",
+    "hf_overrides",
+    "limit_mm_per_prompt",
+    "max_model_len",
+    "tool_call_parser",
+    "reasoning_parser",
 }
 
 
@@ -57,7 +62,11 @@ def _split_entry(model_id: str, entry: dict) -> tuple[dict, dict]:
 
 def _dump_yaml(data: dict, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True))
+    path.write_text(
+        yaml.safe_dump(
+            data, sort_keys=False, default_flow_style=False, allow_unicode=True
+        )
+    )
 
 
 def migrate(dry_run: bool = False) -> None:
@@ -66,8 +75,10 @@ def migrate(dry_run: bool = False) -> None:
     patterns = data.get("patterns", []) or []
 
     # Group @profile standalones by their base model name.
-    base_entries: dict[str, dict] = {}      # model_id -> entry
-    profile_entries: dict[str, dict[str, dict]] = defaultdict(dict)  # model_id -> {profile -> entry}
+    base_entries: dict[str, dict] = {}  # model_id -> entry
+    profile_entries: dict[str, dict[str, dict]] = defaultdict(
+        dict
+    )  # model_id -> {profile -> entry}
 
     for key, entry in models.items():
         if "@" in key:
@@ -100,13 +111,21 @@ def migrate(dry_run: bool = False) -> None:
 
         file_data = base
         if eval_sub:
-            file_data["subsystems"] = {"eval": {k: v for k, v in eval_sub.items() if k != "model"}}
+            file_data["subsystems"] = {
+                "eval": {k: v for k, v in eval_sub.items() if k != "model"}
+            }
 
         org, slug = _slugify(model_id)
         out_path = DST / org / f"{slug}.yaml"
         if dry_run:
-            print(f"WOULD WRITE {out_path.relative_to(REPO)}: {list(file_data.keys())}"
-                  + (f" + variants {list(eval_sub.get('variants', {}).keys())}" if eval_sub.get("variants") else ""))
+            print(
+                f"WOULD WRITE {out_path.relative_to(REPO)}: {list(file_data.keys())}"
+                + (
+                    f" + variants {list(eval_sub.get('variants', {}).keys())}"
+                    if eval_sub.get("variants")
+                    else ""
+                )
+            )
         else:
             _dump_yaml(file_data, out_path)
             print(f"wrote {out_path.relative_to(REPO)}")
@@ -146,7 +165,9 @@ def migrate(dry_run: bool = False) -> None:
         for k, v in pat.items():
             if k == "match":
                 continue
-            entry[k] = v  # keep `profiles`, `subsystems`, and all config fields verbatim
+            entry[k] = (
+                v  # keep `profiles`, `subsystems`, and all config fields verbatim
+            )
         pat_out.append(entry)
     pat_path = DST / "_patterns.yaml"
     if dry_run:
@@ -155,7 +176,9 @@ def migrate(dry_run: bool = False) -> None:
         _dump_yaml({"patterns": pat_out}, pat_path)
         print(f"wrote {pat_path.relative_to(REPO)}: {len(pat_out)} patterns")
 
-    print(f"\n{'DRY RUN: ' if dry_run else ''}{written} model files + {len(pat_out)} patterns.")
+    print(
+        f"\n{'DRY RUN: ' if dry_run else ''}{written} model files + {len(pat_out)} patterns."
+    )
 
 
 if __name__ == "__main__":

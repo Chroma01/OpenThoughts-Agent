@@ -43,7 +43,9 @@ def _configure_gcs_model_credentials(args: argparse.Namespace) -> None:
     access_key = os.environ.get("MARIN_HMAC_ACCESS_ID")
     secret_key = os.environ.get("MARIN_HMAC_SECRET")
     if not access_key or not secret_key:
-        raise ValueError("GCS model streaming requires MARIN_HMAC_ACCESS_ID and MARIN_HMAC_SECRET")
+        raise ValueError(
+            "GCS model streaming requires MARIN_HMAC_ACCESS_ID and MARIN_HMAC_SECRET"
+        )
     env = dict(getattr(args, "_vllm_env_vars", None) or {})
     env.update(GCS_MODEL_ENV_KEYS)
     env["AWS_ACCESS_KEY_ID"] = access_key
@@ -90,39 +92,51 @@ class EvalRunner(LocalHarborRunner):
             "--dataset_path",
             help="Path to a Harbor task directory. Mutually exclusive with --dataset.",
         )
-        parser.add_argument("--dataset-path", dest="dataset_path", help=argparse.SUPPRESS)
+        parser.add_argument(
+            "--dataset-path", dest="dataset_path", help=argparse.SUPPRESS
+        )
         parser.add_argument(
             "--cohort_size",
             type=int,
             help="Materialize exactly this many tasks from a parquet dataset.",
         )
-        parser.add_argument("--cohort-size", dest="cohort_size", type=int, help=argparse.SUPPRESS)
+        parser.add_argument(
+            "--cohort-size", dest="cohort_size", type=int, help=argparse.SUPPRESS
+        )
 
         # Harbor environment backend (unified --harbor_env, with legacy aliases)
         # Default=None to allow inference from harbor config's environment.type field
-        add_harbor_env_arg(parser, default=None, legacy_names=["--eval-env", "--eval_env"])
+        add_harbor_env_arg(
+            parser, default=None, legacy_names=["--eval-env", "--eval_env"]
+        )
 
         parser.add_argument(
             "--datagen_config",
             help="Optional datagen YAML whose vLLM settings will seed defaults for this script.",
         )
-        parser.add_argument("--datagen-config", dest="datagen_config", help=argparse.SUPPRESS)
+        parser.add_argument(
+            "--datagen-config", dest="datagen_config", help=argparse.SUPPRESS
+        )
 
         parser.add_argument(
             "--vllm_model_uri",
             help="Object-store URI (s3://|gs://) the vLLM server loads weights from "
-                 "(via runai_streamer), while --model stays the HF id used for "
-                 "model_config resolution + the served-model name. Set by the iris "
-                 "launcher's offline pre-cache; leave unset for normal HF loads.",
+            "(via runai_streamer), while --model stays the HF id used for "
+            "model_config resolution + the served-model name. Set by the iris "
+            "launcher's offline pre-cache; leave unset for normal HF loads.",
         )
-        parser.add_argument("--vllm-model-uri", dest="vllm_model_uri", help=argparse.SUPPRESS)
+        parser.add_argument(
+            "--vllm-model-uri", dest="vllm_model_uri", help=argparse.SUPPRESS
+        )
 
         parser.add_argument(
             "--experiments_dir",
             default=str(PROJECT_ROOT / cls.DEFAULT_EXPERIMENTS_SUBDIR),
             help="Directory for logs + endpoint JSON.",
         )
-        parser.add_argument("--experiments-dir", dest="experiments_dir", help=argparse.SUPPRESS)
+        parser.add_argument(
+            "--experiments-dir", dest="experiments_dir", help=argparse.SUPPRESS
+        )
 
         add_ingress_literal_args(parser)
 
@@ -140,7 +154,7 @@ class EvalRunner(LocalHarborRunner):
             action="append",
             default=None,
             help="Exception type to delete-and-re-run on a warm-dir re-fire "
-                 "(repeatable). Unset -> no pruning.",
+            "(repeatable). Unset -> no pruning.",
         )
         parser.add_argument(
             "--refire-filter-error-type",
@@ -161,6 +175,7 @@ class EvalRunner(LocalHarborRunner):
             return self.args.harbor_env
         # Infer from harbor config if not explicitly specified
         from hpc.harbor_utils import get_harbor_env_from_config
+
         return get_harbor_env_from_config(self.args.harbor_config)
 
     def get_dataset_label(self) -> str:
@@ -185,7 +200,9 @@ class EvalRunner(LocalHarborRunner):
             from hpc.launch_utils import convert_parquet_to_tasks
 
             original_identifier = self.args.dataset_path
-            self.args.dataset_path = resolve_dataset_path(self.args.dataset_path, verbose=True)
+            self.args.dataset_path = resolve_dataset_path(
+                self.args.dataset_path, verbose=True
+            )
 
             # Auto-detect parquet datasets and convert to task directories
             if not is_raw_tasks_directory(self.args.dataset_path):
@@ -206,7 +223,9 @@ class EvalRunner(LocalHarborRunner):
         print(f"  Model: {args.model}")
         print(f"  Dataset: {dataset_label}")
         if needs_local_vllm:
-            print(f"  TP/PP/DP: {args.tensor_parallel_size}/{args.pipeline_parallel_size}/{args.data_parallel_size}")
+            print(
+                f"  TP/PP/DP: {args.tensor_parallel_size}/{args.pipeline_parallel_size}/{args.data_parallel_size}"
+            )
             print(f"  GPUs: {args.gpus}")
         else:
             print(f"  Engine: {engine_type} (API)")
@@ -243,10 +262,16 @@ class EvalRunner(LocalHarborRunner):
 
         run_dir = Path(jobs_dir_path) / job_name
         if not run_dir.exists():
-            print(f"[upload] Expected Harbor job directory {run_dir} does not exist; upload skipped.")
+            print(
+                f"[upload] Expected Harbor job directory {run_dir} does not exist; upload skipped."
+            )
             return
 
-        from hpc.launch_utils import sync_eval_to_database, upload_traces_to_hf, derive_benchmark_repo
+        from hpc.launch_utils import (
+            sync_eval_to_database,
+            upload_traces_to_hf,
+            derive_benchmark_repo,
+        )
 
         if upload_to_db:
             # Full database sync (includes optional HF upload)
@@ -278,9 +303,13 @@ class EvalRunner(LocalHarborRunner):
             )
 
             if not result.get("success"):
-                print(f"[upload] Database sync failed: {result.get('error', 'unknown error')}")
+                print(
+                    f"[upload] Database sync failed: {result.get('error', 'unknown error')}"
+                )
             else:
-                print(f"[upload] Database sync successful: job_id={result.get('job_id')}")
+                print(
+                    f"[upload] Database sync successful: job_id={result.get('job_id')}"
+                )
 
         elif hf_repo:
             # HF-only upload (no database sync)

@@ -61,7 +61,9 @@ class ValidationReport:
         return "\n".join(lines)
 
 
-def get_or_create_token(gateway_host: str, gateway_port: int = 1993, force_refresh: bool = False) -> Optional[str]:
+def get_or_create_token(
+    gateway_host: str, gateway_port: int = 1993, force_refresh: bool = False
+) -> Optional[str]:
     """Get an auth token from the Beta9 gateway.
 
     On a fresh gateway, calling Authorize without a token will:
@@ -101,9 +103,9 @@ def get_or_create_token(gateway_host: str, gateway_port: int = 1993, force_refre
         channel = grpc.insecure_channel(
             f"{gateway_host}:{gateway_port}",
             options=[
-                ('grpc.connect_timeout_ms', 10000),
-                ('grpc.keepalive_time_ms', 30000),
-            ]
+                ("grpc.connect_timeout_ms", 10000),
+                ("grpc.keepalive_time_ms", 30000),
+            ],
         )
         stub = GatewayServiceStub(channel)
 
@@ -113,14 +115,20 @@ def get_or_create_token(gateway_host: str, gateway_port: int = 1993, force_refre
 
         if response.ok:
             if response.new_token:
-                logger.info(f"Got new token from gateway (workspace: {response.workspace_id})")
+                logger.info(
+                    f"Got new token from gateway (workspace: {response.workspace_id})"
+                )
                 _cached_token = response.new_token
                 return response.new_token
             else:
-                logger.info(f"Authorized with existing workspace: {response.workspace_id}")
+                logger.info(
+                    f"Authorized with existing workspace: {response.workspace_id}"
+                )
                 # Gateway already has a workspace but didn't give us a token
                 # This means we need to use an existing token
-                logger.warning("Gateway has existing workspace but no token returned - need existing token")
+                logger.warning(
+                    "Gateway has existing workspace but no token returned - need existing token"
+                )
                 return None
         else:
             logger.warning(f"Authorization failed: {response.error_msg}")
@@ -140,7 +148,9 @@ def get_or_create_token(gateway_host: str, gateway_port: int = 1993, force_refre
                 pass
 
 
-def configure_beta9_endpoint(gateway_url: str, gateway_port: int = 1993, token: Optional[str] = None):
+def configure_beta9_endpoint(
+    gateway_url: str, gateway_port: int = 1993, token: Optional[str] = None
+):
     """Configure beta9 SDK to use custom gateway endpoint.
 
     This properly saves the config to ~/.beta9/ so the SDK uses the correct
@@ -164,7 +174,10 @@ def configure_beta9_endpoint(gateway_url: str, gateway_port: int = 1993, token: 
 
     # Extract hostname from URL (strip any port - we use gateway_port for gRPC)
     parsed = urlparse(gateway_url if "://" in gateway_url else f"http://{gateway_url}")
-    gateway_host = parsed.hostname or gateway_url.replace("https://", "").replace("http://", "").split(":")[0]
+    gateway_host = (
+        parsed.hostname
+        or gateway_url.replace("https://", "").replace("http://", "").split(":")[0]
+    )
 
     # If no token provided, try to get one from the gateway
     if not token:
@@ -252,7 +265,9 @@ def validate_sandbox_lifecycle(
         stdout = None
 
         if attempt > 0:
-            logger.info(f"[{test_name}] Retry {attempt}/{max_retries} after cold-start error...")
+            logger.info(
+                f"[{test_name}] Retry {attempt}/{max_retries} after cold-start error..."
+            )
             time.sleep(retry_delay_sec)
 
         try:
@@ -318,7 +333,9 @@ def validate_sandbox_lifecycle(
 
             # Check if this is a cold-start error that might resolve with retry
             if attempt < max_retries and _is_cold_start_error(last_error):
-                logger.warning(f"[{test_name}] Cold-start error (attempt {attempt + 1}): {last_error}")
+                logger.warning(
+                    f"[{test_name}] Cold-start error (attempt {attempt + 1}): {last_error}"
+                )
                 # Continue to retry
             else:
                 # Either no retries left or not a cold-start error
@@ -337,7 +354,9 @@ def validate_sandbox_lifecycle(
                     instance.terminate()
                     logger.info(f"[{test_name}] Sandbox terminated")
                 except Exception as cleanup_error:
-                    logger.warning(f"[{test_name}] Failed to terminate sandbox: {cleanup_error}")
+                    logger.warning(
+                        f"[{test_name}] Failed to terminate sandbox: {cleanup_error}"
+                    )
 
     # Should not reach here, but handle edge case
     duration = time.time() - start_time
@@ -377,7 +396,9 @@ def validate_sandbox_isolation(
         instance2 = None
 
         if attempt > 0:
-            logger.info(f"[{test_name}] Retry {attempt}/{max_retries} after cold-start error...")
+            logger.info(
+                f"[{test_name}] Retry {attempt}/{max_retries} after cold-start error..."
+            )
             time.sleep(retry_delay_sec)
 
         try:
@@ -415,7 +436,9 @@ def validate_sandbox_isolation(
 
             async def read_file():
                 process = await instance2.aio.process.exec(
-                    "bash", "-c", "cat /tmp/secret.txt 2>/dev/null || echo 'FILE_NOT_FOUND'"
+                    "bash",
+                    "-c",
+                    "cat /tmp/secret.txt 2>/dev/null || echo 'FILE_NOT_FOUND'",
                 )
                 await process.wait()
                 stdout = process._sync.stdout.read()
@@ -425,7 +448,9 @@ def validate_sandbox_isolation(
 
             # Verify isolation
             if secret_value in stdout:
-                raise RuntimeError("Sandbox isolation failed: secret visible across sandboxes")
+                raise RuntimeError(
+                    "Sandbox isolation failed: secret visible across sandboxes"
+                )
 
             duration = time.time() - start_time
             return ValidationResult(
@@ -447,7 +472,9 @@ def validate_sandbox_isolation(
 
             # Check if this is a cold-start error that might resolve with retry
             if attempt < max_retries and _is_cold_start_error(last_error):
-                logger.warning(f"[{test_name}] Cold-start error (attempt {attempt + 1}): {last_error}")
+                logger.warning(
+                    f"[{test_name}] Cold-start error (attempt {attempt + 1}): {last_error}"
+                )
                 # Continue to retry
             else:
                 duration = time.time() - start_time
@@ -466,7 +493,9 @@ def validate_sandbox_isolation(
                         instance.terminate()
                         logger.info(f"[{test_name}] Sandbox {idx} terminated")
                     except Exception as cleanup_error:
-                        logger.warning(f"[{test_name}] Failed to terminate sandbox {idx}: {cleanup_error}")
+                        logger.warning(
+                            f"[{test_name}] Failed to terminate sandbox {idx}: {cleanup_error}"
+                        )
 
     # Should not reach here, but handle edge case
     duration = time.time() - start_time
@@ -498,7 +527,9 @@ def wait_for_grpc_ready(
     global _cached_token
 
     for attempt in range(1, max_attempts + 1):
-        logger.info(f"Checking gRPC endpoint readiness (attempt {attempt}/{max_attempts})...")
+        logger.info(
+            f"Checking gRPC endpoint readiness (attempt {attempt}/{max_attempts})..."
+        )
 
         # If we have a cached token from bootstrap (via port-forward), verify
         # connectivity to the external endpoint using that token
@@ -549,9 +580,9 @@ def _verify_grpc_connectivity(gateway_host: str, gateway_port: int, token: str) 
         channel = grpc.insecure_channel(
             f"{gateway_host}:{gateway_port}",
             options=[
-                ('grpc.connect_timeout_ms', 10000),
-                ('grpc.keepalive_time_ms', 30000),
-            ]
+                ("grpc.connect_timeout_ms", 10000),
+                ("grpc.keepalive_time_ms", 30000),
+            ],
         )
         stub = GatewayServiceStub(channel)
 
@@ -565,7 +596,9 @@ def _verify_grpc_connectivity(gateway_host: str, gateway_port: int, token: str) 
             logger.info(f"Connectivity verified (workspace: {response.workspace_id})")
         else:
             # Error response still proves connectivity (gateway responded)
-            logger.info(f"Connectivity verified (gateway responded: {response.error_msg})")
+            logger.info(
+                f"Connectivity verified (gateway responded: {response.error_msg})"
+            )
         return True
 
     except grpc.RpcError as e:
@@ -582,7 +615,9 @@ def _verify_grpc_connectivity(gateway_host: str, gateway_port: int, token: str) 
                 pass
 
 
-def _run_warmup_sandbox(gateway_url: str, gateway_port: int = 443, max_warmup_attempts: int = 3) -> bool:
+def _run_warmup_sandbox(
+    gateway_url: str, gateway_port: int = 443, max_warmup_attempts: int = 3
+) -> bool:
     """Run a warm-up sandbox to prime image cache before validation tests.
 
     On a cold Beta9 cluster, the first sandbox creation triggers an image build
@@ -612,12 +647,16 @@ def _run_warmup_sandbox(gateway_url: str, gateway_port: int = 443, max_warmup_at
         )
 
         if result.passed:
-            logger.info(f"Warm-up succeeded on attempt {attempt} ({result.duration_sec:.1f}s)")
+            logger.info(
+                f"Warm-up succeeded on attempt {attempt} ({result.duration_sec:.1f}s)"
+            )
             return True
 
         # Check if this looks like a cold-start error we might recover from
         if result.error and _is_cold_start_error(result.error):
-            logger.warning(f"Warm-up attempt {attempt} failed with cold-start error: {result.error}")
+            logger.warning(
+                f"Warm-up attempt {attempt} failed with cold-start error: {result.error}"
+            )
             if attempt < max_warmup_attempts:
                 # Wait longer between warm-up attempts to let image build complete
                 wait_time = 15 * attempt  # Progressive backoff: 15s, 30s, 45s
@@ -667,36 +706,47 @@ def run_validation_suite(
 
     # Extract hostname for gRPC connection
     parsed = urlparse(gateway_url if "://" in gateway_url else f"http://{gateway_url}")
-    gateway_host = parsed.hostname or gateway_url.replace("https://", "").replace("http://", "").split(":")[0]
+    gateway_host = (
+        parsed.hostname
+        or gateway_url.replace("https://", "").replace("http://", "").split(":")[0]
+    )
 
     # Wait for gRPC endpoint to be ready (important for fresh LoadBalancer)
     if wait_for_ready:
         if not wait_for_grpc_ready(gateway_host, gateway_port):
             # Add a failed result for connectivity
-            report.add_result(ValidationResult(
-                test_name="grpc_connectivity",
-                passed=False,
-                duration_sec=0,
-                error="gRPC endpoint not reachable after retries",
-            ))
+            report.add_result(
+                ValidationResult(
+                    test_name="grpc_connectivity",
+                    passed=False,
+                    duration_sec=0,
+                    error="gRPC endpoint not reachable after retries",
+                )
+            )
             return report
 
     # Run warm-up phase to prime image cache on cold clusters
     if warmup_cluster:
         warmup_start = time.time()
-        warmup_success = _run_warmup_sandbox(gateway_url, gateway_port, max_warmup_attempts)
+        warmup_success = _run_warmup_sandbox(
+            gateway_url, gateway_port, max_warmup_attempts
+        )
         warmup_duration = time.time() - warmup_start
 
         # Record warm-up result (informational - doesn't fail the suite)
-        report.add_result(ValidationResult(
-            test_name="cluster_warmup",
-            passed=warmup_success,
-            duration_sec=warmup_duration,
-            error=None if warmup_success else "Warm-up phase did not fully succeed",
-        ))
+        report.add_result(
+            ValidationResult(
+                test_name="cluster_warmup",
+                passed=warmup_success,
+                duration_sec=warmup_duration,
+                error=None if warmup_success else "Warm-up phase did not fully succeed",
+            )
+        )
 
         if not warmup_success:
-            logger.warning("Warm-up incomplete - subsequent tests may have cold-start issues")
+            logger.warning(
+                "Warm-up incomplete - subsequent tests may have cold-start issues"
+            )
             # Continue anyway - the actual tests will reveal if there's a real problem
 
     # Run lifecycle tests (with retry support for any remaining cold-start issues)

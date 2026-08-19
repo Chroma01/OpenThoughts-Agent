@@ -20,14 +20,13 @@ def main():
         model="gpt-4o-mini",
         batch_size=10,
         max_requests_per_minute=100,
-        max_trials=5
+        max_trials=5,
     )
 
     print(f"\nGenerated {len(augmented_instructions)} augmented instructions")
 
     dataset_dir = generate_tasks_from_questions(
-        augmented_instructions,
-        dataset_prefix="taskmaster2-hints-test"
+        augmented_instructions, dataset_prefix="taskmaster2-hints-test"
     )
     print(f"Test dataset generated in: {dataset_dir}")
 

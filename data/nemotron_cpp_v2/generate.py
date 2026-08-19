@@ -15,6 +15,7 @@ Usage:
       [--limit N] [--workers 8] [--docker-image nemo-cpp-gtest:v2] \\
       [--target-repo laion/exp_rpt_nemotron-cpp-v2] [--no-upload]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -64,7 +65,9 @@ def extract_task(blob: bytes) -> tuple[str, str, str]:
 # --------------------------------------------------------------------------
 # local Docker validation (the oracle gate / keep-filter)
 # --------------------------------------------------------------------------
-def _docker_reward(image: str, new_test: str, hdr: str, header_content: str | None) -> int:
+def _docker_reward(
+    image: str, new_test: str, hdr: str, header_content: str | None
+) -> int:
     """Mirror tests/test.sh exactly. Return reward (0/1)."""
     with tempfile.TemporaryDirectory() as d:
         dd = Path(d)
@@ -84,8 +87,20 @@ def _docker_reward(image: str, new_test: str, hdr: str, header_content: str | No
         )
         try:
             r = subprocess.run(
-                ["docker", "run", "--rm", "-v", f"{dd}:/work", image, "bash", "-c", cmd],
-                capture_output=True, text=True, timeout=240,
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{dd}:/work",
+                    image,
+                    "bash",
+                    "-c",
+                    cmd,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=240,
             )
         except subprocess.TimeoutExpired:
             return 0
@@ -106,7 +121,9 @@ def validate_task(image: str, art: dict) -> tuple[bool, str]:
 # --------------------------------------------------------------------------
 # task-dir assembly
 # --------------------------------------------------------------------------
-def write_task_dir(out_root: Path, task_id: str, instr: str, meta_json: str, art: dict) -> None:
+def write_task_dir(
+    out_root: Path, task_id: str, instr: str, meta_json: str, art: dict
+) -> None:
     d = out_root / task_id
     (d / "environment").mkdir(parents=True, exist_ok=True)
     (d / "tests").mkdir(parents=True, exist_ok=True)
@@ -122,8 +139,13 @@ def write_task_dir(out_root: Path, task_id: str, instr: str, meta_json: str, art
         meta = json.loads(meta_json)
     except Exception:
         meta = {}
-    meta.update({"dataset_version": "v2", "header": art["hdr"],
-                 "verifier": "agent-linked-gtest"})
+    meta.update(
+        {
+            "dataset_version": "v2",
+            "header": art["hdr"],
+            "verifier": "agent-linked-gtest",
+        }
+    )
     (d / "metadata.json").write_text(json.dumps(meta, indent=2))
 
     (d / "tests" / "test_solution.cpp").write_text(art["new_test"])
@@ -147,8 +169,9 @@ def main() -> None:
     ap.add_argument("--docker-image", default="nemo-cpp-gtest:v2")
     ap.add_argument("--target-repo", default="laion/exp_rpt_nemotron-cpp-v2")
     ap.add_argument("--no-upload", action="store_true")
-    ap.add_argument("--report", type=Path, default=None,
-                    help="write a JSON validation report here")
+    ap.add_argument(
+        "--report", type=Path, default=None, help="write a JSON validation report here"
+    )
     args = ap.parse_args()
 
     df = load_source()
@@ -167,16 +190,19 @@ def main() -> None:
             skip_reasons[key] = skip_reasons.get(key, 0) + 1
             continue
         jobs.append((f"{PREFIX}-{i:06d}", instr, meta, art))
-    print(f"transformed (structurally usable): {len(jobs)}  "
-          f"skipped: {dict(skip_reasons)}")
+    print(
+        f"transformed (structurally usable): {len(jobs)}  skipped: {dict(skip_reasons)}"
+    )
 
     # validate in parallel under Docker (the oracle gate)
     kept = []
     fail_reasons: dict[str, int] = {}
     done = 0
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = {ex.submit(validate_task, args.docker_image, art): (tid, instr, meta, art)
-                for (tid, instr, meta, art) in jobs}
+        futs = {
+            ex.submit(validate_task, args.docker_image, art): (tid, instr, meta, art)
+            for (tid, instr, meta, art) in jobs
+        }
         for fut in as_completed(futs):
             tid, instr, meta, art = futs[fut]
             ok, why = fut.result()
@@ -188,8 +214,10 @@ def main() -> None:
             if done % 100 == 0:
                 print(f"  validated {done}/{len(jobs)}  kept={len(kept)}")
 
-    print(f"\nKEPT (gold->1 AND empty->0): {len(kept)}/{len(jobs)}  "
-          f"fail_reasons={dict(fail_reasons)}")
+    print(
+        f"\nKEPT (gold->1 AND empty->0): {len(kept)}/{len(jobs)}  "
+        f"fail_reasons={dict(fail_reasons)}"
+    )
 
     # assemble kept task dirs
     for tid, instr, meta, art in kept:
@@ -197,9 +225,12 @@ def main() -> None:
     print(f"wrote {len(kept)} task dirs to {args.out_dir}")
 
     report = {
-        "source_repo": SRC_REPO, "processed": n,
-        "transformed": len(jobs), "skip_reasons": skip_reasons,
-        "kept": len(kept), "fail_reasons": fail_reasons,
+        "source_repo": SRC_REPO,
+        "processed": n,
+        "transformed": len(jobs),
+        "skip_reasons": skip_reasons,
+        "kept": len(kept),
+        "fail_reasons": fail_reasons,
         "target_repo": args.target_repo,
     }
     if args.report:
@@ -209,15 +240,19 @@ def main() -> None:
     if not args.no_upload and kept:
         from scripts.harbor import tasks_parquet_converter as tpc
         from huggingface_hub import HfApi
+
         tasks = tpc.find_tasks(args.out_dir, recursive=True)
         pq = args.out_dir.parent / "nemotron_cpp_v2.parquet"
         tpc.to_parquet(args.out_dir, pq, tasks, compression="gz")
-        print(f"parquet: {pq} ({pq.stat().st_size/1e6:.1f} MB, {len(tasks)} tasks)")
+        print(f"parquet: {pq} ({pq.stat().st_size / 1e6:.1f} MB, {len(tasks)} tasks)")
         api = HfApi()
         api.create_repo(args.target_repo, repo_type="dataset", exist_ok=True)
-        api.upload_file(path_or_fileobj=str(pq),
-                        path_in_repo="tasks.parquet",
-                        repo_id=args.target_repo, repo_type="dataset")
+        api.upload_file(
+            path_or_fileobj=str(pq),
+            path_in_repo="tasks.parquet",
+            repo_id=args.target_repo,
+            repo_type="dataset",
+        )
         print(f"uploaded -> https://huggingface.co/datasets/{args.target_repo}")
 
     print("\nDONE.", json.dumps(report, indent=2))

@@ -23,9 +23,15 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Annotate HF dataset rows with failure-mode analyses")
-    parser.add_argument("repo_id", help="HF dataset repo id (e.g. penfever/DCAgent_...)")
-    parser.add_argument("--split", default="train", help="Dataset split to load/push (default: train)")
+    parser = argparse.ArgumentParser(
+        description="Annotate HF dataset rows with failure-mode analyses"
+    )
+    parser.add_argument(
+        "repo_id", help="HF dataset repo id (e.g. penfever/DCAgent_...)"
+    )
+    parser.add_argument(
+        "--split", default="train", help="Dataset split to load/push (default: train)"
+    )
     parser.add_argument(
         "--output-column",
         default="failure_mode_analysis",
@@ -207,7 +213,9 @@ def truncate_text(text: str, limit: int | None) -> str:
 
 def main() -> None:
     args = parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
 
     ds = load_dataset(args.repo_id, split=args.split)
     df = ds.to_pandas()
@@ -216,11 +224,17 @@ def main() -> None:
 
     # Prep contexts
     contexts: list[RowContext] = []
-    conv_limit = args.conversation_char_limit if args.conversation_char_limit > 0 else None
+    conv_limit = (
+        args.conversation_char_limit if args.conversation_char_limit > 0 else None
+    )
     verifier_limit = conv_limit
 
     for idx, row in df.iterrows():
-        if args.resume and isinstance(row.get(args.output_column), str) and row[args.output_column].strip():
+        if (
+            args.resume
+            and isinstance(row.get(args.output_column), str)
+            and row[args.output_column].strip()
+        ):
             continue
         conv_data = row.get("conversations")
         if isinstance(conv_data, list):
@@ -286,12 +300,20 @@ def main() -> None:
     updated = Dataset.from_pandas(df, preserve_index=False)
 
     if args.push:
-        hf_token = args.hf_token or os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN")
+        hf_token = (
+            args.hf_token
+            or os.getenv("HF_TOKEN")
+            or os.getenv("HUGGINGFACEHUB_API_TOKEN")
+        )
         if not hf_token:
-            raise RuntimeError("HF token required to push (set HF_TOKEN env or --hf-token)")
+            raise RuntimeError(
+                "HF token required to push (set HF_TOKEN env or --hf-token)"
+            )
         api = HfApi(token=hf_token)
         logger.info("Pushing updated dataset to %s", args.repo_id)
-        updated.push_to_hub(args.repo_id, token=hf_token, commit_message=args.commit_message)
+        updated.push_to_hub(
+            args.repo_id, token=hf_token, commit_message=args.commit_message
+        )
         try:
             api.update_repo_settings(
                 repo_id=args.repo_id,

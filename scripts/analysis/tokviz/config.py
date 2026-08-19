@@ -28,6 +28,7 @@ MAX_NEW_TOKENS = int(os.environ.get("TOKVIZ_MAX_NEW_TOKENS", "200"))
 MAX_NEW_TOKENS_INSTRUCT = int(os.environ.get("TOKVIZ_MAX_NEW_TOKENS_INSTRUCT", "2048"))
 DO_SAMPLE = False  # deterministic greedy decoding for reproducible HTML
 
+
 # Torch device preference: MPS on Apple Silicon, else CPU.
 def pick_device() -> str:
     try:
