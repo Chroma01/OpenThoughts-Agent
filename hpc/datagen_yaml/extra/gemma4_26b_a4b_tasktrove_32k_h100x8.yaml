@@ -23,8 +23,6 @@ vllm_server:
   tool_call_parser: hermes
   reasoning_parser: gemma4
   extra_args:
-  - --chat-template
-  - ${DCFT}/eval/configs/gemma4_chat_template.jinja
   - --dtype
   - bfloat16
   - --block-size
